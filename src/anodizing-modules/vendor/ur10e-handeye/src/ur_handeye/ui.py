@@ -91,6 +91,13 @@ def build_command(action, settings, *, calibration=None, verification=None):
             raise ValueError('Basler capture requires measured intrinsics for the mounted lens')
         if settings["serial"].strip():
             common += ["--serial", settings["serial"].strip()]
+        if provider == 'basler':
+            exposure = settings.get('camera_exposure_us')
+            gain = settings.get('camera_gain_db')
+            if exposure is not None:
+                common += ['--exposure-time-us', str(exposure)]
+            if gain is not None:
+                common += ['--gain', str(gain)]
         if action in ("replay", "manual") and calibration:
             # A loaded hand-eye result contains the exact model used during solving.
             common += ["--intrinsics", str(calibration)]

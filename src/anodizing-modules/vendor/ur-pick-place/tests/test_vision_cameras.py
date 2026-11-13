@@ -30,6 +30,13 @@ class BaslerCalibrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'intrinsics from calibration'):
             Camera(provider='basler', intrinsics='camera')
 
+    def test_basler_gain_is_limited_to_sdk_range(self):
+        self.assertEqual(Camera(provider='basler', gain_db=12.5).gain_db, 12.5)
+        with self.assertRaisesRegex(ValueError, 'gain_db'):
+            Camera(provider='basler', gain_db=49)
+        with self.assertRaisesRegex(ValueError, 'Basler only'):
+            Camera(provider='realsense', gain_db=1)
+
     @unittest.skipUnless(importlib.util.find_spec('pypylon'), 'pypylon optional extra not installed')
     def test_software_trigger_and_cleanup_with_official_emulator(self):
         code = '''
@@ -55,6 +62,12 @@ for _ in range(2):
     finally:
         camera.close()
 '''
-        result = subprocess.run([sys.executable, '-c', code], env=dict(os.environ, PYLON_CAMEMU='1'),
-            cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, timeout=20)
+        root = Path(__file__).resolve().parents[1]
+        vendor = Path(__file__).resolve().parents[2]
+        python_path = os.pathsep.join([
+            str(root / 'src'), str(vendor / 'charuco-realsense' / 'src'),
+            str(vendor / 'charuco-generator' / 'src')])
+        result = subprocess.run([sys.executable, '-c', code],
+            env=dict(os.environ, PYLON_CAMEMU='1', PYTHONPATH=python_path),
+            cwd=root, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

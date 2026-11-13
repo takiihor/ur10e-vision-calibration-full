@@ -9,10 +9,10 @@ The IPC owns the camera SDK and capture process. The laptop opens the standalone
 - Calibration has an explicit RealSense/Basler selector. RealSense remains the default.
 - Basler preview and capture require an explicit camera serial and measured lens intrinsics before hardware access.
 - Capture uses the existing Basler software-trigger adapter. The shared adapter now resides in `charuco_realsense.basler`. The previous pick/place import preserves its `VisionError` contract.
-- Capture records provider, serial, image profile, requested FPS, FPS readback and exposure readback. Frames contain BGR pixels converted from native Mono8, frame numbers and host monotonic timestamps. Host timestamps do not establish robot/camera synchronization accuracy.
+- Capture records provider, serial, image profile, requested FPS, FPS readback, exposure readback and gain readback. Frames contain BGR pixels converted from native Mono8, frame numbers and host monotonic timestamps. Host timestamps do not establish robot/camera synchronization accuracy.
 - Teaching retains the provider from the calibration handoff. Teaching and manual Pick/place retain the recorded profile and exposure. A recorded provider mismatch stops setup.
 
-The draft full-frame profile is **2448 × 2048, 20 FPS, Mono8, 5000 µs exposure**. The CLI accepts `--exposure-time-us` for adjustment. The selected intrinsic file supplies image dimensions. Capture resets ROI offsets, binning and decimation. The adapter checks image size readback and frame dimensions. FPS readback does not guarantee delivered FPS.
+The draft full-frame profile is **2448 × 2048, 20 FPS, Mono8, 5000 µs exposure, 0 dB gain**. The calibration page exposes **Exposure (µs)** and **Gain (dB)** when Basler is selected. **Preview camera (no pose)** uses these values and works without an intrinsics file; it only checks image quality and marker visibility. The CLI accepts `--exposure-time-us` and `--gain` for the same values. The selected intrinsic file supplies image dimensions. Capture resets ROI offsets, binning and decimation. The adapter checks image size readback and frame dimensions. FPS readback does not guarantee delivered FPS. Exposure and gain readback are recorded in the camera metadata and reused by Teaching and Pick/place through the saved calibration.
 
 ## Required first physical calibration
 
@@ -37,7 +37,7 @@ Example native camera-only check, with paths and serial replaced by reviewed loc
 ur-handeye check --camera-provider basler --serial ACTUAL_SERIAL \
   --intrinsics /ipc/data/calibrations/basler/lens-intrinsics.json \
   --manifest /ipc/data/boards/calibration_stage2/board_manifest.json \
-  --board calibration_stage2 --fps 20 --exposure-time-us 5000
+  --board calibration_stage2 --fps 20 --exposure-time-us 5000 --gain 0
 ```
 
 The command name `check` permits camera-only operation when `--robot-ip` is omitted. See the package CLI help for current switches. The browser service still needs its camera opt-in. Manual robot capture still needs its separate manual opt-in.

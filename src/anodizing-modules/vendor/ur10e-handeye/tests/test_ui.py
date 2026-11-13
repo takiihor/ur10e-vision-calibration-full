@@ -91,6 +91,18 @@ def test_ui_intrinsics_apply_to_check_capture_and_offline_solving(settings, tmp_
     assert "--robot-ip" not in command
 
 
+def test_basler_exposure_and_gain_are_forwarded(settings, tmp_path):
+    from ur_handeye.vision import SIMULATED_INTRINSICS
+    path = tmp_path / "rgb.json"
+    path.write_text(json.dumps(SIMULATED_INTRINSICS))
+    settings.update(camera_provider="basler", intrinsics=str(path),
+                    camera_exposure_us=50000, camera_gain_db=12.5, camera_fps=20)
+    command = build_command("collect", settings)
+    assert command[command.index("--exposure-time-us") + 1] == "50000"
+    assert command[command.index("--gain") + 1] == "12.5"
+    assert command[command.index("--fps") + 1] == "20"
+
+
 def test_ui_resolving_creates_a_new_result_filename(settings):
     from pathlib import Path
     folder = Path(settings["session"])

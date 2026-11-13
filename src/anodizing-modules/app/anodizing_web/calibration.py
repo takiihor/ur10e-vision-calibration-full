@@ -35,16 +35,24 @@ def run(owner, root, body, job_id, allow_camera, allow_manual=False):
                 'simulated': bool(result.get('simulation_truth') or camera.get('simulated')
                                   or robot.get('host') == 'simulated'),
                 'camera_serial': serial if isinstance(serial, str) else None}
-    if action == 'camera':
+    if action in ('camera', 'camera-preview'):
         if not allow_camera:
             raise PermissionError('Start the service with --allow-camera to capture a board view.')
-        from .camera import board_preview
+        from .camera import board_preview, camera_preview
         manifest = inside(root, body.get('manifest'))
+        camera_options = {}
+        if body.get('camera_exposure_us') is not None:
+            camera_options['exposure_time_us'] = body['camera_exposure_us']
+        if body.get('camera_gain_db') is not None:
+            camera_options['gain_db'] = body['camera_gain_db']
+        common = dict(enabled=True, camera_provider=body.get('camera_provider', 'realsense'),
+                      camera_fps=body.get('camera_fps'), **camera_options)
+        if action == 'camera-preview':
+            return camera_preview(str(manifest), body.get('board', 'calibration_stage2'),
+                                  body.get('serial', ''), **common)
         return board_preview(str(manifest), body.get('board', 'calibration_stage2'),
-                             body.get('serial', ''), enabled=True,
-                             camera_provider=body.get('camera_provider', 'realsense'),
-                             intrinsics=str(inside(root, body['intrinsics'])) if body.get('intrinsics') else None,
-                             camera_fps=body.get('camera_fps'))
+                             body.get('serial', ''), **common,
+                             intrinsics=str(inside(root, body['intrinsics'])) if body.get('intrinsics') else None)
     if action == 'manual' and not allow_manual:
         raise PermissionError('Start the service with --allow-manual to collect pendant-positioned views.')
     if action not in ('simulate', 'solve', 'intrinsics', 'calibrate', 'verify', 'manual', 'plan', 'collect', 'replay'):
@@ -82,7 +90,9 @@ def run(owner, root, body, job_id, allow_camera, allow_manual=False):
     settings = {'session': str(session), 'manifest': str(manifest),
                 'intrinsics': str(intrinsic) if intrinsic else '', 'calibration_type': 'eye_in_hand',
                 'camera_provider': body.get('camera_provider', 'realsense'),
-                'camera_fps': body.get('camera_fps')}
+                'camera_fps': body.get('camera_fps'),
+                'camera_exposure_us': body.get('camera_exposure_us'),
+                'camera_gain_db': body.get('camera_gain_db')}
     if action in ('manual', 'replay'):
         if action == 'replay' or 'fit_session' in body:
             fitting = session if action == 'replay' else check_tree(root, inside(root, body['fit_session']))

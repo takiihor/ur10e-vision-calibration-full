@@ -66,12 +66,13 @@ class BaslerIndependent(unittest.TestCase):
         from ur_pick_place.vision import teaching
         calibration=SimpleNamespace(require_hardware=lambda:None,tcp_offset=[0]*6,camera_serial='camera-1',intrinsics={'width':2448,'height':2048},sha256='fixture')
         target=SimpleNamespace(kind='aruco')
-        with TemporaryDirectory() as d, mock.patch.object(teaching,'load_handeye',return_value=calibration),mock.patch.object(teaching,'target_from_config',return_value=target),mock.patch.object(teaching,'read_json',return_value={'camera':{'provider':'basler','stream':{'fps':20},'exposure_time_us':5000}}):
+        with TemporaryDirectory() as d, mock.patch.object(teaching,'load_handeye',return_value=calibration),mock.patch.object(teaching,'target_from_config',return_value=target),mock.patch.object(teaching,'read_json',return_value={'camera':{'provider':'basler','stream':{'fps':20},'exposure_time_us':5000,'gain_db':8.0}}):
             settings={'project':d,'calibration':d+'/cal.json','robot_ip':'fake','tcp':[0]*6,
                       'target':{'kind':'aruco','marker_id':7,'dictionary':'DICT_5X5_100','marker_length_mm':30},
                       'motion_model':'planar','approach_mm':100,'camera_provider':'basler'}
             project=teaching.TeachingProject(settings)
             self.assertEqual(project.config.camera.exposure_time_us,5000)
+            self.assertEqual(project.config.camera.gain_db,8.0)
 
     def test_intrinsics_provider_mismatch_rejected_in_both_directions(self):
         from types import SimpleNamespace
@@ -118,7 +119,7 @@ class BaslerIndependent(unittest.TestCase):
         pylon=SimpleNamespace(TlFactory=SimpleNamespace(GetInstance=lambda:factory),InstantCamera=lambda d:cam,GrabStrategy_OneByOne=1,TimeoutHandling_ThrowException=1)
         genicam=SimpleNamespace(LogicalErrorException=LookupError,IsWritable=lambda n:True,IsReadable=lambda n:True)
         module=ModuleType('pypylon');module.pylon=pylon;module.genicam=genicam
-        config=SimpleNamespace(serial='fake-basler',width=4,height=3,fps=20,exposure_time_us=5000)
+        config=SimpleNamespace(serial='fake-basler',width=4,height=3,fps=20,exposure_time_us=5000,gain_db=6.0)
         import builtins
         guarded_import=builtins.__import__
         def fake_import(name,*args,**kwargs):
@@ -130,6 +131,15 @@ class BaslerIndependent(unittest.TestCase):
         self.assertEqual(meta['provider'],'basler');self.assertEqual(meta['device']['serial_number'],'fake-basler')
         self.assertEqual((meta['stream']['width'],meta['stream']['height'],meta['stream']['fps']),(4,3,20))
         self.assertEqual(meta['exposure_time_us'],4998.0);self.assertEqual(meta['stream']['readback_fps'],19.8)
+        self.assertEqual(meta['requested_gain_db'],6.0);self.assertEqual(meta['gain_db'],6.0);self.assertEqual(cam.Gain.Value,6.0)
+
+    def test_basler_rejects_gain_outside_sdk_range_before_opening(self):
+        from types import SimpleNamespace
+        from charuco_realsense.basler import BaslerCamera
+        config=SimpleNamespace(serial='fake-basler',width=4,height=3,fps=20,
+                               exposure_time_us=5000,gain_db=49.0)
+        with self.assertRaisesRegex(RuntimeError,'(?i)gain'):
+            BaslerCamera(config)
 
     def test_cli_valid_basler_intrinsics_selects_own_profile_without_realsense(self):
         from types import SimpleNamespace

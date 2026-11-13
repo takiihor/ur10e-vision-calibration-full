@@ -23,6 +23,11 @@ class BaslerCamera:
         if config.exposure_time_us is not None and (not math.isfinite(config.exposure_time_us)
                                                    or not 0 < config.exposure_time_us <= 1000000):
             raise self.error_type('Basler exposure must be finite and between 0 and 1000000 microseconds')
+        gain_db = getattr(config, 'gain_db', 0.0)
+        if gain_db is None:
+            gain_db = 0.0
+        if type(gain_db) not in (int, float) or not math.isfinite(gain_db) or not 0 <= gain_db <= 48:
+            raise self.error_type('Basler gain must be finite and between 0 and 48 dB')
         if intrinsics is not None:
             opencv_calibration(intrinsics, (config.width, config.height))
             if intrinsics.get("camera_serial") != config.serial:
@@ -61,10 +66,11 @@ class BaslerCamera:
             self.metadata = {'provider': 'basler', 'device': {'serial_number': self.serial},
                              'stream': {'width': config.width, 'height': config.height,
                                         'fps': config.fps, 'format': 'Mono8'},
-                             'exposure_time_us': config.exposure_time_us}
+                             'exposure_time_us': config.exposure_time_us,
+                             'requested_gain_db': float(gain_db)}
             camera.PixelFormat.Value = 'Mono8'
             camera.GainAuto.Value = 'Off'
-            camera.Gain.Value = 0.0
+            camera.Gain.Value = gain_db
             camera.ExposureAuto.Value = 'Off'
             if config.exposure_time_us is not None:
                 camera.ExposureTime.Value = config.exposure_time_us
@@ -73,6 +79,7 @@ class BaslerCamera:
             self.metadata['stream']['readback_fps'] = float(camera.AcquisitionFrameRate.Value)
             self.metadata['requested_exposure_time_us'] = config.exposure_time_us
             self.metadata['exposure_time_us'] = float(camera.ExposureTime.Value)
+            self.metadata['gain_db'] = float(camera.Gain.Value)
             camera.AcquisitionMode.Value = 'Continuous'
             camera.TriggerSelector.Value = 'FrameStart'
             camera.TriggerMode.Value = 'On'

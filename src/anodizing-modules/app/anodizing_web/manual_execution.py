@@ -76,7 +76,8 @@ def load_context(root, body):
     config = VisionConfig(handeye_calibration=settings['calibration'], pick=role_config, place=deepcopy(role_config),
         camera={'provider':provider, 'serial':calibration.camera_serial,
                 'width':calibration.intrinsics['width'], 'height':calibration.intrinsics['height'], 'fps':stream.get('fps',15),
-                'exposure_time_us':camera_record.get('exposure_time_us')},
+                'exposure_time_us':camera_record.get('exposure_time_us'),
+                'gain_db':camera_record.get('gain_db')},
         quality={'min_pixels_per_module':max(3., settings.get('min_pixels_per_module',3.))},
         robot={'active_tcp_offset':settings['tcp']}, base_dir=str(project))
     return SimpleNamespace(settings=settings, config=config, calibration=calibration,

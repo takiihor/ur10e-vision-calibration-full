@@ -48,3 +48,63 @@ class CameraPreviewTest(TestCase):
     def test_serial_required_before_open(self):
         with self.assertRaises(ValueError):
             board_preview('manifest', 'calibration_stage2', '', enabled=True)
+
+    def test_basler_exposure_and_gain_are_forwarded(self):
+        import ur_handeye.cli as cli
+        import ur_handeye.vision as vision
+        camera = mock.Mock(metadata={'provider': 'basler'})
+        observation = mock.Mock(image_bgr=None, pixels=[])
+        observation.usable.return_value = (False, ['no_pose'])
+        observation.to_record.return_value = {}
+        with mock.patch.object(cli, '_intrinsics'), \
+             mock.patch.object(cli, '_camera', return_value=camera) as factory, \
+             mock.patch.object(vision, 'BoardTarget'), \
+             mock.patch.object(vision, 'BoardObserver') as observer:
+            observer.return_value.observe.return_value = observation
+            result = board_preview('manifest', 'tank01', '42007093', enabled=True,
+                                   camera_provider='basler', intrinsics='intrinsics.json',
+                                   exposure_time_us=50000, gain_db=12.5)
+        args = factory.call_args.args[0]
+        self.assertEqual(args.exposure_time_us, 50000)
+        self.assertEqual(args.gain, 12.5)
+        self.assertEqual(result['camera']['provider'], 'basler')
+        camera.close.assert_called_once_with()
+
+    def test_basler_exposure_and_gain_ranges_are_checked(self):
+        for kwargs, message in (({'exposure_time_us': 0}, 'exposure'),
+                                ({'gain_db': 49}, 'gain')):
+            with self.assertRaisesRegex(ValueError, message):
+                board_preview('manifest', 'tank01', '42007093', enabled=True,
+                              camera_provider='basler', intrinsics='intrinsics.json', **kwargs)
+
+    def test_camera_preview_needs_no_intrinsics_and_returns_annotated_image(self):
+        import numpy as np
+        import charuco_realsense.basler as basler_module
+        import charuco_realsense.detect as detect_module
+        import ur_handeye.vision as vision
+        from anodizing_web.camera import camera_preview
+        frame = mock.Mock(bgr=np.zeros((12, 16, 3), dtype=np.uint8), intrinsics=None)
+        camera = mock.Mock(metadata={'provider': 'basler'})
+        camera.read.return_value = frame
+        detection = mock.Mock(
+            marker_ids=(17,),
+            marker_corners=np.array([[[1, 1], [5, 1], [5, 5], [1, 5]]], dtype=np.float32),
+            charuco_ids=(0, 1, 2, 3),
+            charuco_corners=np.array([[[2, 2]], [[6, 2]], [[2, 6]], [[6, 6]]], dtype=np.float32))
+        with mock.patch.object(basler_module, 'BaslerCamera', return_value=camera) as factory, \
+             mock.patch.object(detect_module, 'CharucoDetector') as detector, \
+             mock.patch.object(vision, 'BoardTarget') as target:
+            detector.return_value.detect.return_value = detection
+            target.return_value.describe.return_value = {'name': 'tank01'}
+            target.return_value.board = mock.Mock()
+            target.return_value.border_bits = 1
+            result = camera_preview('manifest', 'tank01', '42007093', enabled=True,
+                                    exposure_time_us=50000, gain_db=10)
+        config = factory.call_args.args[0]
+        self.assertEqual((config.width, config.height, config.exposure_time_us, config.gain_db),
+                         (2448, 2048, 50000, 10))
+        self.assertTrue(result['preview_only'])
+        self.assertEqual(result['charuco_count'], 4)
+        self.assertTrue(result['usable'])
+        self.assertTrue(result['image_jpeg_base64'])
+        camera.close.assert_called_once_with()

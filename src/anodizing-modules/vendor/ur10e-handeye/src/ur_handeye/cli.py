@@ -66,7 +66,8 @@ def _camera(args):
         intrinsics = _intrinsics(args)
         config = SimpleNamespace(serial=args.serial, width=int(intrinsics['width']),
                                  height=int(intrinsics['height']), fps=20 if args.fps is None else args.fps,
-                                 exposure_time_us=getattr(args, 'exposure_time_us', 5000))
+                                 exposure_time_us=getattr(args, 'exposure_time_us', 5000),
+                                 gain_db=getattr(args, 'gain', 0.0))
         return BaslerCamera(config, intrinsics=intrinsics)
     from charuco_realsense.camera import RealsenseCamera, StreamConfig
     camera = RealsenseCamera(args.serial, StreamConfig(1280 if args.width is None else args.width,
@@ -587,6 +588,8 @@ def _camera_options(parser):
     parser.add_argument("--fps", type=int, help="Default: RealSense 30, Basler 20")
     parser.add_argument('--exposure-time-us', type=float, default=5000,
                         help='Basler manual exposure, microseconds (default 5000)')
+    parser.add_argument('--gain', type=float, default=0.0,
+                        help='Basler manual gain, dB (default 0)')
     parser.add_argument("--intrinsics",
                         help="Calibration JSON overriding factory intrinsics (charuco-realsense format)")
     parser.add_argument("--lock-exposure", action="store_true", help="Freeze auto exposure after it settles")

@@ -250,8 +250,8 @@ The calibration must describe this camera's serial, lens intrinsics/distortion,
 taught grasp cannot be reused after the camera swap.
 
 [examples/vision-basler.json](examples/vision-basler.json) illustrates the profile
-and optional manual exposure (`exposure_time_us`). Set exposure for the actual
-lighting; focus and lock the 16 mm lens before calibrating. The adapter uses Mono8,
+and optional manual exposure and gain (`exposure_time_us`, `gain_db`). Set both for
+the actual lighting; focus and lock the lens before calibrating. The adapter uses Mono8,
 software-triggered images and the calibrated lens model; it resets crop offsets,
 binning and decimation to preserve the image geometry. Camera SDK imports are lazy,
 so RealSense operation does not require pypylon.

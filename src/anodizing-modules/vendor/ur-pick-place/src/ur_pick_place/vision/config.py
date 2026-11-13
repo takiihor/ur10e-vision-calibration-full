@@ -43,6 +43,7 @@ class Camera:
     intrinsics: str = 'calibration'
     max_intrinsics_mismatch_px: float = 5.0
     exposure_time_us: float | None = None
+    gain_db: float | None = None
 
     def __post_init__(self):
         if self.provider not in ('realsense', 'basler'):
@@ -53,6 +54,10 @@ class Camera:
             number(self.exposure_time_us, 'camera.exposure_time_us', positive=True, high=1000000)
             if self.provider != 'basler':
                 raise ValueError('camera.exposure_time_us is currently supported for Basler only')
+        if self.gain_db is not None:
+            number(self.gain_db, 'camera.gain_db', low=0, high=48)
+            if self.provider != 'basler':
+                raise ValueError('camera.gain_db is currently supported for Basler only')
         if self.serial is not None and (not isinstance(self.serial, str) or not self.serial.strip()):
             raise ValueError('camera.serial must be a nonempty string or null')
         _integer(self.width, 'camera.width', 64, 8192)
