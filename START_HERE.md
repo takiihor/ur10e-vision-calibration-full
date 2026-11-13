@@ -72,6 +72,18 @@ cd src/anodizing-modules
 ANODIZING_PYTHON=/path/to/python ./tools/test-all.bash
 ```
 
+## Start the UI quickly
+
+From this package's top directory:
+
+```bash
+./start-ui.sh
+```
+
+The first run creates `.venv`, installs the base Python dependencies and copies
+the bundled boards into `.ui-data`. Open `http://127.0.0.1:8870/`. Hardware
+access stays off unless opt-in flags are passed; run `./start-ui.sh --help`.
+
 ## First software check
 
 Match the Python version in `environment/` and use a separate virtual environment.

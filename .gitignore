@@ -2,7 +2,8 @@
 state/ipc-data.tar.gz
 state/data-manifest.json
 
-# Local caches and environments
+# Local UI data and environments
+.ui-data/
 __pycache__/
 *.py[cod]
 .pytest_cache/

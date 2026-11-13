@@ -13,6 +13,17 @@ The source bundle is in [`src/anodizing-modules/`](src/anodizing-modules/).
 Start with [`START_HERE.md`](START_HERE.md), then the module
 [`README.md`](src/anodizing-modules/README.md).
 
+## Start the UI
+
+```bash
+./start-ui.sh
+```
+
+The first run creates `.venv`, installs the Python dependencies and copies the
+bundled boards into `.ui-data`. It then starts the local service and opens
+`http://127.0.0.1:8870/`. Use `./start-ui.sh --help` for ports, data directories
+and hardware opt-in flags. Hardware access is off by default.
+
 ## Verify
 
 ```bash
