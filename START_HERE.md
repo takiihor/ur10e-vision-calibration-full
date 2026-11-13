@@ -20,8 +20,9 @@ The three modules run without the ano app or ROS.
 - `review/`: handoff, review findings, patch, historical software test results
   and two screenshots made with fake devices. `results/final-13115877.txt` is a
   focused 36-test subset, not the full suite.
-- `provenance/`: offline vendor baseline archives, per-file delta mapping and an
-  offline verifier. The bundled vendor trees are not unmodified baselines.
+- `provenance/`: per-file vendor baseline delta mapping and an offline verifier.
+  The baseline archives are not included. The bundled vendor trees are not
+  unmodified baselines.
 - `RELEASE_NOTES.md`: changes, limitations and unreconciled work.
 - `PACKAGE_INFO.json`: exact snapshot identity, counts and capture evidence.
 - `CONTENTS.sha256`: hashes of every other file in the package.

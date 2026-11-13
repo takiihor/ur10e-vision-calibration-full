@@ -7,7 +7,7 @@ and Basler cameras. The package combines:
 - Intel RealSense and Basler camera adapters.
 - An IPC web service for Calibration, Teaching and Pick/place.
 - Checked joint-path and collision-scene integration.
-- Offline tests, vendor provenance and deterministic baseline archives.
+- Offline tests, vendor provenance and recorded baseline deltas.
 
 The source bundle is in [`src/anodizing-modules/`](src/anodizing-modules/).
 Start with [`START_HERE.md`](START_HERE.md), then the module

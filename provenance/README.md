@@ -13,9 +13,10 @@ upstream main branches.
 | `charuco-generator` | `52093f99665e29d479b9a9e2c29b1aac05fee0d5` | local `main` in the clone used for packaging |
 | `charuco-realsense` | `02e7010b7dcc63ed0dbfa5953ffe90a1d98b75fb` | local `master` in the clone used for packaging |
 
-The archives are deterministic trees of those commits. They are proof of the
+The archives were deterministic trees of those commits. They are proof of the
 baseline, not a claim that the public upstream repositories contain these
-commits.
+commits. The `.tar.gz` archives have been removed from this repository; only
+the recorded hashes and per-file deltas remain.
 
 ## The bundle is not the baseline
 
@@ -40,6 +41,10 @@ merged here. Reconciling them requires the owner to identify the intended files.
 See the limitation notes in the release documents.
 
 ## Verify offline
+
+The baseline archives are not included in this repository. To run the verifier,
+restore them under `provenance/` with the names recorded in `BASELINES.json`,
+then run:
 
 ```bash
 python3 provenance/verify.py
