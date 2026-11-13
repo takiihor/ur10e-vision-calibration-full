@@ -84,6 +84,14 @@ The first run creates `.venv`, installs the base Python dependencies and copies
 the bundled boards into `.ui-data`. Open `http://127.0.0.1:8870/`. Hardware
 access stays off unless opt-in flags are passed; run `./start-ui.sh --help`.
 
+Stop it with:
+
+```bash
+./kill.sh
+```
+
+Use `./kill.sh PORT` for another port, or `./kill.sh --all` for all instances.
+
 ## First software check
 
 Match the Python version in `environment/` and use a separate virtual environment.

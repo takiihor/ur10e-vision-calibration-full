@@ -24,6 +24,15 @@ bundled boards into `.ui-data`. It then starts the local service and opens
 `http://127.0.0.1:8870/`. Use `./start-ui.sh --help` for ports, data directories
 and hardware opt-in flags. Hardware access is off by default.
 
+Stop the service with:
+
+```bash
+./kill.sh
+```
+
+Use `./kill.sh PORT` for a non-default port, or `./kill.sh --all` to stop every
+IPC service instance.
+
 ## Verify
 
 ```bash
