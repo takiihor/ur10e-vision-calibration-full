@@ -1,0 +1,45 @@
+test_hardware_imports_and_non_loopback_traffic_are_blocked (test_guard.OfflineGuardTests.test_hardware_imports_and_non_loopback_traffic_are_blocked) ... ok
+test_active_tcp_change_during_vertical_check_refuses_native_dispatch (test_manual_execution.ManualWorkerTests.test_active_tcp_change_during_vertical_check_refuses_native_dispatch) ... ok
+test_cleanup_timeout_retains_owner_while_sdk_worker_alive_and_restart_fence (test_manual_execution.ManualWorkerTests.test_cleanup_timeout_retains_owner_while_sdk_worker_alive_and_restart_fence) ... ok
+test_current_teacher_taught_height_is_visible_but_below_workspace_refuses_without_clamp (test_manual_execution.ManualWorkerTests.test_current_teacher_taught_height_is_visible_but_below_workspace_refuses_without_clamp) ... ok
+test_feedback_change_during_dispatch_evidence_persistence_refuses_moveL (test_manual_execution.ManualWorkerTests.test_feedback_change_during_dispatch_evidence_persistence_refuses_moveL) ... ok
+test_feedback_jitter_uses_one_exact_vertical_start_for_binding_and_command (test_manual_execution.ManualWorkerTests.test_feedback_jitter_uses_one_exact_vertical_start_for_binding_and_command) ... ok
+test_final_cartesian_rebind_refusal_prevents_native_moveL (test_manual_execution.ManualWorkerTests.test_final_cartesian_rebind_refusal_prevents_native_moveL) ... ok
+test_fresh_role_and_quality_gate_precedes_plan_or_any_movement (test_manual_execution.ManualWorkerTests.test_fresh_role_and_quality_gate_precedes_plan_or_any_movement) ... ok
+test_laptop_heartbeat_expiry_holds_at_boundary_without_replay (test_manual_execution.ManualWorkerTests.test_laptop_heartbeat_expiry_holds_at_boundary_without_replay) ... ok
+test_low_level_stop_failure_sets_uncertainty_instead_of_replaying (test_manual_execution.ManualWorkerTests.test_low_level_stop_failure_sets_uncertainty_instead_of_replaying) ... ok
+test_manual_reply_binds_job_phase_and_is_consumed_once (test_manual_execution.ManualWorkerTests.test_manual_reply_binds_job_phase_and_is_consumed_once) ... ok
+test_movement_error_stops_native_motion_before_blocked_interruption_publish (test_manual_execution.ManualWorkerTests.test_movement_error_stops_native_motion_before_blocked_interruption_publish) ... ok
+test_pick_and_place_native_sequences_pause_then_use_two_vertical_moveL_legs (test_manual_execution.ManualWorkerTests.test_pick_and_place_native_sequences_pause_then_use_two_vertical_moveL_legs) ... ok
+test_plan_expiration_and_scene_change_do_not_dispatch (test_manual_execution.ManualWorkerTests.test_plan_expiration_and_scene_change_do_not_dispatch) ... ok
+test_public_descent_rechecks_native_capture_after_bound_plan_pause (test_manual_execution.ManualWorkerTests.test_public_descent_rechecks_native_capture_after_bound_plan_pause) ... ok
+test_public_manual_operation_refuses_missing_or_different_held_envelope (test_manual_execution.ManualWorkerTests.test_public_manual_operation_refuses_missing_or_different_held_envelope) ... ok
+test_public_native_job_admission_exact_retry_and_restart_cannot_replay (test_manual_execution.ManualWorkerTests.test_public_native_job_admission_exact_retry_and_restart_cannot_replay) ... ok
+test_public_teacher_descent_requires_exact_completed_alignment_and_approval (test_manual_execution.ManualWorkerTests.test_public_teacher_descent_requires_exact_completed_alignment_and_approval) ... ok
+test_saved_pick_outside_workspace_is_visible_and_refused_before_prompt (test_manual_execution.ManualWorkerTests.test_saved_pick_outside_workspace_is_visible_and_refused_before_prompt) ... ok
+test_stop_at_manual_boundary_makes_item_unknown_and_rejects_late_reply (test_manual_execution.ManualWorkerTests.test_stop_at_manual_boundary_makes_item_unknown_and_rejects_late_reply) ... ok
+test_stop_during_native_vertical_movement_uses_stopL_and_never_withdraws (test_manual_execution.ManualWorkerTests.test_stop_during_native_vertical_movement_uses_stopL_and_never_withdraws) ... ok
+test_stop_during_vertical_check_revokes_native_dispatch (test_manual_execution.ManualWorkerTests.test_stop_during_vertical_check_revokes_native_dispatch) ... ok
+test_stop_latches_before_blocked_owner_persistence (test_manual_execution.ManualWorkerTests.test_stop_latches_before_blocked_owner_persistence) ... ok
+test_stop_reaches_native_while_alignment_waits_for_persisting_owner (test_manual_execution.ManualWorkerTests.test_stop_reaches_native_while_alignment_waits_for_persisting_owner) ... ok
+test_stop_reaches_native_while_worker_guard_waits_for_persisting_owner (test_manual_execution.ManualWorkerTests.test_stop_reaches_native_while_worker_guard_waits_for_persisting_owner) ... ok
+test_teacher_descent_cannot_correct_shifted_alignment_with_a_joint_move (test_manual_execution.ManualWorkerTests.test_teacher_descent_cannot_correct_shifted_alignment_with_a_joint_move) ... ok
+test_teacher_descent_is_separate_plan_review_and_moveL_only_without_changing_planar_mode (test_manual_execution.ManualWorkerTests.test_teacher_descent_is_separate_plan_review_and_moveL_only_without_changing_planar_mode) ... ok
+test_teacher_descent_rechecks_current_alignment_after_manual_plan_pause (test_manual_execution.ManualWorkerTests.test_teacher_descent_rechecks_current_alignment_after_manual_plan_pause) ... ok
+test_teaching_or_grasp_change_while_manual_pause_cancels_without_movement (test_manual_execution.ManualWorkerTests.test_teaching_or_grasp_change_while_manual_pause_cancels_without_movement) ... ok
+test_unresolved_vertical_checker_cannot_fall_back_to_joint_descent (test_manual_execution.ManualWorkerTests.test_unresolved_vertical_checker_cannot_fall_back_to_joint_descent) ... ok
+test_step_requires_exact_plan_approval_before_one_dispatch (test_robot_control_independent.RobotControlIndependent.test_step_requires_exact_plan_approval_before_one_dispatch) ... FAIL
+
+======================================================================
+FAIL: test_step_requires_exact_plan_approval_before_one_dispatch (test_robot_control_independent.RobotControlIndependent.test_step_requires_exact_plan_approval_before_one_dispatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/nep/anodizing_line/UR10e/interface_pc/review_work/robot_control_20261110/test_robot_control_independent.py", line 20, in test_step_requires_exact_plan_approval_before_one_dispatch
+    self.assertEqual(status,202,raw)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+AssertionError: 404 != 202 : b'{"error": "Not found."}'
+
+----------------------------------------------------------------------
+Ran 31 tests in 12.126s
+
+FAILED (failures=1)

@@ -1,0 +1,79 @@
+Vendored source provenance
+==========================
+
+Pinned baseline commits used to prepare this bundle:
+
+ur10e-handeye     2f0e69c776957772548506cc9532537792a03dca
+ur-pick-place     e998dffc074c97bc3bd8f557564d0d1524de031f
+charuco-generator 52093f99665e29d479b9a9e2c29b1aac05fee0d5
+charuco-realsense 02e7010b7dcc63ed0dbfa5953ffe90a1d98b75fb
+
+Offline baseline archives, the per-file mapping and a verification script are
+in the package-level provenance/ directory. The archives are deterministic trees
+of the commits above. The two hand-eye/pick-place commits are not both reachable
+from the public upstream main branches; the local clones and fork branches used
+for packaging are recorded in provenance/README.md.
+
+The bundled vendor trees are NOT identical to those baselines. Every added,
+changed and deleted vendor file is listed in provenance/BASELINES.json. The main
+areas are:
+
+- ur10e-handeye: collision, Cartesian and preview work; Basler routing; generated
+  preview build assets; collision tests. Version 0.1.5+anodizing.1.
+- ur-pick-place: scheduling module and validation/teaching changes. Version
+  0.3.1+anodizing.1.
+- charuco-realsense: Basler camera adapter and package metadata. Version
+  0.1.0+anodizing.1.
+- charuco-generator: package-relative default board configuration so the CLI and
+  tests work outside the vendor checkout, and a launcher environment under
+  operator state with `CHARUCO_PYTHON`/`CHARUCO_OFFLINE` support instead of an
+  in-tree `.venv`. Version 1.1.0+anodizing.1.
+
+The previous revision note claimed readonly_manual_capture.patch was the only
+package change. That was false. The patch is one part of the hand-eye delta; it
+is not a complete description of the bundled tree.
+
+Anodizing web adapter changes
+=============================
+
+- Site identity is no longer built in. The service ships no robot address,
+  collision-scene UUID, joint limit, payload hash, camera serial or teaching
+  project. Optional operator values may be supplied in a data-directory
+  site-profile.json; see README.md. Teaching defaults are discovered from boards,
+  saved projects and calibration files under the allowed data directory.
+- Manual worker and Teacher shutdown joins are bounded. If a native worker does
+  not stop, the job is fenced as execution-uncertain instead of blocking the
+  service forever.
+- The HTTP service returns 403 for permission failures, keeps the existing CSP,
+  and serves static assets from an in-memory cache with ETag/Last-Modified
+  revalidation. Changed robot models are detected by metadata instead of
+  re-reading the model on every preview request.
+- The app has its own dependency manifest and test runner. All four vendor test
+  suites and the app suite are run by tools/test-all.bash.
+
+Test-suite corrections
+======================
+
+- Updated stale camera-adapter kwargs, repeat-test mock cleanup, cv2/sys.modules
+  test isolation, robot-control subprocess import path, and the pick-place
+  browser full-pose move counts.
+- Replaced the missing external vertical-checker fixture with the bundled
+  nominal collision example; the external factory evidence is not part of this
+  bundle.
+- Fixed the hand-eye CLI so eye-to-hand options and replay metadata are rejected
+  before collision readiness or hardware access.
+- Made charuco-generator's default config resolve relative to the package when
+  the current directory has no config/boards.json.
+
+Not reconciled
+==============
+
+Local development clones contained uncommitted work that could not be mapped
+reliably to this snapshot: Basler follow-up changes in charuco-realsense,
+manual/poses/UI edits in ur-pick-place, collision work differences in
+ur10e-handeye, and an A3/40 mm calibration-board change in charuco-generator.
+Those edits are not merged here. Reconciling them requires the owner to identify
+the intended files; do not assume this bundle contains them.
+
+No physical robot, camera, MCU or IPC service was exercised while preparing this
+revision. Passing offline tests are not a hardware or safety qualification.

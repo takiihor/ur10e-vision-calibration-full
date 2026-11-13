@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.jobs/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+sessions/
+output/
+state/
+site-profile.json

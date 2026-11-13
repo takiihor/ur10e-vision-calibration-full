@@ -1,0 +1,23 @@
+af279691a2b58750c1a8f3d3b4c25b3f4726455cc2da6a996f0f7245f3fc741b  /home/nep/anodizing_line/UR10e/interface_pc/review_work/robot_control_20261110/work/anodizing-modules/app/anodizing_web/web/robot-control.js
+test_hardware_imports_and_non_loopback_traffic_are_blocked (test_guard.OfflineGuardTests.test_hardware_imports_and_non_loopback_traffic_are_blocked) ... ok
+test_settings_edit_immediately_disables_existing_confirmation (test_robot_browser_independent.RobotBrowser.test_settings_edit_immediately_disables_existing_confirmation) ... FAIL
+
+======================================================================
+FAIL: test_settings_edit_immediately_disables_existing_confirmation (test_robot_browser_independent.RobotBrowser.test_settings_edit_immediately_disables_existing_confirmation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/nep/anodizing_line/UR10e/interface_pc/review_work/robot_control_20261110/test_robot_browser_independent.py", line 95, in test_settings_edit_immediately_disables_existing_confirmation
+    self.assertEqual(state,{'checked':False,'disabled':True})
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'checked': False, 'disabled': False} != {'checked': False, 'disabled': True}
+- {'checked': False, 'disabled': False}
+?                                ^^^^
+
++ {'checked': False, 'disabled': True}
+?                                ^^^
+
+
+----------------------------------------------------------------------
+Ran 2 tests in 2.989s
+
+FAILED (failures=1)

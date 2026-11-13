@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="module-token" content="__TOKEN__"><link rel="stylesheet" href="/teacher-style.css"><link rel="stylesheet" href="/style.css"><title>Calibration</title></head>
+<body data-module="calibration">
+<header>
+<div class="brand">
+<div><h1>Calibration</h1><p>Interface PC service</p></div>
+</div>
+<nav><a href="/calibration">Calibration</a> · <a href="/teaching">Teaching</a> · <a href="/pick-place">Pick/place</a></nav></header>
+<main><p class="hint">Paths refer to the Interface PC data directory.</p><p id="message" role="status">Connecting…</p><p id="status">Connecting…</p>
+<div class="stepper" aria-label="Calibration steps"><button data-step="0">1 Setup</button><button data-step="1">2 Tool box</button><button data-step="2">3 Plan</button><button data-step="3">4 Capture</button><button data-step="4">5 Results</button><button data-step="5">6 Verify</button></div>
+<div class="workspace">
+<div class="step-content">__ROBOT_CARD__
+<section data-page="0"><h2>Setup</h2><p>Use a fixed calibration board. Confirm the camera and active TCP.</p>
+<div class="fields"><label>Session folder<input id="session" value="sessions/sim-001"></label><label>Board manifest<input id="manifest" value="boards/calibration_stage2/board_manifest.json"></label><label>Board name<input id="board" value="calibration_stage2"></label><label>Camera<select id="camera_provider"><option value="realsense">RealSense</option><option value="basler">Basler a2A2448-23gmBAS</option></select></label><label>Camera FPS<input id="camera_fps" type="number" min="1" max="120" value="30"></label><label>Camera serial<input id="serial" placeholder="Camera serial"></label><label>Robot IP<input id="robot_ip"></label></div>
+<label>Intrinsics JSON (required for Basler)<input id="intrinsics"></label><p class="hint">Basler requires its own serial and calibrated 12 mm lens intrinsics. Do not use D435 intrinsics.</p><label class="check"><input type="checkbox" class="ready">The camera mount is rigid. The board is fixed, flat and measured.</label><label class="check"><input type="checkbox" class="ready">The board is fully visible. The robot is stationary.</label><label class="check"><input type="checkbox" class="ready">The work area is clear. The emergency stop is accessible.</label>
+<div class="actions"><button class="primary" data-action="camera">Capture board view</button></div>
+<p class="hint">Camera access requires opt-in. The calibration preview requires 10 corners.</p></section>
+<section data-page="1" hidden><h2>Tool box</h2><p>The tool box is saved in the collision scene. The camera graphic is schematic.</p>
+<div id="native-tool-preview">__TOOL_EDITOR__</div>
+</section>
+<section data-page="2" hidden><h2>Plan</h2><p>Plan uses controller access and a confirmed collision scene. It does not command motion.</p><p>Automatic capture uses three 30 mm probes and returns. It then follows the reviewed view plan.</p><button class="secondary" data-action="plan" data-auto disabled>Inspect automatic plan</button><p class="hint" id="auto-capability">Automatic calibration is unavailable.</p><p class="hint" id="model-status">Robot model: connecting…</p><p id="plan-scene-scope" class="hint">Scene scope is not loaded.</p>
+<details><summary>Advanced settings</summary><label>Collision scene JSON<input id="collision_scene"></label><p class="hint">Motion planning uses this separate collision scene.</p><p><a href="/preview/tool-envelope.html" target="_blank" rel="noopener">Open full collision editor</a></p>
+<div class="fields"><label>Views<input id="views" type="number" min="6" max="14" value="14"></label><label>Tilt (degrees)<input id="tilt_deg" type="number" min="5" max="40" value="25"></label><label>Roll (degrees)<input id="roll_deg" type="number" min="0" max="60" value="30"></label></div>
+</details>
+</section>
+<section data-page="3" hidden><h2>Capture</h2><p>Mount the measured board flat and fixed. Stop the robot before each view.</p><button class="primary" data-action="manual">Collect pendant-positioned views</button>
+<div class="actions"><button class="secondary" data-action="collect" data-auto disabled>Start automatic collection</button></div>
+<p class="hint">Automatic collection requests approval in <a href="#current-operation">Current operation</a>. Disabled starts require IPC automatic capability and no active job. Views applies to automatic collection. Manual capture continues until Finish collection.</p></section>
+<section data-page="4" hidden><h2>Results</h2><p>Fit a recorded session or run a simulation.</p>
+<div class="actions"><button class="primary" data-action="calibrate">Fit both</button><button class="secondary" data-action="solve">Solve session</button><button class="secondary" data-action="intrinsics">Fit intrinsics</button><button class="secondary" data-action="simulate">Simulate calibration</button></div>
+<p class="hint">Simulation does not validate hardware.</p><button id="continue-teaching" type="button" class="secondary" disabled>Continue to Teaching</button><p id="calibration-handoff" class="hint">Complete a usable calibration first.</p></section>
+<section data-page="5" hidden><h2>Verify</h2><p>Collect a separate session with the board and camera fixed. See <a href="#current-operation">Current operation</a> for active-job status and replay approvals. Replay requires IPC automatic capability and no active job.</p><label>Calibration JSON<input id="calibration"></label><label>Fresh verification session<input id="verification"></label>
+<div class="actions"><button class="secondary" data-action="verify-capture">Collect fresh verification views</button><button class="secondary" data-action="replay" data-auto disabled>Replay views for verification</button><button class="primary" data-action="verify">Verify fresh session</button></div>
+</section>
+</div>
+<aside class="operation-column">
+<section id="current-operation" aria-labelledby="operation-title">
+<div class="operation-header"><h2 id="operation-title">Current operation</h2>
+<div class="actions operation-stop"><button id="manual-stop" type="button" class="danger" disabled>Stop operation</button></div>
+</div>
+<div class="operation-body">__MANUAL_JOB_PANEL__<h3>Job status</h3><p id="job-attention" hidden></p><p id="summary">No job selected.</p><p id="job-elapsed">Elapsed job time: unavailable</p>
+<div id="pending" class="operator-panel" role="region" aria-label="Job controls"></div>
+<h3>Last received messages</h3><p class="hint">Last 8 lines. Latest is last. Job state is reported above.</p><pre id="job-log">No messages received.</pre><h3>Board view</h3><img id="preview" alt="Board observation" hidden></div>
+</section>
+</aside>
+</div>
+<section class="job-panel">
+<details><summary>Job details</summary><label>Job ID <input id="job_id"></label><button id="load" class="secondary">Show job</button><pre id="job">No job selected.</pre></details>
+</section>
+</main>
+<script src="/preview/ur10e-model.js" defer></script>
+<script src="/preview/three-bundle.js" defer></script>
+<script src="/preview/ur10e-visual.js" defer></script>
+<script src="/preview/robot-three.js" defer></script>
+<script src="/preview/robot-preview.js" defer></script>
+<script src="/preview/tool-envelope.js" defer></script>
+<script src="/app.js" defer></script>
+<script src="/manual-job.js" defer></script>
+<script src="/robot-control.js" defer></script></body>
+</html>

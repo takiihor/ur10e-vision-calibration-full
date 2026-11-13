@@ -1,0 +1,43 @@
+{
+  "source_id": "44f2f0aa68b8b7afcd18ef8c07abd5f94f3607079d65863fb4510d19e28a44e4",
+  "source_files_verified": 397,
+  "data_file_count": 897,
+  "data_bytes": 647204562,
+  "owner_before": {
+    "active": null,
+    "mcu_pending": null,
+    "storage_error": null,
+    "closing": false,
+    "execution_uncertain": false,
+    "recovery": null
+  },
+  "owner_after": {
+    "active": null,
+    "mcu_pending": null,
+    "storage_error": null,
+    "closing": false,
+    "execution_uncertain": false,
+    "recovery": null
+  },
+  "data_unchanged": true,
+  "jobs_note": ".jobs records are archival evidence, not authorization to resume or replay work.",
+  "files": {
+    "data-manifest.json": {
+      "sha256": "f311c3c699175d6648a2fd82da2353a8626f2b6c53e352402d3e9281e4da3524",
+      "bytes": 152362
+    },
+    "ipc-data.tar.gz": {
+      "sha256": "fd206dde72927723b9eadb75caeb79ec27abc4016f010c237209ee4dc2e2e5e3",
+      "bytes": 537139988
+    },
+    "launch-sanitized.json": {
+      "sha256": "648f162aee61f8732fe050d909523af0007c338aa727da0ce046a37e4534ddbc",
+      "bytes": 620
+    },
+    "python-packages.json": {
+      "sha256": "558fda7caec0976879be9e6b93b144c9aa3d68373724f990c8c5414f3d2f7126",
+      "bytes": 1343
+    }
+  },
+  "ipc_path": "/home/user/anodizing_line/anodizing_modules_20261104/full-stage-snapshot-20261111-101615"
+}

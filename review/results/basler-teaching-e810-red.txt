@@ -1,0 +1,25 @@
+test_teaching_rejects_camera_provider_mismatch (test_basler_independent.BaslerIndependent.test_teaching_rejects_camera_provider_mismatch) ... FAIL
+test_teaching_propagates_recorded_basler_exposure (test_basler_independent.BaslerIndependent.test_teaching_propagates_recorded_basler_exposure) ... FAIL
+
+======================================================================
+FAIL: test_teaching_rejects_camera_provider_mismatch (test_basler_independent.BaslerIndependent.test_teaching_rejects_camera_provider_mismatch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/nep/anodizing_line/UR10e/interface_pc/review_work/robot_control_20261110/test_basler_independent.py", line 53, in test_teaching_rejects_camera_provider_mismatch
+    with self.assertRaisesRegex(ValueError,'(?i)(provider|camera)'):
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ValueError not raised
+
+======================================================================
+FAIL: test_teaching_propagates_recorded_basler_exposure (test_basler_independent.BaslerIndependent.test_teaching_propagates_recorded_basler_exposure)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/nep/anodizing_line/UR10e/interface_pc/review_work/robot_control_20261110/test_basler_independent.py", line 67, in test_teaching_propagates_recorded_basler_exposure
+    self.assertEqual(project.config.camera.exposure_time_us,5000)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: None != 5000
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.109s
+
+FAILED (failures=2)

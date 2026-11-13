@@ -1,0 +1,6 @@
+test_feedback_drift_during_dispatch_certificate_prevents_move (test_robot_control_independent.RobotControlIndependent.test_feedback_drift_during_dispatch_certificate_prevents_move) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.044s
+
+OK

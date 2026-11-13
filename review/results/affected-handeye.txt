@@ -1,0 +1,182 @@
+......F..............F......................sss.s.sssssssssssss......... [ 97%]
+..                                                                       [100%]
+=================================== FAILURES ===================================
+_________________ test_empty_dry_run_plan_fails_without_moving _________________
+
+tmp_path = PosixPath('/tmp/pytest-of-nep/pytest-0/test_empty_dry_run_plan_fails_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7adf01694290>
+capsys = <_pytest.capture.CaptureFixture object at 0x7adf01695010>
+
+    def test_empty_dry_run_plan_fails_without_moving(tmp_path, monkeypatch, capsys):
+        from contextlib import nullcontext
+    
+        from ur_handeye import cli, robot
+        from ur_handeye.simulation import build_scenario
+    
+        scenario = build_scenario(seed=5)
+        scenario.camera.metadata = {"simulated": True}
+    
+        def unreachable(*args):
+            raise robot.RobotError("Target is out of reach")
+    
+        monkeypatch.setattr(scenario.robot, "plan", unreachable)
+        monkeypatch.setattr(robot, "URRobot", lambda *args: scenario.robot)
+        monkeypatch.setattr(cli, "BoardTarget", lambda *args: scenario.target)
+        monkeypatch.setattr(cli, "_camera", lambda args: nullcontext(scenario.camera))
+>       assert main(["collect", "--robot-ip", "simulated", "--dry-run", "--output", str(tmp_path / "plan")]) == 1
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+vendor/ur10e-handeye/tests/test_cli.py:110: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+vendor/ur10e-handeye/src/ur_handeye/cli.py:715: in main
+    return _main(argv)
+           ^^^^^^^^^^^
+vendor/ur10e-handeye/src/ur_handeye/cli.py:721: in _main
+    return COMMANDS[args.command](args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = Namespace(command='collect', robot_ip='simulated', output='/tmp/pytest-of-nep/pytest-0/test_empty_dry_run_plan_fails_0...=None, height=None, fps=None, exposure_time_us=5000, intrinsics=None, lock_exposure=False, frames=5, max_jitter_px=0.3)
+
+    def cmd_collect(args, *, confirm=None, read_line=input, on_capture=None) -> int:
+        # Refuse an unverified automatic path before control uploads or camera access.
+        collision = None
+        if args.mode in ('auto', 'replay'):
+            if getattr(args, 'calibration_type', 'eye_in_hand') != 'eye_in_hand':
+                raise ValueError('Automatic collision checks require the wrist-camera model. Use manual capture for a fixed camera.')
+            from .collision import load_scene
+            scene_path = getattr(args, 'collision_scene', None) or Path(__file__).parent / 'web/collision-scene.example.json'
+            model_path = getattr(args, 'robot_model', None)
+            collision = load_scene(scene_path, model_path=model_path) if model_path is not None else load_scene(scene_path)
+            if not args.dry_run:
+                collision.require_motion_ready()
+        from .robot import LocalCaptureRobot, URRobot
+        # Reject incompatible options before opening RTDE control or a camera.
+        if args.mode == "manual" and args.dry_run:
+            raise ValueError("--dry-run is supported in auto and replay modes; manual mode requires operator positioning")
+        if args.freedrive and args.mode != "manual":
+            raise ValueError("--freedrive requires --mode manual")
+        if (args.mode == "replay") != bool(args.replay):
+            raise ValueError("--mode replay and --replay SESSION must be provided together")
+        calibration_type = getattr(args, "calibration_type", "eye_in_hand")
+        if args.mode == "manual" and args.freedrive:
+            raise ValueError("Manual capture uses Local Control and pendant jogging; "
+                             "--freedrive is unavailable")
+        if calibration_type == "eye_to_hand" and args.mode == "auto":
+            raise ValueError("Eye-to-hand uses --mode manual or replay; automatic wrist-camera planning is unavailable")
+        options = CollectOptions(frames=args.frames, max_jitter_px=args.max_jitter_px,
+                                 plan=PlanOptions(args.tilt_deg, args.roll_deg, max_views=args.views,
+                                                  probe_mm=args.probe_mm))
+        replay_targets = None
+        if args.mode == "replay":
+            replay_metadata, records = load_session(args.replay)
+            if replay_metadata.get("calibration_type", "eye_in_hand") != calibration_type:
+                raise DatasetError("Replay session calibration type differs from the selected setup")
+            replay_targets = [r["joints"] for r in records if r.get("status") == "ok"
+                              and not r.get("label", "").startswith(("start", "probe"))]
+            if not replay_targets:
+                raise ValueError("Replay session has no usable calibration views")
+        intrinsics = _intrinsics(args)
+        target = BoardTarget(args.manifest, args.board)
+        output = Path(args.output or f"sessions/{datetime.now():%Y%m%d-%H%M%S}")
+        if output.exists() and (not output.is_dir() or any(output.iterdir())):
+            raise DatasetError(f"{output} already contains data; choose a new session folder")
+        local_capture = args.mode == "manual"
+        robot_class = LocalCaptureRobot if local_capture else URRobot
+>       robot = robot_class(args.robot_ip, _limits(args), **({'collision': collision} if collision is not None else {}))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: test_empty_dry_run_plan_fails_without_moving.<locals>.<lambda>() got an unexpected keyword argument 'collision'
+
+vendor/ur10e-handeye/src/ur_handeye/cli.py:308: TypeError
+___________ test_collect_dry_run_uses_half_camera_rotation_defaults ____________
+
+tmp_path = PosixPath('/tmp/pytest-of-nep/pytest-0/test_collect_dry_run_uses_half0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7adefc0250a0>
+capsys = <_pytest.capture.CaptureFixture object at 0x7adefc027a40>
+
+    def test_collect_dry_run_uses_half_camera_rotation_defaults(tmp_path, monkeypatch, capsys):
+        from contextlib import nullcontext
+    
+        from ur_handeye import cli, collect, robot
+        from ur_handeye.simulation import build_scenario
+    
+        scenario = build_scenario(seed=5)
+        scenario.camera.metadata = {"simulated": True}
+        seen = []
+        original = collect.plan_views
+        def plan(*args):
+            seen.append(args[-1])
+            return original(*args)
+        monkeypatch.setattr(collect, "plan_views", plan)
+        monkeypatch.setattr(robot, "URRobot", lambda *args: scenario.robot)
+        monkeypatch.setattr(cli, "BoardTarget", lambda *args: scenario.target)
+        monkeypatch.setattr(cli, "_camera", lambda args: nullcontext(scenario.camera))
+>       assert cli.main(["collect", "--robot-ip", "simulated", "--dry-run",
+                         "--output", str(tmp_path / "plan")]) == 0
+
+vendor/ur10e-handeye/tests/test_cli.py:240: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+vendor/ur10e-handeye/src/ur_handeye/cli.py:715: in main
+    return _main(argv)
+           ^^^^^^^^^^^
+vendor/ur10e-handeye/src/ur_handeye/cli.py:721: in _main
+    return COMMANDS[args.command](args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = Namespace(command='collect', robot_ip='simulated', output='/tmp/pytest-of-nep/pytest-0/test_collect_dry_run_uses_half0...=None, height=None, fps=None, exposure_time_us=5000, intrinsics=None, lock_exposure=False, frames=5, max_jitter_px=0.3)
+
+    def cmd_collect(args, *, confirm=None, read_line=input, on_capture=None) -> int:
+        # Refuse an unverified automatic path before control uploads or camera access.
+        collision = None
+        if args.mode in ('auto', 'replay'):
+            if getattr(args, 'calibration_type', 'eye_in_hand') != 'eye_in_hand':
+                raise ValueError('Automatic collision checks require the wrist-camera model. Use manual capture for a fixed camera.')
+            from .collision import load_scene
+            scene_path = getattr(args, 'collision_scene', None) or Path(__file__).parent / 'web/collision-scene.example.json'
+            model_path = getattr(args, 'robot_model', None)
+            collision = load_scene(scene_path, model_path=model_path) if model_path is not None else load_scene(scene_path)
+            if not args.dry_run:
+                collision.require_motion_ready()
+        from .robot import LocalCaptureRobot, URRobot
+        # Reject incompatible options before opening RTDE control or a camera.
+        if args.mode == "manual" and args.dry_run:
+            raise ValueError("--dry-run is supported in auto and replay modes; manual mode requires operator positioning")
+        if args.freedrive and args.mode != "manual":
+            raise ValueError("--freedrive requires --mode manual")
+        if (args.mode == "replay") != bool(args.replay):
+            raise ValueError("--mode replay and --replay SESSION must be provided together")
+        calibration_type = getattr(args, "calibration_type", "eye_in_hand")
+        if args.mode == "manual" and args.freedrive:
+            raise ValueError("Manual capture uses Local Control and pendant jogging; "
+                             "--freedrive is unavailable")
+        if calibration_type == "eye_to_hand" and args.mode == "auto":
+            raise ValueError("Eye-to-hand uses --mode manual or replay; automatic wrist-camera planning is unavailable")
+        options = CollectOptions(frames=args.frames, max_jitter_px=args.max_jitter_px,
+                                 plan=PlanOptions(args.tilt_deg, args.roll_deg, max_views=args.views,
+                                                  probe_mm=args.probe_mm))
+        replay_targets = None
+        if args.mode == "replay":
+            replay_metadata, records = load_session(args.replay)
+            if replay_metadata.get("calibration_type", "eye_in_hand") != calibration_type:
+                raise DatasetError("Replay session calibration type differs from the selected setup")
+            replay_targets = [r["joints"] for r in records if r.get("status") == "ok"
+                              and not r.get("label", "").startswith(("start", "probe"))]
+            if not replay_targets:
+                raise ValueError("Replay session has no usable calibration views")
+        intrinsics = _intrinsics(args)
+        target = BoardTarget(args.manifest, args.board)
+        output = Path(args.output or f"sessions/{datetime.now():%Y%m%d-%H%M%S}")
+        if output.exists() and (not output.is_dir() or any(output.iterdir())):
+            raise DatasetError(f"{output} already contains data; choose a new session folder")
+        local_capture = args.mode == "manual"
+        robot_class = LocalCaptureRobot if local_capture else URRobot
+>       robot = robot_class(args.robot_ip, _limits(args), **({'collision': collision} if collision is not None else {}))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: test_collect_dry_run_uses_half_camera_rotation_defaults.<locals>.<lambda>() got an unexpected keyword argument 'collision'
+
+vendor/ur10e-handeye/src/ur_handeye/cli.py:308: TypeError
+=========================== short test summary info ============================
+FAILED vendor/ur10e-handeye/tests/test_cli.py::test_empty_dry_run_plan_fails_without_moving
+FAILED vendor/ur10e-handeye/tests/test_cli.py::test_collect_dry_run_uses_half_camera_rotation_defaults
+2 failed, 55 passed, 17 skipped in 69.18s (0:01:09)

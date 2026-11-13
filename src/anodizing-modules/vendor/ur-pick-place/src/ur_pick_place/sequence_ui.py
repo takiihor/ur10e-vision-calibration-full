@@ -1,0 +1,187 @@
+"""Reuse the teaching session for one interruptible pick/place cycle."""
+from contextlib import contextmanager
+from dataclasses import asdict
+import time
+
+from .config import Recipe, construct, vector
+from .controller import PickPlaceController, SequenceError
+from .robot import RTDERobot
+
+STEPS = [
+    ('home', 'Home & open'), ('approach_pick', 'Pick approach'),
+    ('force_pick', 'Force search'), ('grasp', 'Offset & grip'),
+    ('lift_home', 'Verify, lift & home'), ('place', 'Force place & retract'),
+]
+
+
+class SequenceStopped(SequenceError):
+    pass
+
+
+def initial_recipe(settings):
+    return Recipe(robot_ip=settings.robot_ip, home_joints=[0]*6,
+                  pick_pose=[.4, -.1, .25, 0, 3.141592653589793, 0],
+                  place_pose=[.45, -.17, .2, 0, 3.141592653589793, 0],
+                  workspace_min_m=settings.workspace_min_m,
+                  workspace_max_m=settings.workspace_max_m)
+
+
+def resolve_recipe(base, settings, store, payload, demo):
+    if not isinstance(payload, dict):
+        raise ValueError('Expected sequence settings')
+    if set(payload) - {'home_id', 'pick_id', 'place_id', 'camera_pose', 'vision_file', 'options'}:
+        raise ValueError('Unknown sequence setting')
+    vision_file = payload.get('vision_file')
+    if vision_file is not None and (not isinstance(vision_file, str) or not vision_file.strip()):
+        raise ValueError('Vision configuration needs a file path')
+    if vision_file and demo:
+        raise ValueError('Live vision requires a live robot connection')
+    if vision_file and payload.get('camera_pose') is not None:
+        raise ValueError('Choose a live vision configuration or a static camera pose')
+    raw = asdict(base)
+    options = payload.get('options', {})
+    allowed = {'pick_approach_mm', 'place_approach_mm', 'pick_backoff_mm',
+               'grasp_offset_mm', 'lift_mm', 'retract_mm', 'pick_probe',
+               'place_probe', 'gripper'}
+    if not isinstance(options, dict) or set(options) - allowed:
+        raise ValueError('Unsupported sequence options')
+    raw.update(options)
+    raw.update(robot_ip=settings.robot_ip, workspace_min_m=settings.workspace_min_m,
+               workspace_max_m=settings.workspace_max_m)
+    raw['motion'].update(joint_speed_rad_s=settings.joint_speed_rad_s,
+                         joint_accel_rad_s2=settings.joint_accel_rad_s2,
+                         transit_speed_mm_s=settings.tcp_speed_mm_s,
+                         tcp_accel_m_s2=settings.tcp_accel_m_s2)
+    names = {}
+    for role, field, coordinates in (('home', 'home_joints', 'joints_rad'),
+                                      ('pick', 'pick_pose', 'tcp_pose_m_rad'),
+                                      ('place', 'place_pose', 'tcp_pose_m_rad')):
+        if role == 'pick' and vision_file:
+            names[role] = 'Live marker target'
+            continue  # Replaced by the fresh camera observation before preview or run.
+        if role == 'pick' and payload.get('camera_pose') is not None:
+            raw[field] = vector(payload['camera_pose'], 6, 'Camera TCP pose (base m/rad)')
+            names[role] = 'Camera TCP target'
+            continue
+        ident = payload.get(role+'_id')
+        if not ident:
+            raise ValueError(f'Select a saved {role} pose')
+        pose = store.get(ident)
+        if bool(pose.get('demo')) != demo:
+            raise ValueError('Demo and live poses cannot be mixed')
+        raw[field] = pose[coordinates]
+        names[role] = pose['name']
+    recipe = construct(Recipe, raw)
+    recipe.gripper.require_live_ready()
+    return recipe, names
+
+
+def load_vision_job(recipe, path):
+    """Load the same calibrated vision path used by the CLI, without new RTDE sessions."""
+    from pathlib import Path
+    from .vision.config import VisionConfig
+    from .vision.handeye import load_handeye, check_metrics
+    from .vision.planner import VisionJob, file_sha256
+
+    path = Path(path).expanduser().resolve()
+    fingerprint = file_sha256(path)
+    config = VisionConfig.load(path)
+    if fingerprint != file_sha256(path):
+        raise ValueError('Vision configuration changed while loading; preview again')
+    calibration = load_handeye(config.path(config.handeye_calibration))
+    calibration.require_hardware()
+    check_metrics(calibration, config.max_handeye_loo_mm, config.max_handeye_reprojection_px,
+                  config.max_handeye_translation_sigma_mm)
+    if config.camera.serial and calibration.camera_serial and config.camera.serial != calibration.camera_serial:
+        raise ValueError('Configured camera serial differs from calibration')
+    config.camera.serial = calibration.camera_serial or config.camera.serial
+    return VisionJob(recipe, config, calibration, inputs={'vision_config': fingerprint})
+
+
+class SessionRobot(RTDERobot):
+    """Borrow interfaces owned by ManualService; never reconnect or close them."""
+    def __init__(self, recipe, control, receive, tick, *, demo=False):
+        self.config, self.control, self.receive = recipe, control, receive
+        self.tick, self.demo = tick, demo
+        self.force_active = False
+        self.stop_failed = False
+        self._last_timestamp = None
+        self._last_fresh_at = time.monotonic()
+        self.validator = PickPlaceController(recipe)
+
+    def _read(self):
+        self.tick()
+        return super()._read()
+
+    def pause(self, seconds):
+        end = time.monotonic()+seconds
+        while True:
+            self.tick()
+            remaining = end-time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(.01, remaining))
+
+    def _baseline(self):
+        self.tick()
+        self._require_success(self.control.zeroFtSensor(), 'Force sensor zero')
+        self.pause(.3)
+        values = []
+        for _ in range(20):
+            _, force = self._read()
+            values.append(force[2])
+            self.pause(.01)
+        return sum(values)/len(values)
+
+    def probe(self, settings, *, endpoint_z=None, guard=lambda: None):
+        if self.demo:
+            self.control.prepare_probe(endpoint_z if endpoint_z is not None else self.config.place_pose[2]+.02)
+        return super().probe(settings, endpoint_z=endpoint_z, guard=guard)
+
+    def close(self):
+        # Connection belongs to the manual worker.
+        self.stop_force()
+
+class DemoGripper:
+    """Simulates verification only; never imports a hardware driver."""
+    def __init__(self, config, tick, pause, *, state=None):
+        from types import SimpleNamespace
+        self.config, self.tick, self.pause = config, tick, pause
+        self.state = state if state is not None else SimpleNamespace()
+        if not hasattr(self.state, 'gripper_holding'):
+            self.state.gripper_holding = False
+
+    @property
+    def holding(self):
+        return self.state.gripper_holding
+
+    @holding.setter
+    def holding(self, value):
+        self.state.gripper_holding = value
+
+    def require_ready(self):
+        self.tick()
+        if self.holding:
+            raise SequenceError('Demo gripper already holding an object')
+
+    def open(self):
+        self.tick()
+        self.holding = False
+        self.pause(self.config.settle_s)
+
+    def grip(self):
+        self.tick()
+        self.holding = True
+        self.pause(self.config.settle_s)
+
+    def require_holding(self):
+        self.tick()
+        if not self.holding:
+            raise SequenceError('Demo grip check failed')
+
+    @contextmanager
+    def probe_guard(self):
+        yield self.tick
+
+    def close(self):
+        pass

@@ -1,0 +1,221 @@
+"""Calibration sessions on disk, and the calibration result file other programs consume.
+
+A session is everything needed to re-solve offline: ``session.json`` (robot, TCP offset, camera,
+intrinsics, board), ``samples.jsonl`` (one line per captured view, flushed as it is taken) and the
+raw images. Solving never needs the robot or camera again, so methods and thresholds can be
+compared later on exactly the same data.
+"""
+import json
+import os
+import tempfile
+import time
+from datetime import UTC, datetime
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+from . import __version__
+from .solver import Sample, Solution
+from .transforms import angle_between_deg, check_transform, describe, invert, matrix, pose_to_matrix
+
+SESSION_FILE, SAMPLES_FILE, IMAGE_DIR = "session.json", "samples.jsonl", "images"
+RESULT_SCHEMA_VERSION = 1
+
+
+class DatasetError(ValueError):
+    pass
+
+
+def write_json(path: Path, data: dict) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(data, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def write_new_json(path: Path, data: dict) -> None:
+    """Publish a new result atomically without replacing earlier calibration evidence."""
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(data, indent=2, allow_nan=False) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(temporary, path)
+    finally:
+        os.unlink(temporary)
+
+
+class Session:
+    """An append-only recording directory; existing sessions are never overwritten."""
+
+    def __init__(self, directory, metadata: dict):
+        self.directory = Path(directory)
+        if self.directory.exists() and any(self.directory.iterdir()):
+            raise DatasetError(f"{self.directory} already exists and is not empty; choose a new session folder")
+        (self.directory / IMAGE_DIR).mkdir(parents=True, exist_ok=True)
+        self.metadata = {"schema_version": 1, "software": f"ur10e-handeye {__version__}",
+                         "created_utc": datetime.now(UTC).isoformat(), **metadata}
+        write_json(self.directory / SESSION_FILE, self.metadata)
+        self.count = 0
+
+    def update_metadata(self, **values) -> None:
+        self.metadata.update(values)
+        write_json(self.directory / SESSION_FILE, self.metadata)
+
+    def add(self, record: dict, image: np.ndarray | None, frames=()) -> int:
+        index = self.count
+        record = {"index": index, "time_unix": time.time(), **record}
+        if image is not None:
+            name = f"{IMAGE_DIR}/{index:03d}.png"
+            if not cv2.imwrite(str(self.directory / name), image):
+                raise DatasetError(f"Cannot write {name}")
+            record["image"] = name
+        if frames:
+            saved_frames = []
+            for number, (frame, detail) in enumerate(frames):
+                frame_name = (record.get("image") if frame.bgr is image
+                              else f"{IMAGE_DIR}/{index:03d}-frame-{number:02d}.png")
+                if frame.bgr is not image and not cv2.imwrite(str(self.directory / frame_name), frame.bgr):
+                    raise DatasetError(f"Cannot write {frame_name}")
+                saved_frames.append({**detail, "image": frame_name})
+            record["camera_frames"] = saved_frames
+        with open(self.directory / SAMPLES_FILE, "a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, allow_nan=False) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        self.count += 1
+        return index
+
+
+def load_session(directory) -> tuple[dict, list[dict]]:
+    directory = Path(directory)
+    try:
+        metadata = json.loads((directory / SESSION_FILE).read_text(encoding="utf-8"))
+        saved_samples = (directory / SAMPLES_FILE).read_text(encoding="utf-8")
+        lines = saved_samples.splitlines()
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DatasetError(f"Cannot read session {directory}: {exc}") from exc
+    records = []
+    if not isinstance(metadata, dict) or type(metadata.get("schema_version")) is not int \
+            or metadata["schema_version"] != 1:
+        raise DatasetError("Unsupported session schema version")
+    for number, line in enumerate(lines, 1):
+        try:
+            record = json.loads(line)
+            if not isinstance(record, dict):
+                raise DatasetError(f"{directory / SAMPLES_FILE}: line {number} is not an object")
+            records.append(record)
+        except json.JSONDecodeError:
+            # A power cut can truncate only the line being written; earlier lines are complete.
+            if number != len(lines) or saved_samples.endswith("\n"):
+                raise DatasetError(f"{directory / SAMPLES_FILE}: corrupt line {number}") from None
+    return metadata, records
+
+
+def samples_from_records(records: list[dict], exclude=()) -> list[Sample]:
+    excluded = set(exclude)
+    samples = []
+    for record in records:
+        if record.get("status") != "ok" or record["index"] in excluded:
+            continue
+        pose = record["observation"]["pose"]
+        samples.append(Sample(record["index"], pose_to_matrix(record["flange_pose"]),
+                              matrix(np.asarray(pose["rotation_matrix"]), pose["tvec_m"]),
+                              list(record["observation"]["charuco_ids"]),
+                              np.asarray(record["observation"]["pixels"], float).reshape(-1, 2)))
+    return samples
+
+
+def build_result(solution: Solution, metadata: dict, session_dir) -> dict:
+    """The calibration file contract shared with the pick-and-place software (schema 1)."""
+    tcp_offset = (metadata.get("tcp_offset", [0.] * 6) if solution.calibration_type == "eye_to_hand"
+                  else metadata["tcp_offset"])
+    camera_in_tcp = invert(pose_to_matrix(tcp_offset)) @ solution.camera_in_flange
+    result = {
+        "schema_version": RESULT_SCHEMA_VERSION,
+        "type": "eye_in_hand",
+        "software": f"ur10e-handeye {__version__}",
+        "created_utc": datetime.now(UTC).isoformat(),
+        "camera_in_flange": describe(solution.camera_in_flange),
+        "camera_in_tcp": {**describe(camera_in_tcp), "tcp_offset": list(tcp_offset)},
+        "board_in_base": describe(solution.board_in_base),
+        "intrinsics": metadata["intrinsics"],
+        "intrinsics_source": metadata.get("intrinsics_source", {"type": "recorded_session"}),
+        "camera": metadata.get("camera", {}),
+        "robot": metadata.get("robot", {}),
+        "board": metadata.get("board", {}),
+        "session": str(session_dir),
+        "verdict": solution.verdict,
+        "warnings": solution.warnings,
+        "metrics": solution.metrics,
+        "methods": solution.methods,
+        "conventions": {
+            "units": "metres; rotation vectors in radians; *_mm and *_deg fields are for reading",
+            "camera_in_flange": "maps camera optical coordinates (X right, Y down, Z forward) into the flange "
+                                "(tool0) frame. As a PolyScope TCP it puts the TCP at the camera optical centre",
+            "camera_in_tcp": "the same camera relative to the TCP that was active during calibration "
+                             "(tcp_offset); valid only while that TCP is active",
+            "board_in_base": "calibration board origin (outer top-left pattern corner, X right, Y down, Z into "
+                             "the board) in the robot base frame; valid only while the board is not moved",
+            "point_in_base": "p_base = T_base_flange @ camera_in_flange.matrix @ p_camera",
+        },
+    }
+
+    if solution.calibration_type == "eye_to_hand":
+        result["type"] = "eye_to_hand"
+        result["camera_in_base"] = result.pop("camera_in_flange")
+        result["board_in_flange"] = result.pop("board_in_base")
+        del result["camera_in_tcp"]
+        # Rename diagnostics too, so no fixed-camera output implies a wrist mount.
+        def rename(value):
+            if isinstance(value, dict):
+                return {k.replace("camera_in_flange", "camera_in_base").replace("board_in_base", "board_in_flange"):
+                        rename(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [rename(v) for v in value]
+            return value
+        result["metrics"] = rename(result["metrics"])
+        result["methods"] = rename(result["methods"])
+        result["conventions"] = {
+            "units": "metres; rotation vectors in radians; *_mm and *_deg fields are for reading",
+            "camera_in_base": "maps camera optical coordinates (X right, Y down, Z forward) into robot base",
+            "board_in_flange": "maps board coordinates into flange (tool0); board must remain rigidly attached",
+            "point_in_base": "p_base = camera_in_base.matrix @ p_camera",
+        }
+    return result
+
+
+def load_result(path) -> dict:
+    try:
+        result = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DatasetError(f"Cannot read calibration {path}: {exc}") from exc
+    if not isinstance(result, dict) or type(result.get("schema_version")) is not int \
+            or result.get("schema_version") != RESULT_SCHEMA_VERSION \
+            or result.get("type") not in ("eye_in_hand", "eye_to_hand"):
+        raise DatasetError(f"{path} is not a schema {RESULT_SCHEMA_VERSION} hand-eye calibration")
+    try:
+        transforms = {}
+        names = (("camera_in_base", "board_in_flange") if result["type"] == "eye_to_hand"
+                 else ("camera_in_flange", "camera_in_tcp", "board_in_base"))
+        for name in names:
+            transform = check_transform(result[name]["matrix"], name)
+            if "pose_ur" in result[name]:
+                redundant = pose_to_matrix(result[name]["pose_ur"])
+                if np.linalg.norm(transform[:3, 3] - redundant[:3, 3]) > 1e-6 \
+                        or angle_between_deg(transform, redundant) > 1e-4:
+                    raise ValueError(f"{name}: matrix and pose_ur disagree")
+            transforms[name] = transform
+        if result["type"] == "eye_in_hand":
+            implied = pose_to_matrix(result["camera_in_tcp"]["tcp_offset"]) @ transforms["camera_in_tcp"]
+            if np.linalg.norm(implied[:3, 3] - transforms["camera_in_flange"][:3, 3]) > 1e-6 \
+                    or angle_between_deg(implied, transforms["camera_in_flange"]) > 1e-4:
+                raise ValueError("camera_in_tcp and camera_in_flange disagree with tcp_offset")
+        if result.get("verdict") not in ("good", "acceptable", "poor"):
+            raise ValueError("Unknown calibration verdict")
+        from charuco_realsense.calibration import opencv_calibration
+        opencv_calibration(result["intrinsics"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DatasetError(f"Invalid calibration {path}: {exc}") from exc
+    return result

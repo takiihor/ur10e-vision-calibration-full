@@ -1,0 +1,327 @@
+[
+  {
+    "path": "BASLER_PREPARATION.md",
+    "status": "added",
+    "sha256": "2dc245d5ff6174342296341de492731f420f3dfdbe995b2031e2365900996f45"
+  },
+  {
+    "path": "README.md",
+    "status": "modified",
+    "sha256": "afd3a894929574b81c112044c9a5facce9dfa6c88e93d6370144cd50e294dff5"
+  },
+  {
+    "path": "app/anodizing_web/calibration.py",
+    "status": "modified",
+    "sha256": "93dc75d9ef602c403baad168d1e6aecbb743f45863e9f6ce7f05c20cced2eb55"
+  },
+  {
+    "path": "app/anodizing_web/camera.py",
+    "status": "modified",
+    "sha256": "8bd10b950f88622b78869933f0c9da860a3c6fe4d4b2fc8e4e85d727fadc74bb"
+  },
+  {
+    "path": "app/anodizing_web/jobs.py",
+    "status": "modified",
+    "sha256": "333d5c3a7e85940e545ff60b308c573fa021e8cd4544ba1d3ab946092387b189"
+  },
+  {
+    "path": "app/anodizing_web/manual_execution.py",
+    "status": "modified",
+    "sha256": "cd5559979bed5e9422bbdae207299f793b5b259500a3408c1246285f0ac6e334"
+  },
+  {
+    "path": "app/anodizing_web/robot_control.py",
+    "status": "added",
+    "sha256": "b63268e5655243e26b3e9ca38f9a48b637a1aec4668937737dacaec5eef0a8fb"
+  },
+  {
+    "path": "app/anodizing_web/server.py",
+    "status": "modified",
+    "sha256": "836c990eea7f623d9fdc5fb30ad3883b82bc7ec4bf4b2769147480b1f1eaf096"
+  },
+  {
+    "path": "app/anodizing_web/web/app.js",
+    "status": "modified",
+    "sha256": "bb63e4b431cb4a5db8a00e05e46fd5eab00b725641058df66a91c19c7ca87796"
+  },
+  {
+    "path": "app/anodizing_web/web/calibration.html",
+    "status": "modified",
+    "sha256": "3e44dff49c3a54fe4de231d5ad4a29bee101cceeb41ef8942186fe4c21c4506f"
+  },
+  {
+    "path": "app/anodizing_web/web/manual-job-panel.html",
+    "status": "added",
+    "sha256": "07b80352a0379d8e288e4b9cd496d53e691cb4b52ebdccdee22bbee5ecde70ee"
+  },
+  {
+    "path": "app/anodizing_web/web/manual-job.js",
+    "status": "modified",
+    "sha256": "20cfa7e4f87df7f60858e2eac75a4d60d2fe096e645ac10d2576a374a4908873"
+  },
+  {
+    "path": "app/anodizing_web/web/pick-place.html",
+    "status": "modified",
+    "sha256": "8eacba67d9c0840aa6855fb7ab917c6b68c3732c270c19afea5c867daec8708e"
+  },
+  {
+    "path": "app/anodizing_web/web/robot-card.html",
+    "status": "added",
+    "sha256": "feb302fb85dc7cf64eef42a63a5cce959e88aded7e799c1c4239ed8048235478"
+  },
+  {
+    "path": "app/anodizing_web/web/robot-control.js",
+    "status": "added",
+    "sha256": "46156df1c502f91e5f58b1535a88d31a0024793c0962f7e8f8b5ff2d1396b9a5"
+  },
+  {
+    "path": "app/anodizing_web/web/teacher.js",
+    "status": "modified",
+    "sha256": "0144e823b02502a4cff4be80d466e82fffba80e5285c5af01b44ea0cb4545b1f"
+  },
+  {
+    "path": "app/anodizing_web/web/teaching.html",
+    "status": "modified",
+    "sha256": "ded0568129a19a232322f349d1bcaf0e6762922aeb56d881fcbfe582f07e5ef3"
+  },
+  {
+    "path": "app/anodizing_web/web/test-profile.js",
+    "status": "modified",
+    "sha256": "4bd8631267985f74503c09408de752a5b93ebd22e7b907d768ecd2fb3c04c5bc"
+  },
+  {
+    "path": "app/test/test_basler_independent.py",
+    "status": "added",
+    "sha256": "b26223df635005400527f25f610da378e0dc345e61509930a37abf13aa7d0328"
+  },
+  {
+    "path": "app/test/test_robot_control_independent.py",
+    "status": "added",
+    "sha256": "d9fc512011bd64cff69efc038d1b7666d046ae3b3cd62de9fae13c0d63cc9dcf"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/board_manifest.json",
+    "status": "added",
+    "sha256": "371f863de291a91b9217f249345f37e079a5a9a0e4b5ddd8780598a96dd88550"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank01-16_A4.pdf",
+    "status": "added",
+    "sha256": "1941a7d540618f8c3bb5a1160a909509deeebf6ba0bf34958213883783aec9a1"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank01_charuco.pdf",
+    "status": "added",
+    "sha256": "c7fa986f5bffb15729e1587f655e13228a4a0592d720f2ae181a244302c72fcb"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank01_charuco.png",
+    "status": "added",
+    "sha256": "0ca1f96e9bb285feff9b436534ba800b6028e4d5283ebcac0c83a2ba8f3c0c5a"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank02_charuco.pdf",
+    "status": "added",
+    "sha256": "7025db2d7ea189dddd7c668a001040049c84386746f8b985d21c35f023529e65"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank02_charuco.png",
+    "status": "added",
+    "sha256": "00f53a43c2e50aac7c4942819ac82f360e5e7aa66c9d9a5126bb2ee7837378b1"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank03_charuco.pdf",
+    "status": "added",
+    "sha256": "57c7c1476cb082f9a3da7938a237bdc02152dc5a64fa040fe82da111bcbf958b"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank03_charuco.png",
+    "status": "added",
+    "sha256": "8ea8e1857265a5833c30de3145c302140c730022d3d4cb5db961d88578632c5c"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank04_charuco.pdf",
+    "status": "added",
+    "sha256": "c01f0eefbb4bf9cd2023749b2c6b710ce62a6bb87f67022f0ebe0aba6319ac01"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank04_charuco.png",
+    "status": "added",
+    "sha256": "0aa548cece59893262597bca5996685fae0a8558cb3979f55044c4103a0e8749"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank05_charuco.pdf",
+    "status": "added",
+    "sha256": "87f9c04f8aa97fc6e47050a2045616d61ee9bce935457a6774cda2b3ad1274df"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank05_charuco.png",
+    "status": "added",
+    "sha256": "edeccfa34b70610672ba4772cb142e5243b129a853ff0ff44f2655d173fc839e"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank06_charuco.pdf",
+    "status": "added",
+    "sha256": "ca8df2673b1e9c560fb93cf78935951165842a0fdaeae03f00084af8471ebeeb"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank06_charuco.png",
+    "status": "added",
+    "sha256": "239279a1e0ce46edd33b1e169ac0e5603d04f0442377378e9b0eca1edcfd514f"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank07_charuco.pdf",
+    "status": "added",
+    "sha256": "51bceb1d09742a3c48d1473f2b619ce930141177e65afadf11ca457084c6419c"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank07_charuco.png",
+    "status": "added",
+    "sha256": "d729dc5323f0e609618d8bf7458f41b87cbbb3b724f9f9a85a9dcb76cecd8218"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank08_charuco.pdf",
+    "status": "added",
+    "sha256": "654f6e07bff1b5ec842d7b7aa93b32f1a206a00a3f85f514f2b588226b87b3b9"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank08_charuco.png",
+    "status": "added",
+    "sha256": "8422f5d6b2d03f0a3c3c2756ac9bf543074e9d3a8df41ee1a6c0d043b290585b"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank09_charuco.pdf",
+    "status": "added",
+    "sha256": "f5d3e7b719ea81b79c855c4173b3f77c4fe41c46295a86ba27adbd1680872e4e"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank09_charuco.png",
+    "status": "added",
+    "sha256": "2c8beb0047a55c1f3efcb0783d007edfafbb43c975952530aebb6ddad47d4fa1"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank10_charuco.pdf",
+    "status": "added",
+    "sha256": "7e675e609c0c0f1092648b433a86e966e6a7ec5bd73f07c73846ec12498b9796"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank10_charuco.png",
+    "status": "added",
+    "sha256": "6de2badfc31e2a7efdb4e53038d157eedf50e3a3837cbacd1735755227fcaf11"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank11_charuco.pdf",
+    "status": "added",
+    "sha256": "bde67cfd0e9037051a2125028a6b78731ae408c4484fcf3535a823729774b7c2"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank11_charuco.png",
+    "status": "added",
+    "sha256": "2ec83b3f58e9e7e06ecc5099ac5fdafc9e945489cd075841c4558e2d9135375f"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank12_charuco.pdf",
+    "status": "added",
+    "sha256": "88a91999c5c369afe577900af7f371205c4edb7c1945cd557018a3998110a63d"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank12_charuco.png",
+    "status": "added",
+    "sha256": "59f0ed84980e3c22ad3382ad67f773f94b9076fbdbcca78328f790e7906a4dad"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank13_charuco.pdf",
+    "status": "added",
+    "sha256": "ffd03b70ed3eb1ec28d1f55497dbf9f722e21dfb3d95b54e6ff12a088e9e6382"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank13_charuco.png",
+    "status": "added",
+    "sha256": "7339c1fc418206aa5b555c41aa2f628742f93cc5c69aac0f5066541012186728"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank14_charuco.pdf",
+    "status": "added",
+    "sha256": "28a80c1395c5e4554b33fceea053de5b7ce3e58821e0f4dc9d03ab6157c2fdf2"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank14_charuco.png",
+    "status": "added",
+    "sha256": "19b512efcf641a2778d2371dc3865d2cfb2793c6755b6fdbc054835312f99d18"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank15_charuco.pdf",
+    "status": "added",
+    "sha256": "31c76fe4f6c69d320df59c5014ebee65d996b645372fa050c5d6ebfa63bb55b8"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank15_charuco.png",
+    "status": "added",
+    "sha256": "bd823a5e9563a1cd6b8a28437097c45d80a82d6ab122c49a39efe6f32333bebd"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank16_charuco.pdf",
+    "status": "added",
+    "sha256": "3078515b0981de1ed6d274b4c6d4fc06fcffd7b1ce72460a41fbe935608f4608"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/tank16_charuco.png",
+    "status": "added",
+    "sha256": "cf2dffd87019f350be0c14659f65a3e437f704dec8f4b4e4e8474fe3497a15b0"
+  },
+  {
+    "path": "data/boards/stage2_charuco_basler_32mm/validation_report.json",
+    "status": "added",
+    "sha256": "20aeec9d9540767e3dc01d9dbf0390647da1b2faaa758c47ec9ac1e38de0c891"
+  },
+  {
+    "path": "vendor/charuco-realsense/pyproject.toml",
+    "status": "modified",
+    "sha256": "60807b56eca5c749d9a983ff533a75c71df4467b05b1f95ab9997dffa68338b5"
+  },
+  {
+    "path": "vendor/charuco-realsense/src/charuco_realsense/basler.py",
+    "status": "added",
+    "sha256": "af24e81ed041af302c63c889b82bbe54ba3106782ed05cbff1590710b6412d9b"
+  },
+  {
+    "path": "vendor/ur-pick-place/src/ur_pick_place/vision/cameras.py",
+    "status": "modified",
+    "sha256": "211759eddb5cfefe216a3d3f476ffa3d1df6ceee9fa641134bade33803408e9c"
+  },
+  {
+    "path": "vendor/ur-pick-place/src/ur_pick_place/vision/teaching.py",
+    "status": "modified",
+    "sha256": "96798d1be4c90060005d7daae61acf34f32703c226328236fba3446db4804334"
+  },
+  {
+    "path": "vendor/ur-pick-place/tests/test_vision_cameras.py",
+    "status": "modified",
+    "sha256": "e5595a59bc557681403c9e5353d6b3c11d520ec6060351d83bab0633325b7696"
+  },
+  {
+    "path": "vendor/ur10e-handeye/pyproject.toml",
+    "status": "modified",
+    "sha256": "b774ce14cfc1b0ee6ed4fb02628e2dbe16335761df042dbed9e97ad398c5f6df"
+  },
+  {
+    "path": "vendor/ur10e-handeye/src/ur_handeye/cli.py",
+    "status": "modified",
+    "sha256": "5a4807a672ed39fe2c133645391f9768fd4f4a11371c13a24686cc13bc62813f"
+  },
+  {
+    "path": "vendor/ur10e-handeye/src/ur_handeye/intrinsics.py",
+    "status": "modified",
+    "sha256": "81e0ba191902ec58f2e96db22c7551aa8d6eff638502dcd2dc2126a8f8abef90"
+  },
+  {
+    "path": "vendor/ur10e-handeye/src/ur_handeye/ui.py",
+    "status": "modified",
+    "sha256": "4f7ddb0fc5b920f13e5a0ff3b032181bdecd92c62bbc764f371933d30483d516"
+  },
+  {
+    "path": "vendor/ur10e-handeye/tests/test_cli.py",
+    "status": "modified",
+    "sha256": "071ada12b21c8f1984d214a8f7bd68cf975683ab3d0e58a3ba950b305136fade"
+  }
+]

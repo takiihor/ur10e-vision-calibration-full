@@ -1,0 +1,70 @@
+{
+  "historical_release": true,
+  "note": "Describes source release 44f2f0aa, not the current review-fix revision.",
+  "source_id": "44f2f0aa68b8b7afcd18ef8c07abd5f94f3607079d65863fb4510d19e28a44e4",
+  "base_source_id": "e8109e8a95787c2691f4eccf5ca698d94b59677c520060ab88bbc44247a21cc6",
+  "source_files": 397,
+  "changed_files": 65,
+  "archive": "anodizing-modules-44f2f0aa.tar.gz",
+  "sha256": "05161805b0d817561b365f84055429ec76e4a991f1f67f1d31cfd6e1d0a1e0a1",
+  "bytes": 3666228,
+  "state": "installed and verified on IPC; laptop source staged",
+  "acceptance_provenance": {
+    "source_id": "13115877b3ad8ea30857b3794f6c06258ff0dd811ec63ab9e3553513616ab210",
+    "result": "36/36 focused independent offline subset GREEN (not the full app or vendor suites)",
+    "evidence": "results/final-13115877.txt",
+    "prior_manifest": "MANIFEST.sha256.13115877",
+    "prior_archive": "anodizing-modules-13115877.tar.gz",
+    "prior_archive_sha256": "a8af4d13f581636d083d21d8bf6603476546360ff93d9ed0adf60c689522aa73",
+    "tests_rerun": false,
+    "delta_at_e375": "deleted app/test/test_basler.py; seven methods are verbatim duplicates of retained test_basler_independent.py",
+    "later_deltas": [
+      "duplicate Basler test removal",
+      "two stale native CLI fixtures corrected",
+      "one STEP speed display expression"
+    ],
+    "motion_backend_identical": true
+  },
+  "fixture_correction": {
+    "prior_source_id": "17b2293872c3a5d7be3324dcff0ce7661d00d00b64348b0b2efd4e9c4e0255ef",
+    "sole_delta": "vendor/ur10e-handeye/tests/test_cli.py",
+    "product_source": "byte-identical to e37578a0 and accepted13115877",
+    "change": "Two fake URRobot lambdas accept **kwargs; stale exit/error and reviewed camera defaults assertions updated; both zero-motion assertions retained.",
+    "pre_existing_failure_evidence": [
+      "results/affected-handeye.txt",
+      "results/affected-two-fixed-cli.txt"
+    ],
+    "focused_checks": [
+      "test_cli.py::test_empty_dry_run_plan_fails_without_moving",
+      "test_cli.py::test_collect_dry_run_uses_reviewed_camera_rotation_defaults"
+    ],
+    "result": "2/2 GREEN; Terra pinned laptop venv with guard, isolated scratch against staged17b product;3.13s",
+    "prior_manifest": "MANIFEST.sha256.17b22938",
+    "prior_archive": "anodizing-modules-17b22938.tar.gz",
+    "prior_archive_sha256": "c8e647c480028e80145c8345786aeac0ae65e8f90ccf45501035edff30a2ab13",
+    "passing_suites_rerun": false,
+    "evidence": "results/affected-two-corrected-cli.txt"
+  },
+  "display_correction": {
+    "prior_source_id": "b59d35792581e76d027f451ff8bf94eaea6e58359610fb95f2ded90513087b2e",
+    "sole_delta": "app/anodizing_web/web/manual-job.js",
+    "change": "STEP summary joint speed uses toFixed(2); no backend or data change.",
+    "result": "focused fake-browser screenshot-flow GREEN; 3.00 degrees/s",
+    "prior_manifest": "MANIFEST.sha256.b59d3579",
+    "prior_archive": "anodizing-modules-b59d3579.tar.gz",
+    "prior_archive_sha256": "4e30bdccd44b1cc04175206bd73de85a0a0c8b717e05cb41e0c97dcce485e946",
+    "evidence": "results/display-speed-44f2.txt"
+  },
+  "installation": {
+    "pid": 1066330,
+    "start_ticks": "35715779",
+    "source": "/home/user/anodizing_line/anodizing_modules_20261104/bundle-robot-control-44f2f0aa-20261110/anodizing-modules",
+    "data_files": 862,
+    "board_additions": 35,
+    "data_unchanged": true,
+    "backup_sha256": "03b9550250cfa9b50a6f2bfc7789a285c25efd89ec08d78c41346df520335ae6",
+    "inventory_sha256": "9432042ee705d494ca5ed94a705895cad7c7dc7df3734264d02bbf2efa832cb9",
+    "evidence": "activation/activation.json",
+    "pypylon_version": "4.2.0"
+  }
+}

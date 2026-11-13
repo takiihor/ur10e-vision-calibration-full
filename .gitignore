@@ -1,0 +1,14 @@
+# Confidential local snapshot; not part of the public source repository.
+state/ipc-data.tar.gz
+state/data-manifest.json
+
+# Local caches and environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.jobs/
+*.egg-info/
+build/
+dist/

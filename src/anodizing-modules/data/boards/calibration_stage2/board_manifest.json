@@ -1,0 +1,928 @@
+{
+  "boards": [
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.014999999664723873,
+            0.014999999664723873,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.029999999329447746,
+            0.014999999664723873,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.044999998062849045,
+            0.014999999664723873,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.05999999865889549,
+            0.014999999664723873,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.014999999664723873,
+            0.029999999329447746,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.029999999329447746,
+            0.029999999329447746,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.044999998062849045,
+            0.029999999329447746,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.05999999865889549,
+            0.029999999329447746,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.014999999664723873,
+            0.044999998062849045,
+            0.0
+          ]
+        },
+        {
+          "id": 9,
+          "point_m": [
+            0.029999999329447746,
+            0.044999998062849045,
+            0.0
+          ]
+        },
+        {
+          "id": 10,
+          "point_m": [
+            0.044999998062849045,
+            0.044999998062849045,
+            0.0
+          ]
+        },
+        {
+          "id": 11,
+          "point_m": [
+            0.05999999865889549,
+            0.044999998062849045,
+            0.0
+          ]
+        },
+        {
+          "id": 12,
+          "point_m": [
+            0.014999999664723873,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 13,
+          "point_m": [
+            0.029999999329447746,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 14,
+          "point_m": [
+            0.044999998062849045,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 15,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 16,
+          "point_m": [
+            0.014999999664723873,
+            0.07499999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 17,
+          "point_m": [
+            0.029999999329447746,
+            0.07499999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 18,
+          "point_m": [
+            0.044999998062849045,
+            0.07499999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 19,
+          "point_m": [
+            0.05999999865889549,
+            0.07499999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 20,
+          "point_m": [
+            0.014999999664723873,
+            0.08999999612569809,
+            0.0
+          ]
+        },
+        {
+          "id": 21,
+          "point_m": [
+            0.029999999329447746,
+            0.08999999612569809,
+            0.0
+          ]
+        },
+        {
+          "id": 22,
+          "point_m": [
+            0.044999998062849045,
+            0.08999999612569809,
+            0.0
+          ]
+        },
+        {
+          "id": 23,
+          "point_m": [
+            0.05999999865889549,
+            0.08999999612569809,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        5,
+        7
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 24,
+      "expected_marker_count": 17,
+      "files": {
+        "combined_pdf": "calibration_stage2_A4.pdf",
+        "pdf": "calibration_stage2_charuco.pdf",
+        "png": "calibration_stage2_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 11.25,
+        "square_length_mm": 15.0,
+        "squares_x": 5,
+        "squares_y": 7
+      },
+      "identifier": "calibration_stage2-ref-51a78d84",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        167,
+        168,
+        169,
+        170,
+        171,
+        172,
+        173,
+        174,
+        175,
+        176,
+        177,
+        178,
+        179,
+        180,
+        181,
+        182,
+        183
+      ],
+      "marker_length_m": 0.01125,
+      "marker_length_mm": 11.25,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.016874998807907104,
+              0.0018749996088445187,
+              0.0
+            ],
+            [
+              0.02812499925494194,
+              0.0018749996088445187,
+              0.0
+            ],
+            [
+              0.02812499925494194,
+              0.013125000521540642,
+              0.0
+            ],
+            [
+              0.016874998807907104,
+              0.013125000521540642,
+              0.0
+            ]
+          ],
+          "id": 167,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0468749962747097,
+              0.0018749996088445187,
+              0.0
+            ],
+            [
+              0.05812499672174454,
+              0.0018749996088445187,
+              0.0
+            ],
+            [
+              0.05812499672174454,
+              0.013125000521540642,
+              0.0
+            ],
+            [
+              0.0468749962747097,
+              0.013125000521540642,
+              0.0
+            ]
+          ],
+          "id": 168,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0018749996088445187,
+              0.016874998807907104,
+              0.0
+            ],
+            [
+              0.013125000521540642,
+              0.016874998807907104,
+              0.0
+            ],
+            [
+              0.013125000521540642,
+              0.02812499925494194,
+              0.0
+            ],
+            [
+              0.0018749996088445187,
+              0.02812499925494194,
+              0.0
+            ]
+          ],
+          "id": 169,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.03187499940395355,
+              0.016874998807907104,
+              0.0
+            ],
+            [
+              0.04312499985098839,
+              0.016874998807907104,
+              0.0
+            ],
+            [
+              0.04312499985098839,
+              0.02812499925494194,
+              0.0
+            ],
+            [
+              0.03187499940395355,
+              0.02812499925494194,
+              0.0
+            ]
+          ],
+          "id": 170,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.06187499687075615,
+              0.016874998807907104,
+              0.0
+            ],
+            [
+              0.07312499731779099,
+              0.016874998807907104,
+              0.0
+            ],
+            [
+              0.07312499731779099,
+              0.02812499925494194,
+              0.0
+            ],
+            [
+              0.06187499687075615,
+              0.02812499925494194,
+              0.0
+            ]
+          ],
+          "id": 171,
+          "sequence_index": 4,
+          "square_column": 4,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.016874998807907104,
+              0.03187499940395355,
+              0.0
+            ],
+            [
+              0.02812499925494194,
+              0.03187499940395355,
+              0.0
+            ],
+            [
+              0.02812499925494194,
+              0.04312499985098839,
+              0.0
+            ],
+            [
+              0.016874998807907104,
+              0.04312499985098839,
+              0.0
+            ]
+          ],
+          "id": 172,
+          "sequence_index": 5,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0468749962747097,
+              0.03187499940395355,
+              0.0
+            ],
+            [
+              0.05812499672174454,
+              0.03187499940395355,
+              0.0
+            ],
+            [
+              0.05812499672174454,
+              0.04312499985098839,
+              0.0
+            ],
+            [
+              0.0468749962747097,
+              0.04312499985098839,
+              0.0
+            ]
+          ],
+          "id": 173,
+          "sequence_index": 6,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0018749996088445187,
+              0.0468749962747097,
+              0.0
+            ],
+            [
+              0.013125000521540642,
+              0.0468749962747097,
+              0.0
+            ],
+            [
+              0.013125000521540642,
+              0.05812499672174454,
+              0.0
+            ],
+            [
+              0.0018749996088445187,
+              0.05812499672174454,
+              0.0
+            ]
+          ],
+          "id": 174,
+          "sequence_index": 7,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.03187499940395355,
+              0.0468749962747097,
+              0.0
+            ],
+            [
+              0.04312499985098839,
+              0.0468749962747097,
+              0.0
+            ],
+            [
+              0.04312499985098839,
+              0.05812499672174454,
+              0.0
+            ],
+            [
+              0.03187499940395355,
+              0.05812499672174454,
+              0.0
+            ]
+          ],
+          "id": 175,
+          "sequence_index": 8,
+          "square_column": 2,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.06187499687075615,
+              0.0468749962747097,
+              0.0
+            ],
+            [
+              0.07312499731779099,
+              0.0468749962747097,
+              0.0
+            ],
+            [
+              0.07312499731779099,
+              0.05812499672174454,
+              0.0
+            ],
+            [
+              0.06187499687075615,
+              0.05812499672174454,
+              0.0
+            ]
+          ],
+          "id": 176,
+          "sequence_index": 9,
+          "square_column": 4,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.016874998807907104,
+              0.06187499687075615,
+              0.0
+            ],
+            [
+              0.02812499925494194,
+              0.06187499687075615,
+              0.0
+            ],
+            [
+              0.02812499925494194,
+              0.07312499731779099,
+              0.0
+            ],
+            [
+              0.016874998807907104,
+              0.07312499731779099,
+              0.0
+            ]
+          ],
+          "id": 177,
+          "sequence_index": 10,
+          "square_column": 1,
+          "square_row": 4
+        },
+        {
+          "corners_m": [
+            [
+              0.0468749962747097,
+              0.06187499687075615,
+              0.0
+            ],
+            [
+              0.05812499672174454,
+              0.06187499687075615,
+              0.0
+            ],
+            [
+              0.05812499672174454,
+              0.07312499731779099,
+              0.0
+            ],
+            [
+              0.0468749962747097,
+              0.07312499731779099,
+              0.0
+            ]
+          ],
+          "id": 178,
+          "sequence_index": 11,
+          "square_column": 3,
+          "square_row": 4
+        },
+        {
+          "corners_m": [
+            [
+              0.0018749996088445187,
+              0.0768749937415123,
+              0.0
+            ],
+            [
+              0.013125000521540642,
+              0.0768749937415123,
+              0.0
+            ],
+            [
+              0.013125000521540642,
+              0.08812499046325684,
+              0.0
+            ],
+            [
+              0.0018749996088445187,
+              0.08812499046325684,
+              0.0
+            ]
+          ],
+          "id": 179,
+          "sequence_index": 12,
+          "square_column": 0,
+          "square_row": 5
+        },
+        {
+          "corners_m": [
+            [
+              0.03187499940395355,
+              0.0768749937415123,
+              0.0
+            ],
+            [
+              0.04312499985098839,
+              0.0768749937415123,
+              0.0
+            ],
+            [
+              0.04312499985098839,
+              0.08812499046325684,
+              0.0
+            ],
+            [
+              0.03187499940395355,
+              0.08812499046325684,
+              0.0
+            ]
+          ],
+          "id": 180,
+          "sequence_index": 13,
+          "square_column": 2,
+          "square_row": 5
+        },
+        {
+          "corners_m": [
+            [
+              0.06187499687075615,
+              0.0768749937415123,
+              0.0
+            ],
+            [
+              0.07312499731779099,
+              0.0768749937415123,
+              0.0
+            ],
+            [
+              0.07312499731779099,
+              0.08812499046325684,
+              0.0
+            ],
+            [
+              0.06187499687075615,
+              0.08812499046325684,
+              0.0
+            ]
+          ],
+          "id": 181,
+          "sequence_index": 14,
+          "square_column": 4,
+          "square_row": 5
+        },
+        {
+          "corners_m": [
+            [
+              0.016874998807907104,
+              0.09187499433755875,
+              0.0
+            ],
+            [
+              0.02812499925494194,
+              0.09187499433755875,
+              0.0
+            ],
+            [
+              0.02812499925494194,
+              0.10312499105930328,
+              0.0
+            ],
+            [
+              0.016874998807907104,
+              0.10312499105930328,
+              0.0
+            ]
+          ],
+          "id": 182,
+          "sequence_index": 15,
+          "square_column": 1,
+          "square_row": 6
+        },
+        {
+          "corners_m": [
+            [
+              0.0468749962747097,
+              0.09187499433755875,
+              0.0
+            ],
+            [
+              0.05812499672174454,
+              0.09187499433755875,
+              0.0
+            ],
+            [
+              0.05812499672174454,
+              0.10312499105930328,
+              0.0
+            ],
+            [
+              0.0468749962747097,
+              0.10312499105930328,
+              0.0
+            ]
+          ],
+          "id": 183,
+          "sequence_index": 16,
+          "square_column": 3,
+          "square_row": 6
+        }
+      ],
+      "name": "calibration_stage2",
+      "pattern_dimensions_m": [
+        0.075,
+        0.105
+      ],
+      "pattern_dimensions_mm": [
+        75.0,
+        105.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.44,
+        "ideal_pixels_per_square": 354.33070866141736,
+        "image_pixels": [
+          2242,
+          2950
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1770,
+          2478
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          74.93,
+          104.902
+        ],
+        "pattern_pixels": [
+          1770,
+          2478
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.06999999999999318,
+          -0.09799999999999898
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 354,
+        "png_metadata_dpi": 599.44,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.3307086614173613,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "8d23be56d773006526cc456956d1ec7fad710f80eb3e1c63c01258448eed71d3",
+        "pdf": "8d23be56d773006526cc456956d1ec7fad710f80eb3e1c63c01258448eed71d3",
+        "png": "4b686595edd716d1df1f9ccdf4ce58d824cb43f6d8e89c176571d1b2365b7e35"
+      },
+      "square_length_m": 0.015,
+      "square_length_mm": 15.0
+    }
+  ],
+  "checksum_scope": "PNG and PDF artifacts. Manifest and report are excluded to avoid recursive checksums; report includes manifest checksum.",
+  "combined_pdf": "calibration_stage2_A4.pdf",
+  "configuration": {
+    "boards": [
+      {
+        "identifier": "calibration_stage2-ref-51a78d84",
+        "marker_ids": [
+          167,
+          168,
+          169,
+          170,
+          171,
+          172,
+          173,
+          174,
+          175,
+          176,
+          177,
+          178,
+          179,
+          180,
+          181,
+          182,
+          183
+        ],
+        "name": "calibration_stage2"
+      }
+    ],
+    "geometry": {
+      "border_bits": 1,
+      "dictionary": "DICT_6X6_250",
+      "legacy_pattern": false,
+      "marker_length_mm": 11.25,
+      "square_length_mm": 15.0,
+      "squares_x": 5,
+      "squares_y": 7
+    },
+    "output_dir": "output/two_stage/calibration_stage2",
+    "printing": {
+      "dpi": 600,
+      "page_margin_mm": 10.0,
+      "page_size": "A4",
+      "tile_overlap_mm": 0.0,
+      "white_margin_mm": 10.0
+    },
+    "schema_version": 1
+  },
+  "configuration_sha256": "8819f694ebbf3ad4f8ff4cc6dc2f64d6b4f978328f5d8da4985538c3b919d4c4",
+  "dictionary_quality": {
+    "capacity": 250,
+    "ids_in_use": 17,
+    "marker_size": 6,
+    "max_correction_bits": 5,
+    "mean_distance_in_use": 11.529,
+    "min_distance_in_use": 11,
+    "min_hamming_distance": 11,
+    "note": "Rotation-aware Hamming distances between dictionary codewords; min_distance_in_use covers only the IDs this set prints."
+  },
+  "environment": {
+    "numpy": "2.3.5",
+    "opencv": "4.11.0",
+    "opencv_distribution": "opencv-contrib-python-headless",
+    "opencv_distribution_version": "4.11.0.86",
+    "opencv_tested_against": "4.11.0",
+    "pillow": "12.0.0",
+    "pypdf": "6.1.3",
+    "python": "3.12.15",
+    "reportlab": "4.4.5"
+  },
+  "exports": [],
+  "generator_version": "1.1.0",
+  "path_convention": "All file paths are relative to the directory containing this manifest",
+  "pdf_layouts": {
+    "calibration_stage2_A4.pdf": [
+      {
+        "board": "calibration_stage2",
+        "form_size_mm": [
+          75.0,
+          105.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          71.0,
+          124.0,
+          149.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          67.5,
+          91.0,
+          75.0,
+          105.0
+        ],
+        "pdf_form": "/FormXob.Charuco_calibration_stage2",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "calibration_stage2_charuco.pdf": [
+      {
+        "board": "calibration_stage2",
+        "form_size_mm": [
+          75.0,
+          105.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          71.0,
+          124.0,
+          149.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          67.5,
+          91.0,
+          75.0,
+          105.0
+        ],
+        "pdf_form": "/FormXob.Charuco_calibration_stage2",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ]
+  },
+  "print_geometry": "Vector forms in PDF points (72 points/inch); no fit-to-page transformation",
+  "printing": {
+    "page_size": "A4",
+    "physical_print_verified": false,
+    "scale": 1.0,
+    "viewer_print_scaling": "None"
+  },
+  "schema_version": 1,
+  "sha256": {
+    "calibration_stage2_A4.pdf": "8d23be56d773006526cc456956d1ec7fad710f80eb3e1c63c01258448eed71d3",
+    "calibration_stage2_charuco.pdf": "8d23be56d773006526cc456956d1ec7fad710f80eb3e1c63c01258448eed71d3",
+    "calibration_stage2_charuco.png": "4b686595edd716d1df1f9ccdf4ce58d824cb43f6d8e89c176571d1b2365b7e35"
+  },
+  "validation_report": "validation_report.json"
+}

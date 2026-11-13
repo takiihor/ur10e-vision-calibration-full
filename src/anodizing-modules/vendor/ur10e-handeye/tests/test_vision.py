@@ -1,0 +1,179 @@
+import cv2
+import numpy as np
+import pytest
+from charuco_realsense.calibration import opencv_calibration
+from charuco_realsense.detect import CharucoDetector
+
+from ur_handeye.simulation import build_scenario
+from ur_handeye.transforms import angle_between_deg, matrix, rotvec_to_rotation
+from ur_handeye.vision import BoardObserver
+
+
+@pytest.fixture(scope="module")
+def scenario():
+    return build_scenario(seed=1, image_noise=0.0)
+
+
+def test_simulated_view_recovers_true_board_pose(scenario):
+    observation = BoardObserver(scenario.camera, scenario.target).observe(3)
+    truth = scenario.camera.board_in_camera()
+    assert observation.usable(0.3) == (True, [])
+    assert len(observation.charuco_ids) == 24
+    assert np.linalg.norm(observation.board_in_camera[:3, 3] - truth[:3, 3]) < 5e-5  # 0.05 mm at 0.42 m
+    assert angle_between_deg(observation.board_in_camera, truth) < 0.02
+
+
+def test_opencv_charuco_corner_offset_is_corrected(scenario):
+    """OpenCV 4.11 detectBoard returns ChArUco corners ~+0.5 px off; the observer re-refines them.
+
+    If this starts failing on the raw detector, OpenCV fixed the offset and the extra refinement
+    can be reconsidered (it remains harmless).
+    """
+    gray = cv2.cvtColor(scenario.camera.read().bgr, cv2.COLOR_BGR2GRAY)
+    intrinsics = scenario.camera.intrinsics
+    detection = CharucoDetector(scenario.target.board, refine=False).detect(gray, intrinsics)
+    truth = scenario.camera.board_in_camera()
+    matrix_k, coeffs = opencv_calibration(intrinsics)
+    ids = list(detection.charuco_ids)
+    projected, _ = cv2.projectPoints(scenario.target.corners[ids], cv2.Rodrigues(truth[:3, :3])[0], truth[:3, 3],
+                                     matrix_k, coeffs)
+    raw = (detection.charuco_corners.reshape(-1, 2) - projected.reshape(-1, 2)).mean(axis=0)
+    assert raw == pytest.approx([0.5, 0.5], abs=0.1)
+    from ur_handeye.vision import refine_corners
+    refined = (refine_corners(gray, detection.charuco_corners) - projected.reshape(-1, 2)).mean(axis=0)
+    assert np.abs(refined).max() < 0.02
+
+
+def test_unrefined_observer_shows_the_bias(scenario):
+    truth = scenario.camera.board_in_camera()
+    raw = BoardObserver(scenario.camera, scenario.target, refine=False).observe(1).board_in_camera
+    fixed = BoardObserver(scenario.camera, scenario.target).observe(1).board_in_camera
+    assert np.linalg.norm((raw - truth)[:2, 3]) > 1e-4 > np.linalg.norm((fixed - truth)[:2, 3])
+
+
+class ShakyCamera:
+    """Each frame comes from a slightly different flange pose, like a mount still ringing."""
+
+    def __init__(self, camera, robot, amplitude_m):
+        self.camera, self.robot, self.amplitude = camera, robot, amplitude_m
+        self.rng = np.random.default_rng(0)
+
+    def read(self):
+        original = self.robot.true_flange_pose
+        shake = matrix(np.eye(3), self.rng.normal(0, self.amplitude, 3))
+        self.robot.true_flange_pose = lambda: original() @ shake
+        try:
+            return self.camera.read()
+        finally:
+            self.robot.true_flange_pose = original
+
+
+def test_vibration_is_rejected_as_corner_jitter(scenario):
+    shaky = ShakyCamera(scenario.camera, scenario.robot, 0.0015)
+    observation = BoardObserver(shaky, scenario.target).observe(5)
+    usable, reasons = observation.usable(0.3)
+    assert not usable and "corner_jitter" in reasons
+
+
+def test_board_out_of_view_has_no_pose():
+    scenario = build_scenario(seed=2)
+    scenario.camera.board_in_base = scenario.camera.board_in_base @ matrix(rotvec_to_rotation([0, 0, 0]), [1.0, 0, 0])
+    observation = BoardObserver(scenario.camera, scenario.target).observe(2)
+    assert observation.pose is None and observation.usable(0.3) == (False, ["no_pose"])
+
+
+def test_changing_intrinsics_within_capture_is_rejected(scenario):
+    from dataclasses import replace
+
+    from ur_handeye.vision import VisionError
+    class Camera:
+        count = 0
+        def read(self):
+            self.count += 1
+            frame = scenario.camera.read()
+            return replace(frame, intrinsics=dict(frame.intrinsics, fx=910 + self.count))
+    with pytest.raises(VisionError, match='changed during capture'):
+        BoardObserver(Camera(), scenario.target).observe(3)
+
+
+def test_repeated_camera_frame_does_not_count_as_multiple_samples(scenario):
+    class Camera:
+        def read(self):
+            return frame
+    frame = scenario.camera.read()
+    observation = BoardObserver(Camera(), scenario.target).observe(5)
+    assert observation.frames_used == 1
+    assert not observation.usable(0.3)[0]
+
+
+def test_corner_refinement_rejection_keeps_raw_detections_and_reason(scenario, monkeypatch):
+    monkeypatch.setattr("ur_handeye.vision.refine_corners", lambda *args: None)
+    observation = BoardObserver(scenario.camera, scenario.target).observe(3)
+    assert observation.frames_used == 0
+    assert observation.frame_rejections == {"corner_refinement_failed": 3}
+    assert "corner_refinement_failed" in observation.usable(0.3)[1]
+    assert all(len(detail["charuco_ids"]) == 24 for _, detail in observation.frames)
+
+
+def test_one_unstable_corner_does_not_discard_a_good_frame(scenario, monkeypatch):
+    from dataclasses import replace
+
+    observer = BoardObserver(scenario.camera, scenario.target)
+    detect = observer.detector.detect
+
+    def shifted_corner(*args):
+        detection = detect(*args)
+        corners = detection.charuco_corners.copy()
+        corners[7, 0, 0] += 2.0  # must still fail the existing 1 px displacement guard
+        return replace(detection, charuco_corners=corners)
+
+    monkeypatch.setattr(observer.detector, "detect", shifted_corner)
+    observation = observer.observe(5)
+    assert observation.usable(0.3) == (True, [])
+    assert observation.frames_used == 5 and len(observation.charuco_ids) == 23
+    assert 7 not in observation.charuco_ids
+    for _, detail in observation.frames:
+        assert detail["refinement_rejected_ids"] == [7]
+        assert len(detail["charuco_ids"]) == 24  # retain the raw evidence
+        assert len(detail["used_charuco_ids"]) == len(detail["used_charuco_corners"]) == 23
+    truth = scenario.camera.board_in_camera()
+    assert np.linalg.norm(observation.board_in_camera[:3, 3] - truth[:3, 3]) < 1e-4  # 0.1 mm with one corner missing
+    assert angle_between_deg(observation.board_in_camera, truth) < 0.05
+
+
+def test_widespread_refinement_failures_still_reject_the_view(scenario, monkeypatch):
+    def unreliable(gray, points, *args):
+        points[3:] += 2.0  # only three corners remain: a pose cannot be accepted
+        return points
+
+    monkeypatch.setattr(cv2, "cornerSubPix", unreliable)
+    observation = BoardObserver(scenario.camera, scenario.target).observe(5)
+    assert not observation.usable(0.3)[0]
+    assert observation.pose is None
+
+
+def test_corner_refinement_does_not_serialize_nonfinite_coordinates(scenario, monkeypatch):
+    import json
+
+    def unreliable(gray, points, *args):
+        points[:] = np.nan
+        return points
+
+    monkeypatch.setattr(cv2, "cornerSubPix", unreliable)
+    observation = BoardObserver(scenario.camera, scenario.target).observe(3)
+    assert observation.frames_used == 0
+    assert "corner_refinement_failed" in observation.usable(0.3)[1]
+    json.dumps(observation.to_record(), allow_nan=False)
+    for _, detail in observation.frames:
+        json.dumps(detail, allow_nan=False)
+
+
+def test_monitor_failure_after_read_keeps_that_frame(scenario):
+    observer = BoardObserver(scenario.camera, scenario.target)
+    calls = iter([True, False])
+    def monitor():
+        if not next(calls):
+            raise RuntimeError("feedback lost")
+    with pytest.raises(RuntimeError, match="feedback lost"):
+        observer.observe(2, monitor=monitor)
+    assert len(observer.captured_frames) == 1

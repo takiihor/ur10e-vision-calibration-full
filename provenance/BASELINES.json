@@ -1,0 +1,521 @@
+{
+  "baselines": {
+    "charuco-generator": {
+      "archive": "charuco-generator-52093f9.tar.gz",
+      "commit": "52093f99665e29d479b9a9e2c29b1aac05fee0d5",
+      "files": 40,
+      "sha256": "54e9d8192e2ebd7c4b304e2c738915d343b2421e2a65c0cf61b5091ad782edc7",
+      "top_level": "charuco-generator"
+    },
+    "charuco-realsense": {
+      "archive": "charuco-realsense-02e7010.tar.gz",
+      "commit": "02e7010b7dcc63ed0dbfa5953ffe90a1d98b75fb",
+      "files": 39,
+      "sha256": "a29fde40c0423dfe72a4200d49ab8d23e2461cc292afb6e7fa46e0a17caf156b",
+      "top_level": "charuco-realsense"
+    },
+    "ur-pick-place": {
+      "archive": "ur-pick-place-e998dff.tar.gz",
+      "commit": "e998dffc074c97bc3bd8f557564d0d1524de031f",
+      "files": 95,
+      "sha256": "690ade634cc2e332f10d91d5edfb31d4a91b38aae1c35a8c06b4be1fc683c29a",
+      "top_level": "ur-pick-place"
+    },
+    "ur10e-handeye": {
+      "archive": "ur10e-handeye-2f0e69c.tar.gz",
+      "commit": "2f0e69c776957772548506cc9532537792a03dca",
+      "files": 61,
+      "sha256": "5e419e53e31a1dc571c029f40d062c8eb5d1dd7d93b530dbbdea1b2a243af1a8",
+      "top_level": "ur10e-handeye"
+    }
+  },
+  "description": "Offline provenance mapping for vendored source. Baseline archives are deterministic git-archive-equivalent trees of the pinned commits. The bundle is not identical to these baselines; status entries record every difference.",
+  "vendors": {
+    "charuco-generator": {
+      "added": [],
+      "baseline_files": 40,
+      "bundle_files": 40,
+      "changed": [
+        {
+          "baseline_sha256": "c94a50878b021bc0f7f18a7e8dbfb1392d04ac7516a356602a2dd115540b97da",
+          "bundle_sha256": "68baae3f14ba31ab2f532caf8cebe27727e310664132c1c7abc6a62403d27b89",
+          "path": "README.md"
+        },
+        {
+          "baseline_sha256": "0e2ed73db610831dc933b2ad6357f9e299cc9ac439e850dc69da47359c9d743b",
+          "bundle_sha256": "8b0aaf37e7f1f40794bf290a0acf4d32de79b8a17b76761b5712ad7f8a8f8eac",
+          "path": "generate_charuco.sh"
+        },
+        {
+          "baseline_sha256": "43285c273f1cf6468076b5e721fdb8b2aef0f9a84165c73c788c8acba908a2fa",
+          "bundle_sha256": "3e840a41d62292c85c198e7f09cb8158a30a548b428a54f4862fa0de488f5bfc",
+          "path": "src/charuco_generator/__init__.py"
+        },
+        {
+          "baseline_sha256": "adbd54b76d6a295e04b8d1b7267d218a657af96c9824d28058e200780073db75",
+          "bundle_sha256": "c2bdd92aec8262808039f834b4f12e41f5fb0e83fe75a01d94a0df1d8bba4954",
+          "path": "src/charuco_generator/cli.py"
+        }
+      ],
+      "deleted": [],
+      "unchanged": [
+        ".github/workflows/ci.yml",
+        ".gitignore",
+        "LICENSE",
+        "config/boards.json",
+        "docs/REFERENCE.md",
+        "generate.py",
+        "generate_aruco.sh",
+        "generate_calibration.sh",
+        "generate_tanks.sh",
+        "generate_two_stage.sh",
+        "pyproject.toml",
+        "requirements-dev.txt",
+        "requirements.txt",
+        "src/charuco_generator/aruco.py",
+        "src/charuco_generator/board.py",
+        "src/charuco_generator/calibration.py",
+        "src/charuco_generator/config.py",
+        "src/charuco_generator/export.py",
+        "src/charuco_generator/generator.py",
+        "src/charuco_generator/menu.py",
+        "src/charuco_generator/py.typed",
+        "src/charuco_generator/render.py",
+        "src/charuco_generator/selection.py",
+        "src/charuco_generator/sheet.py",
+        "src/charuco_generator/stages.py",
+        "src/charuco_generator/tanks.py",
+        "src/charuco_generator/validation.py",
+        "tests/conftest.py",
+        "tests/test_aruco.py",
+        "tests/test_calibration.py",
+        "tests/test_cli.py",
+        "tests/test_geometry_config.py",
+        "tests/test_menu.py",
+        "tests/test_outputs.py",
+        "tests/test_stages.py",
+        "tests/test_tanks.py"
+      ]
+    },
+    "charuco-realsense": {
+      "added": [
+        {
+          "path": "LICENSE-NOTICE.md",
+          "sha256": "bb562f74d7810f84482ffd7798a60da1bc078425e97989ef696b5e498dbd8008"
+        },
+        {
+          "path": "src/charuco_realsense/basler.py",
+          "sha256": "af24e81ed041af302c63c889b82bbe54ba3106782ed05cbff1590710b6412d9b"
+        }
+      ],
+      "baseline_files": 39,
+      "bundle_files": 41,
+      "changed": [
+        {
+          "baseline_sha256": "85d3b2bfbdd8c02a7901fb6dd99371492e691887cd94c756dfed2cd7154914cb",
+          "bundle_sha256": "410f25208451107530bbb532e95b59d033513b4c17b5ce826b40c296fe446e71",
+          "path": "pyproject.toml"
+        },
+        {
+          "baseline_sha256": "3462504f7332cf6a3355675e3a0155d805fa00ce89370ecc524eb94d7ee32dc3",
+          "bundle_sha256": "f8fd315e1afd32694240b6bb975251a4d8e3554b59e906aaaa1b5f3d537a9f61",
+          "path": "src/charuco_realsense/__init__.py"
+        }
+      ],
+      "deleted": [],
+      "unchanged": [
+        ".github/workflows/ci.yml",
+        ".gitignore",
+        "README.md",
+        "deploy/charuco-realsense.service",
+        "docs/REFERENCE.md",
+        "docs/measurements/2026-10-28-80mm.json",
+        "kill.sh",
+        "main.py",
+        "requirements.txt",
+        "src/charuco_realsense/calibration.py",
+        "src/charuco_realsense/camera.py",
+        "src/charuco_realsense/cli.py",
+        "src/charuco_realsense/coordinates.py",
+        "src/charuco_realsense/detect.py",
+        "src/charuco_realsense/gui.py",
+        "src/charuco_realsense/metrics.py",
+        "src/charuco_realsense/monitor.py",
+        "src/charuco_realsense/pose.py",
+        "src/charuco_realsense/processes.py",
+        "src/charuco_realsense/recording.py",
+        "src/charuco_realsense/service.py",
+        "src/charuco_realsense/shutdown.py",
+        "start_camera.sh",
+        "tests/conftest.py",
+        "tests/test_calibration.py",
+        "tests/test_camera.py",
+        "tests/test_cli.py",
+        "tests/test_coordinates.py",
+        "tests/test_detection.py",
+        "tests/test_gui_markers.py",
+        "tests/test_gui_signals.py",
+        "tests/test_metrics.py",
+        "tests/test_monitor.py",
+        "tests/test_pose.py",
+        "tests/test_processes.py",
+        "tests/test_service.py",
+        "tests/test_startup.py"
+      ]
+    },
+    "ur-pick-place": {
+      "added": [
+        {
+          "path": "LICENSE-NOTICE.md",
+          "sha256": "bb562f74d7810f84482ffd7798a60da1bc078425e97989ef696b5e498dbd8008"
+        },
+        {
+          "path": "src/ur_pick_place/scheduling.py",
+          "sha256": "1f7f016ba8977936d5d600dd1a9a1006b693f3700a03ec4a387c0a7de3af7302"
+        }
+      ],
+      "baseline_files": 95,
+      "bundle_files": 97,
+      "changed": [
+        {
+          "baseline_sha256": "8ab7a50e7f338fe60d5a2818273eaccf7332e4999eba8592d1e4ecedf04e6536",
+          "bundle_sha256": "f2d920181f457a15fe92dd554c7b1d367957980ad9069c51c72caad555ba0de1",
+          "path": "pyproject.toml"
+        },
+        {
+          "baseline_sha256": "d2c2d47e764686a141df42c6bad3bfbbbbc5c02696365cbcc56e1eebb35565d9",
+          "bundle_sha256": "211759eddb5cfefe216a3d3f476ffa3d1df6ceee9fa641134bade33803408e9c",
+          "path": "src/ur_pick_place/vision/cameras.py"
+        },
+        {
+          "baseline_sha256": "9ea9073fce5c5a07fb017e38964b6dbd2b7e3efc1c9cfcff866e52a73faa8624",
+          "bundle_sha256": "ad2493851627e516d752a0d3df8e6a95f7bca5eda76fc1761983bce8ceed4039",
+          "path": "src/ur_pick_place/vision/cli.py"
+        },
+        {
+          "baseline_sha256": "2b5e659c3490c373f1f80f259ead01709ebd54f34ff2dafefd743ed1cb1b29d2",
+          "bundle_sha256": "bb74d3483b51bb3e7b99c3a35bfd7a383c225847d1717f259ec635e90c2eff43",
+          "path": "src/ur_pick_place/vision/handeye.py"
+        },
+        {
+          "baseline_sha256": "edd0d7bd163150d446643e272efae199b16f300ed2aa7f5fe4854ecf1ad70809",
+          "bundle_sha256": "fcfd8c87b753f794478a59e829e2fd6dbe5e784afec3264188c56ad4dd05561d",
+          "path": "src/ur_pick_place/vision/teach_ui.py"
+        },
+        {
+          "baseline_sha256": "8534d3dfd2a70bcf3a7541676a29ce5ff1cd7a3d2ca767d72320e4c71e2298af",
+          "bundle_sha256": "96798d1be4c90060005d7daae61acf34f32703c226328236fba3446db4804334",
+          "path": "src/ur_pick_place/vision/teaching.py"
+        },
+        {
+          "baseline_sha256": "a66a46c45e7a2b2e07371fb7953b5535daebb6d3b7b8b2e19474b8774c63c70b",
+          "bundle_sha256": "a1eb371b6fa23f15b6e497988b3b5390e9d9358b3ef834abef661a28312ad57e",
+          "path": "src/ur_pick_place/vision/validation.py"
+        },
+        {
+          "baseline_sha256": "97c426ee9d8db3053e149d643b4314c2072e4e780f04fdba5def271ea6a50353",
+          "bundle_sha256": "612ada9bd90d94fbad3b873572eb870c792520fb51780db7bf8258850c8d9384",
+          "path": "tests/marker_validation_browser.cjs"
+        },
+        {
+          "baseline_sha256": "cd45f5ba55e8513b2eba0be03f50e9239935672ed608fcaafb12da60f6b0aa06",
+          "bundle_sha256": "e5595a59bc557681403c9e5353d6b3c11d520ec6060351d83bab0633325b7696",
+          "path": "tests/test_vision_cameras.py"
+        },
+        {
+          "baseline_sha256": "6650bd2761f316889438900a1d68f45f9c68bdd7a200108be1df1b6eeeadaf0e",
+          "bundle_sha256": "be846acc28774c9e6e4d7aa0b6f044dcf8382ddbf4ec2af673848893bd763c7a",
+          "path": "tests/test_vision_core.py"
+        }
+      ],
+      "deleted": [],
+      "unchanged": [
+        ".github/workflows/tests.yml",
+        ".gitignore",
+        "README.md",
+        "TODO.md",
+        "docs/COLLISION_REVIEW.md",
+        "docs/bench-review-2026-11-02.md",
+        "docs/browser-preview.png",
+        "docs/robot-tool-preview.svg",
+        "docs/tool-envelope.png",
+        "examples/arduino.json",
+        "examples/rg2.json",
+        "examples/target.json",
+        "examples/vision-aruco.json",
+        "examples/vision-basler.json",
+        "examples/vision-charuco.json",
+        "firmware/arduino_gripper.ino",
+        "src/ur_pick_place/__init__.py",
+        "src/ur_pick_place/__main__.py",
+        "src/ur_pick_place/cli.py",
+        "src/ur_pick_place/config.py",
+        "src/ur_pick_place/controller.py",
+        "src/ur_pick_place/demo.py",
+        "src/ur_pick_place/geometry.py",
+        "src/ur_pick_place/grippers/__init__.py",
+        "src/ur_pick_place/grippers/adapters.py",
+        "src/ur_pick_place/grippers/arduino_driver.py",
+        "src/ur_pick_place/grippers/rg2_driver.py",
+        "src/ur_pick_place/manual.py",
+        "src/ur_pick_place/poses.py",
+        "src/ur_pick_place/robot.py",
+        "src/ur_pick_place/sequence_ui.py",
+        "src/ur_pick_place/session.py",
+        "src/ur_pick_place/shutdown.py",
+        "src/ur_pick_place/ui.py",
+        "src/ur_pick_place/vision/__init__.py",
+        "src/ur_pick_place/vision/__main__.py",
+        "src/ur_pick_place/vision/config.py",
+        "src/ur_pick_place/vision/detection.py",
+        "src/ur_pick_place/vision/errors.py",
+        "src/ur_pick_place/vision/grasp.py",
+        "src/ur_pick_place/vision/kinematics.py",
+        "src/ur_pick_place/vision/observe.py",
+        "src/ur_pick_place/vision/planner.py",
+        "src/ur_pick_place/vision/robot_state.py",
+        "src/ur_pick_place/vision/synthetic.py",
+        "src/ur_pick_place/vision/targets.py",
+        "src/ur_pick_place/vision/transforms.py",
+        "src/ur_pick_place/web/UR-MODEL-NOTICE.txt",
+        "src/ur_pick_place/web/app.js",
+        "src/ur_pick_place/web/collision-scene.example.json",
+        "src/ur_pick_place/web/index.html",
+        "src/ur_pick_place/web/robot-preview.js",
+        "src/ur_pick_place/web/style.css",
+        "src/ur_pick_place/web/teacher.css",
+        "src/ur_pick_place/web/teacher.html",
+        "src/ur_pick_place/web/teacher.js",
+        "src/ur_pick_place/web/tool-envelope.css",
+        "src/ur_pick_place/web/tool-envelope.html",
+        "src/ur_pick_place/web/tool-envelope.js",
+        "src/ur_pick_place/web/ur10e-model.js",
+        "src/ur_pick_place/web/ur10e-model.json",
+        "start.sh",
+        "start_marker_teach.sh",
+        "tests/marker_teacher_ui.cjs",
+        "tests/marker_validation_fixture.py",
+        "tests/robot_preview.cjs",
+        "tests/test_adapters.py",
+        "tests/test_arduino.py",
+        "tests/test_controller.py",
+        "tests/test_manual.py",
+        "tests/test_marker_teacher_startup.py",
+        "tests/test_marker_teaching.py",
+        "tests/test_marker_validation.py",
+        "tests/test_marker_validation_browser.py",
+        "tests/test_rg2.py",
+        "tests/test_robot.py",
+        "tests/test_robot_assets.py",
+        "tests/test_sequence_ui.py",
+        "tests/test_shutdown.py",
+        "tests/test_ui.py",
+        "tests/test_vision_detection.py",
+        "tests/test_vision_mobile.py",
+        "tests/test_vision_pipeline.py",
+        "tests/tool_envelope.cjs",
+        "tests/vision_sim.py"
+      ]
+    },
+    "ur10e-handeye": {
+      "added": [
+        {
+          "path": "LICENSE-NOTICE.md",
+          "sha256": "7683b0d76c4e8b7a94d3a38e245c895f454d6e25752f6d6a7b2436fdc8ccf750"
+        },
+        {
+          "path": "preview-build/ESBUILD-LICENSE.txt",
+          "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681"
+        },
+        {
+          "path": "preview-build/entry.js",
+          "sha256": "43e645f215ac3355792cf3409ade27400d22cd5dd86cf16d6e1062e55f927cdc"
+        },
+        {
+          "path": "preview-build/export_visuals.py",
+          "sha256": "ff3aa1946cdae121ed28068c2f7ef77ba0e95f45d4d3fbe8ef09ad97a246d7de"
+        },
+        {
+          "path": "preview-build/package-lock.json",
+          "sha256": "a4d2aa7d0eb41086b8a89b760c6a9508480c76fd05693178c7fc9c959a39f4ad"
+        },
+        {
+          "path": "preview-build/package.json",
+          "sha256": "68ee001ec71959680eaa06f15064ee34d9413a1d9f52d4bcd5ae6eb56f80ed24"
+        },
+        {
+          "path": "src/ur_handeye/cartesian.py",
+          "sha256": "18075cc9907270390a4632344dd08387b43b665ad806f4def99a6c4927b32503"
+        },
+        {
+          "path": "src/ur_handeye/web/THREE-LICENSE.txt",
+          "sha256": "8b378ebe60e2fe500158cb0ac71cb5e8b7d92953c2abcc63a0eb90499653b5bc"
+        },
+        {
+          "path": "src/ur_handeye/web/robot-three.js",
+          "sha256": "710f76910eaf50cff90778a67148a15d58ff7bd9faba96b6e6ff0582735d679c"
+        },
+        {
+          "path": "src/ur_handeye/web/three-bundle.js",
+          "sha256": "0b6021c4f3cff52778e68b5057d014f071742c4c058f99e85e3c2117f68389b8"
+        },
+        {
+          "path": "src/ur_handeye/web/ur10e-visual.js",
+          "sha256": "530ba4bbfe90b3a2460b19dbb2b6551af53aa9f6e5edc618f0520442c8262b4e"
+        },
+        {
+          "path": "tests/robot_three_visual.cjs",
+          "sha256": "1004c97b3a0cdb7b778b90c44a10a8040fdeab11518ebd443b56d099565a907a"
+        },
+        {
+          "path": "tests/test_collision_selection.py",
+          "sha256": "adebc7664ff9a9e2f3dc9012d5d2e94a827dd5036ca4998423908654368716ae"
+        },
+        {
+          "path": "tests/test_factory_model.py",
+          "sha256": "1fa0b62044af132a0bdf6d4941c51348bd6bca87dbfe058da0c4126eb101f0f4"
+        },
+        {
+          "path": "tests/test_robot_scheduler.py",
+          "sha256": "b54e7b791f8d7acd39f077306bd8eb97c0eb779fa7abbf5dcad793fdc59ff4ab"
+        },
+        {
+          "path": "tests/three_matrix.cjs",
+          "sha256": "ae2ef32f711c0434f7187526505e1d908714a403d22140d06f76bb9a9ab2c3a9"
+        }
+      ],
+      "baseline_files": 61,
+      "bundle_files": 77,
+      "changed": [
+        {
+          "baseline_sha256": "b0f996f18a35e10b687bac81c76e7a2f64125ace2ed79690333d8287c9eb5cfc",
+          "bundle_sha256": "9a02d5425f97f3802b895e266111b1a827a86c5e694fc1c42059d5f5f6209157",
+          "path": "README.md"
+        },
+        {
+          "baseline_sha256": "97cd23705e7b7e4054f5f815a2c9ce19a11dcdaefad50704d692c412bceb3de3",
+          "bundle_sha256": "e189cec5e94787b29fc8d2f0f0a5ba00cb1c0136c5d833364ce5690ab80567c5",
+          "path": "pyproject.toml"
+        },
+        {
+          "baseline_sha256": "80b0d8a67c634dd47aba81d0808e926afbbc55bca83dd70edb5c9cbd034da9d0",
+          "bundle_sha256": "cdda76743e1d469af9954341b0db3a2590d440cda7783b0dd09cf1b7432610bb",
+          "path": "src/ur_handeye/__init__.py"
+        },
+        {
+          "baseline_sha256": "02352879e27152e326f33eb5a130bfc0502548750d5921ed4301a19ff4cd3047",
+          "bundle_sha256": "217cd9b21c12c9eba4f8685134a2f1ce2ed25aa4693e8c0eba2f94ac22af19fb",
+          "path": "src/ur_handeye/cli.py"
+        },
+        {
+          "baseline_sha256": "41c7b498792452c55c4987fc5c6bd46c2eb2c65d040556c53f14f5c6e9942bb8",
+          "bundle_sha256": "42a68a453f2ac71cb8a9ac10a4cde4929da9c6d14214b731fbe036b7a4e9a45a",
+          "path": "src/ur_handeye/collect.py"
+        },
+        {
+          "baseline_sha256": "d7500465ec7b3447fb2e3c8f023e802a67826ca060c9c44f2c8838dd70bf08d7",
+          "bundle_sha256": "25b3484307c300e9d4b1a330dfb7fb88c4f9cf12930667ee204fd8ad3b393c9c",
+          "path": "src/ur_handeye/collision.py"
+        },
+        {
+          "baseline_sha256": "e02ddb17bb95c9a19a1a31b3173fd769cb30d81299f48d1a798c53027e0c2514",
+          "bundle_sha256": "81e0ba191902ec58f2e96db22c7551aa8d6eff638502dcd2dc2126a8f8abef90",
+          "path": "src/ur_handeye/intrinsics.py"
+        },
+        {
+          "baseline_sha256": "5d44ba4591bcf185ed89163964998ccbc6aed75e10af3e1b3de47ef9334f0c75",
+          "bundle_sha256": "b8ebaaf82ac3888b98e7065832dddc8102558a897c91f9eaba7841a50b781248",
+          "path": "src/ur_handeye/robot.py"
+        },
+        {
+          "baseline_sha256": "2d586d2b2ec3811e6d499c6b92be57482149c76f96cce45d9dd86671219280b6",
+          "bundle_sha256": "8099014a46b8339e13356dc4f44dc43f18ec810c770c061683736877a5c4e2b4",
+          "path": "src/ur_handeye/solver.py"
+        },
+        {
+          "baseline_sha256": "a8ccbb7862656365fd3d0f463e4d89003f135c0cdc25101bcaef9697c5f4360e",
+          "bundle_sha256": "4f7ddb0fc5b920f13e5a0ff3b032181bdecd92c62bbc764f371933d30483d516",
+          "path": "src/ur_handeye/ui.py"
+        },
+        {
+          "baseline_sha256": "bb845ac9f05a354d6cd1aa1e57c4d250fd3ee88db4354d8e5e598e4ab7ab2ae8",
+          "bundle_sha256": "c758d2be5078656f91549c45d5c70c2aa15e1bb4b975ff4c618cec261ade5b36",
+          "path": "src/ur_handeye/web/robot-preview.js"
+        },
+        {
+          "baseline_sha256": "a0f27addcf9bb06a9fbc46e3653cf23ea786932c231c76f1ec344da89b3f0ecc",
+          "bundle_sha256": "28d84c7a4b9115f1efe04a374a58a69f8abb1ce74d604ac5bcaaaf694d1edb2a",
+          "path": "src/ur_handeye/web/tool-envelope.css"
+        },
+        {
+          "baseline_sha256": "33eff289002102a00e26a2f878a739ede66521cadf311b15c5d45412c9d90b8f",
+          "bundle_sha256": "50886664be3ff3281842de0f2bd408533ca7208b978b0aa00da02ac534a9d957",
+          "path": "src/ur_handeye/web/tool-envelope.html"
+        },
+        {
+          "baseline_sha256": "08139c38a268a28e731886d835b907aac55624b6071bff8ab0902464e5d39663",
+          "bundle_sha256": "9b12d420138f73c0fcd521ec50a4578d6d0759b3bbe586721dc3327510d6390a",
+          "path": "src/ur_handeye/web/tool-envelope.js"
+        },
+        {
+          "baseline_sha256": "1a2c82758b29a1976e5c3e89f87572d931b7d61620dc8ce34f590979499ee954",
+          "bundle_sha256": "071ada12b21c8f1984d214a8f7bd68cf975683ab3d0e58a3ba950b305136fade",
+          "path": "tests/test_cli.py"
+        },
+        {
+          "baseline_sha256": "12aa18363164187df4d1fb8ced2039a95dadf6ab03f4a1232f6194a9478381d2",
+          "bundle_sha256": "5e518e29953f82132531e6913b731c6af3c711b044ab31fded0a3afbe1511b42",
+          "path": "tests/test_collision.py"
+        }
+      ],
+      "deleted": [],
+      "unchanged": [
+        ".github/workflows/ci.yml",
+        ".gitignore",
+        "REVIEW.md",
+        "TODO.md",
+        "docs/COLLISION_REVIEW.md",
+        "docs/bench-review-2026-11-02.md",
+        "docs/browser-preview.png",
+        "docs/robot-tool-preview.svg",
+        "docs/tool-envelope.png",
+        "requirements.txt",
+        "src/ur_handeye/__main__.py",
+        "src/ur_handeye/collision_backend.py",
+        "src/ur_handeye/dataset.py",
+        "src/ur_handeye/poses.py",
+        "src/ur_handeye/primary.py",
+        "src/ur_handeye/reprocess.py",
+        "src/ur_handeye/shutdown.py",
+        "src/ur_handeye/simulation.py",
+        "src/ur_handeye/transforms.py",
+        "src/ur_handeye/ui_jobs.py",
+        "src/ur_handeye/ui_layout.py",
+        "src/ur_handeye/ui_preferences.py",
+        "src/ur_handeye/ui_worker.py",
+        "src/ur_handeye/vision.py",
+        "src/ur_handeye/web/UR-MODEL-NOTICE.txt",
+        "src/ur_handeye/web/collision-scene.example.json",
+        "src/ur_handeye/web/ur10e-model.js",
+        "src/ur_handeye/web/ur10e-model.json",
+        "start_calibration_eye_in_robot.sh",
+        "tests/conftest.py",
+        "tests/robot_preview.cjs",
+        "tests/test_collect.py",
+        "tests/test_eye_to_hand.py",
+        "tests/test_intrinsics.py",
+        "tests/test_poses.py",
+        "tests/test_primary.py",
+        "tests/test_reprocess.py",
+        "tests/test_robot.py",
+        "tests/test_shutdown.py",
+        "tests/test_solver.py",
+        "tests/test_transforms.py",
+        "tests/test_ui.py",
+        "tests/test_ui_preferences.py",
+        "tests/test_vision.py",
+        "tests/tool_envelope.cjs"
+      ]
+    }
+  }
+}

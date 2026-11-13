@@ -1,0 +1,672 @@
+import io
+import json
+import os
+import subprocess
+import sys
+import time
+
+import pytest
+
+from ur_handeye.ui import CalibrationUI, build_command
+from ur_handeye.ui_jobs import JobRunner
+from ur_handeye.ui_worker import Channel, LogStream, run
+
+
+@pytest.fixture
+def settings(tmp_path):
+    manifest = tmp_path / "board_manifest.json"
+    manifest.write_text("{}")
+    return {
+        "robot_ip": "192.0.2.1",
+        "manifest": str(manifest),
+        "board": "calibration",
+        "serial": "camera-123",
+        "session": str(tmp_path / "calibration"),
+        "speed": "0.1",
+        "views": "14",
+    }
+
+
+def test_ui_commands_keep_approvals_and_isolate_dry_run_data(settings):
+    collect = build_command("collect", settings)
+    plan = build_command("plan", settings)
+    assert "--yes" not in collect and "--freedrive" not in collect
+    assert "--dry-run" in plan
+    assert plan[plan.index("--output") + 1] != settings["session"]
+    assert collect[collect.index("--joint-speed") + 1] == "0.1"
+    assert collect[collect.index("--serial") + 1] == "camera-123"
+    assert build_command("solve", settings) == ["solve", "--session", settings["session"]]
+
+
+@pytest.mark.parametrize("action", ["collect", "simulate", "manual", "replay"])
+def test_existing_data_is_refused_before_starting_a_worker(settings, tmp_path, action):
+    directory = tmp_path / "existing"
+    directory.mkdir()
+    (directory / "samples.jsonl").write_text("saved data")
+    settings["session"] = str(directory)
+    with pytest.raises(ValueError, match="already contains data"):
+        build_command(action, settings, verification=str(directory))
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("speed", "nan"),
+        ("speed", "1.1"),
+        ("views", "40"),
+        ("views", "2"),
+        ("robot_ip", ""),
+        ("manifest", "/missing.json"),
+    ],
+)
+def test_invalid_hardware_settings_are_refused(settings, key, value):
+    settings[key] = value
+    with pytest.raises(ValueError):
+        build_command("collect", settings)
+
+
+def test_verification_uses_a_separate_session(settings, tmp_path):
+    with pytest.raises(ValueError, match="separate"):
+        build_command("verify", settings, calibration="result.json", verification=settings["session"])
+    verification = tmp_path / "check"
+    with pytest.raises(ValueError, match="Collect fresh verification"):
+        build_command("verify", settings, calibration="result.json", verification=str(verification))
+    verification.mkdir()
+    for name in ("session.json", "samples.jsonl"):
+        (verification / name).write_text("{}")
+    command = build_command("verify", settings, calibration="result.json", verification=str(verification))
+    assert command[0] == "verify" and "--refit-board" not in command
+
+
+def test_ui_intrinsics_apply_to_check_capture_and_offline_solving(settings, tmp_path):
+    from ur_handeye.vision import SIMULATED_INTRINSICS
+    path = tmp_path / "rgb.json"
+    path.write_text(json.dumps(SIMULATED_INTRINSICS))
+    settings["intrinsics"] = str(path)
+    for action in ("check", "plan", "collect", "solve"):
+        command = build_command(action, settings)
+        assert command[command.index("--intrinsics") + 1] == str(path)
+    command = build_command("intrinsics", settings)
+    assert command[0] == "intrinsics"
+    assert "--robot-ip" not in command
+
+
+def test_ui_resolving_creates_a_new_result_filename(settings):
+    from pathlib import Path
+    folder = Path(settings["session"])
+    folder.mkdir()
+    (folder / "calibration.json").write_text("old evidence")
+    command = build_command("solve", settings)
+    assert command[command.index("--output") + 1] != str(folder / "calibration.json")
+
+
+@pytest.mark.parametrize("reply,expected", [(True, True), (False, False), ("yes", False)])
+def test_only_a_current_explicit_boolean_can_approve_motion(reply, expected):
+    output = io.StringIO()
+    channel = Channel(output, io.StringIO(json.dumps({"id": 1, "value": reply}) + "\n"))
+    assert channel.request("motion", "Review targets") is expected
+    event = json.loads(output.getvalue())
+    assert event["kind"] == "motion" and event["summary"] == "Review targets"
+
+
+def test_disconnected_and_stale_prompt_replies_never_approve():
+    with pytest.raises(KeyboardInterrupt):
+        Channel(io.StringIO(), io.StringIO()).request("motion", "plan")
+    with pytest.raises(ValueError, match="Stale"):
+        Channel(io.StringIO(), io.StringIO('{"id": 9, "value": true}\n')).request("motion", "plan")
+
+
+def test_worker_never_accepts_unattended_collection_or_other_commands():
+    channel = Channel(io.StringIO(), io.StringIO())
+    with pytest.raises(ValueError, match="requires motion approval"):
+        run(["collect", "--robot-ip", "192.0.2.1", "--yes"], channel)
+    with pytest.raises(ValueError, match="Unsupported"):
+        run(["locate", "--robot-ip", "192.0.2.1", "--calibration", "a.json"], channel)
+
+
+def test_log_stream_preserves_partial_lines():
+    output = io.StringIO()
+    stream = LogStream(Channel(output, io.StringIO()))
+    stream.write("first")
+    stream.write(" line\nlast line")
+    stream.flush()
+    assert [json.loads(line)["message"] for line in output.getvalue().splitlines()] == ["first line", "last line"]
+
+
+def wait_events(runner, predicate, timeout=30):
+    events = []
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        events.extend(runner.drain())
+        if predicate(events):
+            return events
+        time.sleep(0.02)
+    runner.stop()
+    pytest.fail("UI worker did not respond before the test deadline")
+
+
+def test_runner_stop_keeps_ownership_until_cleanup_acknowledges(monkeypatch):
+    # A real child process waits for approval, then for interruption. Its finally block is the
+    # important contract: cleanup must finish before another UI operation becomes available.
+    child = """
+import sys, time
+from ur_handeye.ui_worker import Channel
+channel = Channel(sys.stdout, sys.stdin)
+try:
+    channel.request('motion', 'fake target; no hardware')
+    while True:
+        time.sleep(0.02)
+except KeyboardInterrupt:
+    channel.emit('log', message='stopped in place')
+finally:
+    time.sleep(0.1)
+    channel.emit('log', message='cleanup finished')
+"""
+    original = subprocess.Popen
+
+    def launch(argv, **kwargs):
+        return original([sys.executable, "-u", "-c", child], **kwargs)
+
+    monkeypatch.setattr("ur_handeye.ui_jobs.subprocess.Popen", launch)
+    runner = JobRunner()
+    try:
+        runner.start([])
+        request = wait_events(runner, lambda es: any(e["type"] == "request" for e in es))[-1]
+        with pytest.raises(RuntimeError, match="still owns"):
+            runner.start([])
+        with pytest.raises(ValueError, match="no longer active"):
+            runner.answer(request["id"] + 1, True)
+        runner.answer(request["id"], True)
+        with pytest.raises(ValueError, match="no longer active"):
+            runner.answer(request["id"], True)
+        runner.stop()
+        runner.stop()  # repeated Stop must not interrupt cleanup again
+        assert runner.active and runner.stopping
+        events = wait_events(runner, lambda es: any(e["type"] == "done" for e in es))
+        assert [e["message"] for e in events if e["type"] == "log"] == ["stopped in place", "cleanup finished"]
+        assert not runner.active
+    finally:
+        if runner.active:
+            runner.stop()
+            runner.process.wait(timeout=5)
+
+
+def test_lost_ui_interrupts_worker_without_approval(tmp_path):
+    process = subprocess.Popen(
+        [sys.executable, "-u", "-m", "ur_handeye.ui_worker", "simulate", "--output", str(tmp_path / "simulation")],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        # Wait until its signal/watchdog setup and first real capture have completed.
+        while True:
+            line = process.stdout.readline()
+            assert line, "worker exited before the first simulated observation"
+            if json.loads(line).get("type") == "observation":
+                break
+        process.stdin.close()
+        process.stdin = None
+        output, _ = process.communicate(timeout=20)
+        assert process.returncode == 130
+        assert "interrupted" in output
+        assert not (tmp_path / "simulation" / "calibration.json").exists()
+    finally:
+        if process.poll() is None:
+            process.send_signal(2)
+            process.wait(timeout=5)
+
+
+@pytest.fixture
+def desktop(tmp_path):
+    tk = pytest.importorskip("tkinter")
+    if not os.environ.get("DISPLAY"):
+        pytest.skip("A desktop display is needed for widget checks; worker checks run headlessly")
+    root = tk.Tk()
+    root.withdraw()
+    app = CalibrationUI(root, preferences_path=tmp_path / "camera-preference.json")
+    try:
+        yield root, app
+    finally:
+        if app.runner.active:
+            app.runner.stop()
+            app.runner.process.wait(timeout=10)
+        try:
+            for timer in root.tk.call("after", "info"):
+                root.after_cancel(timer)
+            root.destroy()
+        except tk.TclError:
+            pass
+
+
+def test_desktop_simulation_displays_results_and_refuses_live_replay(desktop, tmp_path, monkeypatch):
+    root, app = desktop
+    app.settings["session"].set(str(tmp_path / "sim"))
+    app.start("simulate")
+    deadline = time.monotonic() + 40
+    while app.runner.active and time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.03)
+    assert not app.runner.active
+    assert app.result["verdict"] == "good"
+    assert "SIMULATION" in app.result_status.get()
+    assert len(app.metrics.get_children()) >= 9
+    assert app.preview_photo is not None
+    assert app.accepted >= 16
+    assert app.pose.get().startswith("[")
+    for value in app.ready:
+        value.set(True)
+    errors = []
+    monkeypatch.setattr(app, "error", errors.append)
+    app.start("replay")
+    assert not app.runner.active
+    assert "simulated calibration" in str(errors[-1])
+
+
+def test_desktop_hardware_steps_require_check_and_plan(desktop, settings, monkeypatch):
+    _, app = desktop
+    for key, value in settings.items():
+        app.settings[key].set(value)
+    for value in app.ready:
+        value.set(True)
+    errors = []
+    monkeypatch.setattr(app, "error", errors.append)
+    app.start("collect")
+    assert "Check view" in str(errors[-1]) and not app.runner.active
+    app.checked = app.hardware_key()
+    app.start("collect")
+    assert "preliminary plan" in str(errors[-1]) and not app.runner.active
+
+
+def test_desktop_intrinsic_estimation_selects_model_and_resolves_without_overwriting(desktop, collected, monkeypatch):
+    from pathlib import Path
+    root, app = desktop
+    _, directory, _ = collected
+    app.settings["session"].set(str(directory))
+    monkeypatch.setattr(app, "error", lambda message: pytest.fail(str(message)))
+    app.start("intrinsics")
+    deadline = time.monotonic() + 30
+    while app.runner.active and time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.02)
+    assert not app.runner.active
+    intrinsic_path = Path(app.settings["intrinsics"].get())
+    assert intrinsic_path.is_file()
+    assert "solve the session again" in app.result_status.get()
+    assert app.step_lights["intrinsics"].cget("text") == "● Review warnings"
+    # A pre-existing solve must survive a new camera-model solve.
+    original = directory / "calibration.json"
+    original.write_text("existing calibration evidence")
+    app.start("solve")
+    deadline = time.monotonic() + 30
+    while app.runner.active and time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.02)
+    assert not app.runner.active
+    assert app.result is not None
+    assert app.result["intrinsics_source"]["board_poses_reestimated"] is True
+    assert Path(app.result_path) != original
+    assert original.read_text() == "existing calibration evidence"
+    original.unlink()
+
+
+def test_combined_calibration_command_is_offline_and_always_uses_new_outputs(settings):
+    command = build_command("calibrate", settings)
+    assert command[0] == "calibrate" and "--robot-ip" not in command
+    output = command[command.index("--output") + 1]
+    intrinsic_output = command[command.index("--intrinsics-output") + 1]
+    assert output != intrinsic_output and not output.endswith("/calibration.json")
+
+
+def test_desktop_combined_calibration_selects_model_and_displays_result(desktop, collected, monkeypatch):
+    from pathlib import Path
+
+    root, app = desktop
+    _, directory, _ = collected
+    app.settings["session"].set(str(directory))
+    monkeypatch.setattr(app, "error", lambda message: pytest.fail(str(message)))
+    app.start("calibrate")
+    deadline = time.monotonic() + 30
+    while app.runner.active and time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.02)
+    assert not app.runner.active
+    assert app.result is not None and app.result["verdict"] == "acceptable"
+    assert app.result["intrinsics_source"]["path"] == app.settings["intrinsics"].get()
+    assert Path(app.result_path).is_file()
+    assert app.step_lights["calibrate"].cget("text") == "● Review warnings"
+    assert app.step_lights["intrinsics"].cget("text") == "● Review warnings"
+    path = app.result_path
+    app.settings["intrinsics"].set("")
+    app.load_result_path(path)
+    assert app.result is not None and app.settings["intrinsics"].get() == str(Path(path).resolve())
+
+
+def test_ui_can_open_a_calibration_on_startup(monkeypatch):
+    from ur_handeye.cli import main
+
+    opened = []
+    monkeypatch.setattr("ur_handeye.ui.launch", lambda *, calibration: opened.append(calibration) or 0)
+    assert main(["ui", "--calibration", "saved-calibration.json"]) == 0
+    assert opened == ["saved-calibration.json"]
+
+
+def test_step_lights_follow_completion_failure_and_settings(desktop, settings, monkeypatch):
+    _, app = desktop
+    for key, value in settings.items():
+        app.settings[key].set(value)
+    for value in app.ready:
+        value.set(True)
+    assert app.step_lights["setup"].cget("text") == "● Ready"
+    monkeypatch.setattr(app.runner, "start", lambda argv: None)
+    monkeypatch.setattr(app, "error", lambda message: pytest.fail(str(message)))
+    app.start("check")
+    assert app.step_lights["check"].cget("text") == "● Running"
+    app.runner.events.put({"type": "done", "code": 0})
+    app._poll_events()
+    assert app.step_lights["check"].cget("text") == "● Ready"
+    assert app.checked == app.hardware_key()
+    app.start("plan")
+    app.runner.events.put({"type": "done", "code": 2})
+    app._poll_events()
+    assert app.step_lights["plan"].cget("text") == "● Failed"
+    app.settings["robot_ip"].set("192.0.2.2")
+    assert app.step_lights["check"].cget("text") == "● Pending"
+    assert app.step_lights["plan"].cget("text") == "● Pending"
+    assert app.checked is None and app.planned is None
+
+
+def test_verification_light_requires_pass_and_clears_for_new_folder(desktop):
+    _, app = desktop
+    app.action = "verify"
+    app.verification_passed = False
+    for passed, expected in ((False, "● Failed"), (True, "● Ready")):
+        app.runner.events.put({"type": "verification", "report": {
+            "passed": passed, "consistency": {"position_max_mm": 1, "rotation_max_deg": 0.2}}})
+        app.runner.events.put({"type": "done", "code": 0})
+        app._poll_events()
+        assert app.step_lights["verify"].cget("text") == expected
+    app.verification.set("sessions/new-verification")
+    assert app.step_lights["verify"].cget("text") == "● Pending"
+    app.action = "manual"
+    app.runner.events.put({"type": "done", "code": 130})
+    app._poll_events()
+    assert app.step_lights["manual"].cget("text") == "● Stopped"
+
+
+def test_display_error_requests_stop_and_keeps_processing_events(desktop, monkeypatch):
+    _, app = desktop
+    stops = []
+    monkeypatch.setattr(app.runner, "stop", lambda: stops.append(True))
+    app.runner.events.put({"type": "observation"})  # corrupt display payload
+    app.poll()
+    assert stops == [True]
+    assert "Display update failed" in app.result_status.get()
+    app.runner.events.put({"type": "log", "message": "cleanup still monitored"})
+    app.poll()
+    assert "cleanup still monitored" in app.log.get("1.0", "end")
+
+
+def test_close_waits_for_running_worker_cleanup(desktop, tmp_path):
+    root, app = desktop
+    directory = tmp_path / "interrupted"
+    app.settings["session"].set(str(directory))
+    app.start("simulate")
+    deadline = time.monotonic() + 20
+    while app.accepted == 0 and app.runner.active and time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.02)
+    assert app.accepted >= 1 and app.runner.active
+    app.close()
+    assert app.runner.active and root.winfo_exists()
+    while app.runner.active and time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.02)
+    assert not app.runner.active
+    assert not (directory / "calibration.json").exists()
+
+
+def settle_layout(root):
+    for _ in range(4):
+        root.update_idletasks()
+        root.update()
+
+
+def show_at(root, width, height):
+    # Bypass the test desktop's window-manager sizing rules; still map real Tk widgets.
+    root.overrideredirect(True)
+    root.geometry(f"{width}x{height}+0+0")
+    root.deiconify()
+    settle_layout(root)
+    assert (root.winfo_width(), root.winfo_height()) == (width, height)
+
+
+def assert_inside(widget, container):
+    assert widget.winfo_ismapped(), str(widget)
+    x = widget.winfo_rootx() - container.winfo_rootx()
+    y = widget.winfo_rooty() - container.winfo_rooty()
+    assert x >= 0 and y >= 0, (str(widget), x, y)
+    assert x + widget.winfo_width() <= container.winfo_width(), str(widget)
+    assert y + widget.winfo_height() <= container.winfo_height(), str(widget)
+
+
+@pytest.mark.parametrize("width,height", [(1280, 900), (1280, 720), (1024, 640), (800, 600), (720, 480)])
+def test_laptop_layout_keeps_approval_stop_and_status_visible(desktop, width, height):
+    root, app = desktop
+    app.result_location.set("/home/operator/calibration/" + "recorded-run/" * 12 + "calibration.json")
+    app.warnings.set("Check RGB intrinsics, board flatness and printed dimensions. " * 30)
+    app.tabs.select(3)
+    app.show_request({"id": 1, "kind": "motion", "summary": "Review target poses and joints\n" * 20})
+    app.status.set("Waiting for your approval · review every target and the complete motion path before proceeding")
+    show_at(root, width, height)
+    for activity in (True, False):
+        app.activity_visible.set(activity)
+        app._update_activity()
+        settle_layout(root)
+        for widget in (app.stop_button, app.status_label, app.prompt_frame, app.activity_toggle):
+            assert_inside(widget, root)
+        for button in app.prompt_buttons.winfo_children():
+            assert_inside(button, app.prompt_buttons)
+            assert_inside(button, root)
+        assert app.scroll_pages[3].content.winfo_height() > app.scroll_pages[3].canvas.winfo_height()
+        assert app.scroll_pages[3].canvas.winfo_height() > 0
+    # A smaller window must still permit keyboard access to off-screen workflow actions.
+    target = next(w for w in app.widgets if w.winfo_class() == "TButton"
+                  and w.cget("text") == "Estimate RGB intrinsics from session")
+    target.focus_force()
+    settle_layout(root)
+    assert_inside(target, app.scroll_pages[3].canvas)
+
+
+def test_workflow_scrolls_with_wheel_and_keyboard_focus(desktop):
+    root, app = desktop
+    show_at(root, 800, 480)
+    app.tabs.select(0)
+    settle_layout(root)
+    page = app.scroll_pages[0]
+    assert page.content.winfo_height() > page.canvas.winfo_height()
+    label = next(w for w in page.content.winfo_children() if w.winfo_class() == "TLabel")
+    page.canvas.yview_moveto(0)
+    label.event_generate("<MouseWheel>", delta=-120)
+    settle_layout(root)
+    assert page.canvas.yview()[0] > 0
+    tk_major = int(root.tk.call("package", "provide", "Tk").split(".")[0])
+    if root.tk.call("tk", "windowingsystem") == "x11" and tk_major < 9:
+        page.canvas.yview_moveto(0)
+        label.event_generate("<Button-5>")
+        settle_layout(root)
+        assert page.canvas.yview()[0] > 0
+    target = next(w for w in app.widgets if w.winfo_class() == "TButton" and w.cget("text") == "Continue to check >")
+    target.focus_force()
+    settle_layout(root)
+    assert_inside(target, page.canvas)
+
+
+def test_preview_fits_available_space_and_moves_to_a_tab_on_narrow_windows(desktop):
+    import base64
+
+    from PIL import Image
+
+    root, app = desktop
+    show_at(root, 1280, 720)
+    app.tabs.select(3)
+    encoded = io.BytesIO()
+    Image.new("RGB", (1280, 720), (70, 100, 130)).save(encoded, format="JPEG")
+    app.show_observation({"image": base64.b64encode(encoded.getvalue()).decode(), "status": "ok",
+                          "label": "test view", "corners": 24, "rmse_px": 0.2})
+    settle_layout(root)
+    assert app.wide_preview.frame.winfo_ismapped()
+    wide_canvas = app.preview_canvases[0]
+    assert wide_canvas.photo.width() <= wide_canvas.winfo_width()
+    assert wide_canvas.photo.height() <= wide_canvas.winfo_height()
+    show_at(root, 800, 600)
+    assert not app.wide_preview.frame.winfo_ismapped()
+    assert str(app.compact_preview.frame) in app.tabs.tabs()
+    app.tabs.select(app.compact_preview.frame)
+    settle_layout(root)
+    compact_canvas = app.preview_canvases[1]
+    assert_inside(compact_canvas, app.compact_preview.canvas)
+    assert compact_canvas.photo.width() <= compact_canvas.winfo_width()
+    assert compact_canvas.photo.height() <= compact_canvas.winfo_height()
+    assert app.preview_image.size == (1280, 720)
+    show_at(root, 1280, 720)
+    assert app.tabs.index("current") == 3
+    assert str(app.compact_preview.frame) not in app.tabs.tabs()
+
+
+def test_eye_to_hand_desktop_guides_manual_capture_and_displays_base_pose(desktop, settings, tmp_path, monkeypatch):
+    import numpy as np
+
+    from ur_handeye.dataset import build_result
+    from ur_handeye.solver import Solution
+
+    root, app = desktop
+    for key, value in settings.items():
+        app.settings[key].set(value)
+    app.settings['calibration_type'].set('eye_to_hand')
+    assert app.fixed_capture.winfo_manager() == 'pack'
+    assert not app.auto_capture.winfo_manager()
+    assert not app.auto_plan.winfo_manager()
+    assert app.fixed_plan.winfo_manager() == 'pack'
+    for value in app.ready:
+        value.set(True)
+    app.checked = app.hardware_key()
+    commands = []
+    monkeypatch.setattr(app.runner, 'start', commands.append)
+    monkeypatch.setattr(app, 'error', lambda exc: pytest.fail(str(exc)))
+    app.start('collect')  # Does not require an automatic plan for a fixed camera.
+    assert commands[0][commands[0].index('--mode') + 1] == 'manual'
+    app.set_busy(False)
+    solution = Solution(np.eye(4), np.eye(4), {}, {}, verdict='good', calibration_type='eye_to_hand')
+    result = build_result(solution, {'tcp_offset': [0.] * 6, 'intrinsics': {}}, tmp_path)
+    app.show_result(result, tmp_path / 'result.json')
+    assert 'Camera in base' in app.pose_heading.get()
+    assert 'EYE TO HAND' in app.result_status.get()
+    labels = [app.metrics.item(item)['text'] for item in app.metrics.get_children()]
+    assert 'Camera in base / X Y Z' in labels
+    assert 'Board in flange / X Y Z' in labels
+    app.settings['calibration_type'].set('eye_in_hand')
+    assert app.auto_capture.winfo_manager() == 'pack'
+    assert not app.fixed_capture.winfo_manager()
+    assert app.result is None
+    root.update_idletasks()
+
+
+def test_eye_to_hand_ui_keeps_local_capture_separate_from_remote_motion(desktop, settings):
+    _, app = desktop
+    app.settings['calibration_type'].set('eye_to_hand')
+    assert 'Local Control' in app.control_preparation.get()
+    assert 'Remote Control' not in app.control_preparation.get()
+    assert not app.motion_settings.winfo_manager()
+    assert not app.replay_button.winfo_manager()
+    assert not app.simulate_button.winfo_manager()
+    assert 'Local Control' in app.verify_instructions.get()
+    assert app.manual_button.winfo_manager() == 'pack'
+    local = {**settings, 'calibration_type': 'eye_to_hand', 'speed': 'unused', 'views': 'unused'}
+    check = build_command('check', local)
+    assert check[check.index('--calibration-type') + 1] == 'eye_to_hand'
+    with pytest.raises(ValueError, match='manual Local Control'):
+        build_command('replay', local, verification='unused')
+    app.settings['calibration_type'].set('eye_in_hand')
+    assert 'Remote Control' in app.control_preparation.get()
+    assert app.motion_settings.winfo_manager() == 'grid'
+    assert app.replay_button.winfo_manager() == 'pack'
+    assert app.simulate_button.winfo_manager() == 'pack'
+    assert '--calibration-type' not in build_command('check', settings)
+    remote = build_command('collect', settings)
+    assert '--mode' not in remote  # Retains the existing automatic default.
+    assert remote[remote.index('--calibration-type') + 1] == 'eye_in_hand'
+
+
+def test_fresh_ui_has_no_old_robot_board_or_calibration(tmp_path, monkeypatch):
+    import tkinter
+    from types import SimpleNamespace
+
+    class Variable:
+        def __init__(self, value=""):
+            self.value = value
+        def get(self):
+            return self.value
+        def trace_add(self, *_):
+            pass
+
+    monkeypatch.setattr(tkinter, "StringVar", Variable)
+    monkeypatch.setattr(CalibrationUI, "_layout", lambda self: setattr(self, "ready", []))
+    monkeypatch.setattr(CalibrationUI, "refresh_setup", lambda self: None)
+    monkeypatch.setattr(CalibrationUI, "update_setup_light", lambda self: None)
+    root = SimpleNamespace(protocol=lambda *args: None, after=lambda *args: None)
+    app = CalibrationUI(root, preferences_path=tmp_path / "preferences.json")
+    assert app.settings["calibration_type"].get() == "eye_in_hand"
+    assert app.settings["robot_ip"].get() == ""
+    assert app.settings["manifest"].get() == ""
+    assert app.settings["intrinsics"].get() == ""
+    assert app.result is None and app.result_path is None and not app.runner.active
+
+
+def test_tool_envelope_opens_only_on_button_click(monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+    from urllib.parse import unquote, urlparse
+
+    class Widget:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: None
+
+    opened, buttons = [], {}
+    monkeypatch.setattr("ur_handeye.ui.flow_buttons", lambda frame: None)
+    monkeypatch.setattr("ur_handeye.ui.webbrowser.open", opened.append)
+    app = CalibrationUI.__new__(CalibrationUI)
+    app.ttk = SimpleNamespace(Frame=Widget, Radiobutton=Widget, Checkbutton=Widget)
+    app.tk = SimpleNamespace(StringVar=Widget, BooleanVar=Widget)
+    app.pages = [Widget()]
+    app.widgets = []
+    app.settings = {key: Widget() for key in (
+        "calibration_type", "robot_ip", "manifest", "board", "serial", "intrinsics", "session", "speed", "views",
+        "collision_scene", "tilt_deg", "roll_deg"
+    )}
+    app._text = lambda *args, **kwargs: Widget()
+    app._entry = lambda *args, **kwargs: None
+    app._button = lambda parent, text, command, **kwargs: buttons.setdefault(text, (Widget(), command))[0]
+    app._setup_page()
+    assert not opened
+    buttons["Open tool box draft"][1]()
+    assert len(opened) == 1
+    assert Path(unquote(urlparse(opened[0]).path)).read_text().startswith("<!doctype html>")
+
+
+def test_collision_scene_and_original_angles_reach_worker(settings, tmp_path):
+    from pathlib import Path
+    from ur_handeye.collision import CollisionError
+    example = Path(__file__).parents[1] / 'src/ur_handeye/web/collision-scene.example.json'
+    settings['collision_scene'] = str(example)
+    settings['tilt_deg'], settings['roll_deg'] = '25', '30'
+    with pytest.raises(CollisionError, match='Confirm the physical'):
+        build_command('collect', settings)
+    plan = build_command('plan', settings)
+    assert plan[plan.index('--tilt-deg') + 1] == '25.0'
+    assert plan[plan.index('--roll-deg') + 1] == '30.0'
+    assert plan[plan.index('--collision-scene') + 1] == str(example.resolve())

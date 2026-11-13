@@ -1,0 +1,25 @@
+{
+  "created_at_utc": "2026-11-11T02:21:53.980667+00:00",
+  "revised_at_utc": "2026-11-13T00:00:00+00:00",
+  "source_id": "3636d84f6012883e12a90996f86db7e101eca965b6c891fed3c3cf7a9dcaaac1",
+  "source_files": 410,
+  "source_date": "2026-11-13",
+  "snapshot_date": "2026-11-11",
+  "modules": [
+    "Calibration",
+    "Teaching",
+    "Pick/place"
+  ],
+  "controller": "Shared anodizing_web service and JobOwner on IPC; native ur_rtde backend",
+  "data_files": 897,
+  "data_uncompressed_bytes": 647204562,
+  "data_archive_sha256": "fd206dde72927723b9eadb75caeb79ec27abc4016f010c237209ee4dc2e2e5e3",
+  "data_manifest_sha256": "f311c3c699175d6648a2fd82da2353a8626f2b6c53e352402d3e9281e4da3524",
+  "data_included": false,
+  "data_location": "Omitted from this public source repository; see state/README.md. The local packaging bundle referenced state/ipc-data.tar.gz with a data/ member prefix.",
+  "snapshot_evidence": "evidence/snapshot-receipt.json",
+  "hardware_tested_by_packaging": false,
+  "service_restarted_by_packaging": false,
+  "external_requirements": "Python, third-party packages, system libraries and matching hardware setup",
+  "revision_notes": "Review-fix revision. Source count includes the new app dependency/test/CI files, license notices and site-profile module. The vendor trees are not unmodified baselines; see provenance/BASELINES.json and RELEASE_NOTES.md."
+}

@@ -1,0 +1,6 @@
+test_process_death_after_dispatch_intent_fences_restart (test_robot_control_independent.RobotControlIndependent.test_process_death_after_dispatch_intent_fences_restart) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.562s
+
+OK

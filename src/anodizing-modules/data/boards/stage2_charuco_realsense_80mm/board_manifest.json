@@ -1,0 +1,7573 @@
+{
+  "boards": [
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank01_charuco.pdf",
+        "png": "tank01_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank01-ref-787e1520",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 17,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 18,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 19,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 20,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 21,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 22,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 23,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 24,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank01",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "f5495f707d40f23f529e300048bac3af8af4908108b526c4076c96345650eeaf",
+        "png": "16857103b4d37f3d344b52976e141c3198dd19ea83fc43ca16cb13b2aadf884a"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank02_charuco.pdf",
+        "png": "tank02_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank02-ref-a5ca30ca",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 25,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 26,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 27,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 28,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 29,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 30,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 31,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 32,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank02",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "0f60ff0095359635a0305c15b452bb1b057833ff69bcd926d2b5dfce249640b1",
+        "png": "3d12dbe2174382e60ed21f12fba5904fe0f586a554054a357e3ee054bdcf56ea"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank03_charuco.pdf",
+        "png": "tank03_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank03-ref-684f007b",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 33,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 34,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 35,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 36,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 37,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 38,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 39,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 40,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank03",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "2a15b441b4f050dbda72aab161e04c7b8eca2923f4aa205025737c1cdb48a05f",
+        "png": "d7f9fa03d5ae49f0aad15063a80b32f0e1bf146532a63a4adfda0c0788faa550"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank04_charuco.pdf",
+        "png": "tank04_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank04-ref-d904975c",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 41,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 42,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 43,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 44,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 45,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 46,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 47,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 48,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank04",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "7a44fd2fb2171dd181d1a4020a54484868df895bc110f3eccd309858bf1fe8b9",
+        "png": "c66e153403f09af74784d3c8cd8d477f5f106b17f76c80e2c9cee9b2e87b0dc4"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank05_charuco.pdf",
+        "png": "tank05_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank05-ref-1f7c5a3b",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 49,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 50,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 51,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 52,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 53,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 54,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 55,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 56,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank05",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "4f99887fd776d38a9a0a768b650e4726ac686313a28881b82428d960d2df9f38",
+        "png": "e7c8719d0587dbaeb7e74bfad32f997b90d0d531490d659413bd04a48b723f46"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank06_charuco.pdf",
+        "png": "tank06_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank06-ref-1d7309eb",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 57,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 58,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 59,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 60,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 61,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 62,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 63,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 64,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank06",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "4c6212fc60ec78b0ed1fc8594a148237c2c96094e0073fad1c76912fc8597c73",
+        "png": "82b6d0615d78172fd951d2a10c782d9aab61060274ea80c9b6f46b5b7242ac61"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank07_charuco.pdf",
+        "png": "tank07_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank07-ref-705965b9",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 65,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 66,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 67,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 68,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 69,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 70,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 71,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 72,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank07",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "6edab8973988ed9297cf2684893b34406e38f95fb09807164fa209fc3083fe69",
+        "png": "c3e8217c97f6698a03bb68112ad9546ef427c456ebfbf448e4e72d9a1fb4659c"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank08_charuco.pdf",
+        "png": "tank08_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank08-ref-27f04b76",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 73,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 74,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 75,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 76,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 77,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 78,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 79,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 80,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank08",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "6eb4c8a7d5848f5d666f11633d2ce572138343cec334aac31c6e3b690946b21d",
+        "png": "5e6bd8b1cf1b5feb95bb282c7b19cf03db063bf3c37070e28f50218f4ba7aa89"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank09_charuco.pdf",
+        "png": "tank09_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank09-ref-84479038",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 81,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 82,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 83,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 84,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 85,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 86,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 87,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 88,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank09",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "06074d512a37f4b9753952886bf027a80a1c6c65101de73230a5ab29fbf4101f",
+        "png": "00470ebee49787c4af94db3a1f7bbe1c428cd4f9bf54be482469f9e68a081fe2"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank10_charuco.pdf",
+        "png": "tank10_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank10-ref-44a723cb",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 89,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 90,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 91,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 92,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 93,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 94,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 95,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 96,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank10",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "f6ef96a242eeb5a39a0f3ecc231c6773cd49665bca0028ca4385fae9a1e2b5ac",
+        "png": "9f691846f7d9a514bf37cf72b059fa4fe8550e5914e0a414be3bb4c9be83562b"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank11_charuco.pdf",
+        "png": "tank11_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank11-ref-03174d4e",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 97,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 98,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 99,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 100,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 101,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 102,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 103,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 104,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank11",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "8544296f29e78832376a85c3cb24260df91c0496fc458579f5c9cb295b674ab0",
+        "png": "07404b999790ad5b1350c4e9deba2c5541400339d0d8b45a5fd1948ed565b87a"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank12_charuco.pdf",
+        "png": "tank12_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank12-ref-f726df22",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 105,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 106,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 107,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 108,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 109,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 110,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 111,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 112,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank12",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "cf8da23a247ada0c4bfc77237f50441ab300208c0d54a61bc922b480e7c52a99",
+        "png": "d8bda758f213351743909fc00c7a466897ab1f3d603a1bc9955db06d22c86cde"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank13_charuco.pdf",
+        "png": "tank13_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank13-ref-a918f384",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        113,
+        114,
+        115,
+        116,
+        117,
+        118,
+        119,
+        120
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 113,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 114,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 115,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 116,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 117,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 118,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 119,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 120,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank13",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "ed464f00d3ac8b340c08a1f1fbfbf76eb1f10440527ac90bb3ec9800da633fa1",
+        "png": "fa2739537c06c856f0316bc3d2d7ceada65f403019707f6f61cfde39fb482322"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank14_charuco.pdf",
+        "png": "tank14_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank14-ref-22acc7b3",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        121,
+        122,
+        123,
+        124,
+        125,
+        126,
+        127,
+        128
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 121,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 122,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 123,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 124,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 125,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 126,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 127,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 128,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank14",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "0f4ac99e01ac981d35945c23c703c10d8d18ac2da5dfca792cfc3fb1cf685d6d",
+        "png": "96456f707dfdf83077d87d02f91166a7f5c371d672607aec581c3cf41f425603"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank15_charuco.pdf",
+        "png": "tank15_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank15-ref-53224076",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        129,
+        130,
+        131,
+        132,
+        133,
+        134,
+        135,
+        136
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 129,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 130,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 131,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 132,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 133,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 134,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 135,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 136,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank15",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "dedc4fd84be5bae3218b204215c752fe994b55a8a24f09f29ae673b383cd27c5",
+        "png": "c42d67dc2003bcf63e5f218f3003f4c25000127d6fe7db765a1cf2ca42158e19"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    },
+    {
+      "charuco_corners": [
+        {
+          "id": 0,
+          "point_m": [
+            0.019999999552965164,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 1,
+          "point_m": [
+            0.03999999910593033,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 2,
+          "point_m": [
+            0.05999999865889549,
+            0.019999999552965164,
+            0.0
+          ]
+        },
+        {
+          "id": 3,
+          "point_m": [
+            0.019999999552965164,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 4,
+          "point_m": [
+            0.03999999910593033,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 5,
+          "point_m": [
+            0.05999999865889549,
+            0.03999999910593033,
+            0.0
+          ]
+        },
+        {
+          "id": 6,
+          "point_m": [
+            0.019999999552965164,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 7,
+          "point_m": [
+            0.03999999910593033,
+            0.05999999865889549,
+            0.0
+          ]
+        },
+        {
+          "id": 8,
+          "point_m": [
+            0.05999999865889549,
+            0.05999999865889549,
+            0.0
+          ]
+        }
+      ],
+      "chessboard_squares": [
+        4,
+        4
+      ],
+      "coordinate_frame": {
+        "charuco_id_order": "row-major internal intersections, starting at zero",
+        "marker_corner_order": "top-left, top-right, bottom-right, bottom-left in unrotated print view",
+        "opencv_object_point_storage": "float32; stored corner values include its rounding",
+        "origin": "outer top-left corner of pattern viewed from printed side",
+        "plane": "z=0",
+        "units": "metres",
+        "x": "right along columns",
+        "y": "down along rows",
+        "z": "into the board, x cross y, right-handed"
+      },
+      "dictionary": "DICT_6X6_250",
+      "expected_charuco_corner_count": 9,
+      "expected_marker_count": 8,
+      "files": {
+        "combined_pdf": "tank01-16_A4.pdf",
+        "pdf": "tank16_charuco.pdf",
+        "png": "tank16_charuco.png"
+      },
+      "geometry": {
+        "border_bits": 1,
+        "dictionary": "DICT_6X6_250",
+        "legacy_pattern": false,
+        "marker_length_mm": 15.0,
+        "square_length_mm": 20.0,
+        "squares_x": 4,
+        "squares_y": 4
+      },
+      "identifier": "tank16-ref-59c5d3a8",
+      "layout_compatibility": {
+        "border_bits": 1,
+        "constructor": "cv2.aruco.CharucoBoard(size, squareLength_m, markerLength_m, dictionary, ids)",
+        "legacy_pattern": false,
+        "opencv_version": "4.11.0",
+        "top_left_square": "black"
+      },
+      "marker_ids": [
+        137,
+        138,
+        139,
+        140,
+        141,
+        142,
+        143,
+        144
+      ],
+      "marker_length_m": 0.015,
+      "marker_length_mm": 15.0,
+      "marker_placement": [
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 137,
+          "sequence_index": 0,
+          "square_column": 1,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.0024999999441206455,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.017500000074505806,
+              0.0
+            ],
+            [
+              0.0625,
+              0.017500000074505806,
+              0.0
+            ]
+          ],
+          "id": 138,
+          "sequence_index": 1,
+          "square_column": 3,
+          "square_row": 0
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 139,
+          "sequence_index": 2,
+          "square_column": 0,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.022499999031424522,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.03749999776482582,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.03749999776482582,
+              0.0
+            ]
+          ],
+          "id": 140,
+          "sequence_index": 3,
+          "square_column": 2,
+          "square_row": 1
+        },
+        {
+          "corners_m": [
+            [
+              0.022499999031424522,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.03749999776482582,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.022499999031424522,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 141,
+          "sequence_index": 4,
+          "square_column": 1,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0625,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.042500000447034836,
+              0.0
+            ],
+            [
+              0.07750000059604645,
+              0.057500001043081284,
+              0.0
+            ],
+            [
+              0.0625,
+              0.057500001043081284,
+              0.0
+            ]
+          ],
+          "id": 142,
+          "sequence_index": 5,
+          "square_column": 3,
+          "square_row": 2
+        },
+        {
+          "corners_m": [
+            [
+              0.0024999999441206455,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.0625,
+              0.0
+            ],
+            [
+              0.017500000074505806,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.0024999999441206455,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 143,
+          "sequence_index": 6,
+          "square_column": 0,
+          "square_row": 3
+        },
+        {
+          "corners_m": [
+            [
+              0.042500000447034836,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.0625,
+              0.0
+            ],
+            [
+              0.057500001043081284,
+              0.07750000059604645,
+              0.0
+            ],
+            [
+              0.042500000447034836,
+              0.07750000059604645,
+              0.0
+            ]
+          ],
+          "id": 144,
+          "sequence_index": 7,
+          "square_column": 2,
+          "square_row": 3
+        }
+      ],
+      "name": "tank16",
+      "pattern_dimensions_m": [
+        0.08,
+        0.08
+      ],
+      "pattern_dimensions_mm": [
+        80.0,
+        80.0
+      ],
+      "raster": {
+        "effective_pattern_dpi_at_exact_size": 599.4399999999999,
+        "ideal_pixels_per_square": 472.4409448818898,
+        "image_pixels": [
+          2360,
+          2360
+        ],
+        "margin_pixels": 236,
+        "notes": "Whole pixels per square preserve exact aspect ratio. Raster marker/module edges have pixel quantization. PNG pHYs metadata adds integer pixels/metre rounding. PDF uses independent exact-size vectors.",
+        "pattern_bbox_pixels_xywh": [
+          236,
+          236,
+          1888,
+          1888
+        ],
+        "pattern_mm_if_forced_to_requested_dpi": [
+          79.92533333333333,
+          79.92533333333333
+        ],
+        "pattern_pixels": [
+          1888,
+          1888
+        ],
+        "pattern_rounding_mm_at_requested_dpi": [
+          -0.07466666666667265,
+          -0.07466666666667265
+        ],
+        "pixel_pitch_mm_at_exact_size": 0.0423728813559322,
+        "pixels_per_square": 472,
+        "png_metadata_dpi": 599.4399999999999,
+        "raster_edge_quantization_bound_mm": 0.0423728813559322,
+        "requested_dpi": 600,
+        "square_rounding_px": -0.4409448818897772,
+        "white_margin_mm_at_exact_size": 10.0
+      },
+      "sha256": {
+        "combined_pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+        "pdf": "22f9e97d021d231d17bfbfd8ad6b90baae5e1261b1ac289278cad11ea397f5a1",
+        "png": "021bc7cbc05c84e70f71e39f334aec3ec2ce54fb1f46debec757cc4aa785b005"
+      },
+      "square_length_m": 0.02,
+      "square_length_mm": 20.0
+    }
+  ],
+  "checksum_scope": "PNG and PDF artifacts. Manifest and report are excluded to avoid recursive checksums; report includes manifest checksum.",
+  "combined_pdf": "tank01-16_A4.pdf",
+  "configuration": {
+    "boards": [
+      {
+        "identifier": "tank01-ref-787e1520",
+        "marker_ids": [
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24
+        ],
+        "name": "tank01"
+      },
+      {
+        "identifier": "tank02-ref-a5ca30ca",
+        "marker_ids": [
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32
+        ],
+        "name": "tank02"
+      },
+      {
+        "identifier": "tank03-ref-684f007b",
+        "marker_ids": [
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40
+        ],
+        "name": "tank03"
+      },
+      {
+        "identifier": "tank04-ref-d904975c",
+        "marker_ids": [
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48
+        ],
+        "name": "tank04"
+      },
+      {
+        "identifier": "tank05-ref-1f7c5a3b",
+        "marker_ids": [
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56
+        ],
+        "name": "tank05"
+      },
+      {
+        "identifier": "tank06-ref-1d7309eb",
+        "marker_ids": [
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64
+        ],
+        "name": "tank06"
+      },
+      {
+        "identifier": "tank07-ref-705965b9",
+        "marker_ids": [
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72
+        ],
+        "name": "tank07"
+      },
+      {
+        "identifier": "tank08-ref-27f04b76",
+        "marker_ids": [
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80
+        ],
+        "name": "tank08"
+      },
+      {
+        "identifier": "tank09-ref-84479038",
+        "marker_ids": [
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88
+        ],
+        "name": "tank09"
+      },
+      {
+        "identifier": "tank10-ref-44a723cb",
+        "marker_ids": [
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96
+        ],
+        "name": "tank10"
+      },
+      {
+        "identifier": "tank11-ref-03174d4e",
+        "marker_ids": [
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104
+        ],
+        "name": "tank11"
+      },
+      {
+        "identifier": "tank12-ref-f726df22",
+        "marker_ids": [
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112
+        ],
+        "name": "tank12"
+      },
+      {
+        "identifier": "tank13-ref-a918f384",
+        "marker_ids": [
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          120
+        ],
+        "name": "tank13"
+      },
+      {
+        "identifier": "tank14-ref-22acc7b3",
+        "marker_ids": [
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127,
+          128
+        ],
+        "name": "tank14"
+      },
+      {
+        "identifier": "tank15-ref-53224076",
+        "marker_ids": [
+          129,
+          130,
+          131,
+          132,
+          133,
+          134,
+          135,
+          136
+        ],
+        "name": "tank15"
+      },
+      {
+        "identifier": "tank16-ref-59c5d3a8",
+        "marker_ids": [
+          137,
+          138,
+          139,
+          140,
+          141,
+          142,
+          143,
+          144
+        ],
+        "name": "tank16"
+      }
+    ],
+    "geometry": {
+      "border_bits": 1,
+      "dictionary": "DICT_6X6_250",
+      "legacy_pattern": false,
+      "marker_length_mm": 15.0,
+      "square_length_mm": 20.0,
+      "squares_x": 4,
+      "squares_y": 4
+    },
+    "output_dir": "output/two_stage/stage2_charuco_realsense_80mm",
+    "printing": {
+      "dpi": 600,
+      "page_margin_mm": 10.0,
+      "page_size": "A4",
+      "tile_overlap_mm": 0.0,
+      "white_margin_mm": 10.0
+    },
+    "schema_version": 1
+  },
+  "configuration_sha256": "81a3499bbb7badc1b7aed7785a34b6a2339e12045f04b4b0afb976f8d3d1b846",
+  "dictionary_quality": {
+    "capacity": 250,
+    "ids_in_use": 128,
+    "marker_size": 6,
+    "max_correction_bits": 5,
+    "mean_distance_in_use": 11.852,
+    "min_distance_in_use": 11,
+    "min_hamming_distance": 11,
+    "note": "Rotation-aware Hamming distances between dictionary codewords; min_distance_in_use covers only the IDs this set prints."
+  },
+  "environment": {
+    "numpy": "2.3.5",
+    "opencv": "4.11.0",
+    "opencv_distribution": "opencv-contrib-python-headless",
+    "opencv_distribution_version": "4.11.0.86",
+    "opencv_tested_against": "4.11.0",
+    "pillow": "12.0.0",
+    "pypdf": "6.1.3",
+    "python": "3.12.15",
+    "reportlab": "4.4.5"
+  },
+  "exports": [],
+  "generator_version": "1.1.0",
+  "path_convention": "All file paths are relative to the directory containing this manifest",
+  "pdf_layouts": {
+    "tank01-16_A4.pdf": [
+      {
+        "board": "tank01",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          148.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          168.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank01",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank02",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          18.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          38.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank02",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank03",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 1,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          148.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          168.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank03",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank04",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 1,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          18.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          38.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank04",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank05",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 2,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          148.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          168.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank05",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank06",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 2,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          18.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          38.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank06",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank07",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 3,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          148.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          168.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank07",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank08",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 3,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          18.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          38.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank08",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank09",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 4,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          148.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          168.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank09",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank10",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 4,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          18.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          38.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank10",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank11",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 5,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          148.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          168.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank11",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank12",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 5,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          18.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          38.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank12",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank13",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 6,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          148.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          168.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank13",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank14",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 6,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          18.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          38.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank14",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank15",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 7,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          148.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          168.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank15",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      },
+      {
+        "board": "tank16",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 7,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          18.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          38.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank16",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank01_charuco.pdf": [
+      {
+        "board": "tank01",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank01",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank02_charuco.pdf": [
+      {
+        "board": "tank02",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank02",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank03_charuco.pdf": [
+      {
+        "board": "tank03",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank03",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank04_charuco.pdf": [
+      {
+        "board": "tank04",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank04",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank05_charuco.pdf": [
+      {
+        "board": "tank05",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank05",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank06_charuco.pdf": [
+      {
+        "board": "tank06",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank06",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank07_charuco.pdf": [
+      {
+        "board": "tank07",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank07",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank08_charuco.pdf": [
+      {
+        "board": "tank08",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank08",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank09_charuco.pdf": [
+      {
+        "board": "tank09",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank09",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank10_charuco.pdf": [
+      {
+        "board": "tank10",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank10",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank11_charuco.pdf": [
+      {
+        "board": "tank11",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank11",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank12_charuco.pdf": [
+      {
+        "board": "tank12",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank12",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank13_charuco.pdf": [
+      {
+        "board": "tank13",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank13",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank14_charuco.pdf": [
+      {
+        "board": "tank14",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank14",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank15_charuco.pdf": [
+      {
+        "board": "tank15",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank15",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ],
+    "tank16_charuco.pdf": [
+      {
+        "board": "tank16",
+        "form_size_mm": [
+          80.0,
+          80.0
+        ],
+        "page": 0,
+        "panel_bbox_mm_xywh": [
+          43.0,
+          83.5,
+          124.0,
+          124.0
+        ],
+        "pattern_bbox_mm_xywh": [
+          65.0,
+          103.5,
+          80.0,
+          80.0
+        ],
+        "pdf_form": "/FormXob.Charuco_tank16",
+        "reference_line_mm": 50.0,
+        "reference_line_y_mm": 50.0
+      }
+    ]
+  },
+  "print_geometry": "Vector forms in PDF points (72 points/inch); no fit-to-page transformation",
+  "printing": {
+    "page_size": "A4",
+    "physical_print_verified": false,
+    "scale": 1.0,
+    "viewer_print_scaling": "None"
+  },
+  "schema_version": 1,
+  "sha256": {
+    "tank01-16_A4.pdf": "4c8babe4359cfd767cd98d1da9e28eec9d51a613cbf6b95be36a882ac7ecd1e5",
+    "tank01_charuco.pdf": "f5495f707d40f23f529e300048bac3af8af4908108b526c4076c96345650eeaf",
+    "tank01_charuco.png": "16857103b4d37f3d344b52976e141c3198dd19ea83fc43ca16cb13b2aadf884a",
+    "tank02_charuco.pdf": "0f60ff0095359635a0305c15b452bb1b057833ff69bcd926d2b5dfce249640b1",
+    "tank02_charuco.png": "3d12dbe2174382e60ed21f12fba5904fe0f586a554054a357e3ee054bdcf56ea",
+    "tank03_charuco.pdf": "2a15b441b4f050dbda72aab161e04c7b8eca2923f4aa205025737c1cdb48a05f",
+    "tank03_charuco.png": "d7f9fa03d5ae49f0aad15063a80b32f0e1bf146532a63a4adfda0c0788faa550",
+    "tank04_charuco.pdf": "7a44fd2fb2171dd181d1a4020a54484868df895bc110f3eccd309858bf1fe8b9",
+    "tank04_charuco.png": "c66e153403f09af74784d3c8cd8d477f5f106b17f76c80e2c9cee9b2e87b0dc4",
+    "tank05_charuco.pdf": "4f99887fd776d38a9a0a768b650e4726ac686313a28881b82428d960d2df9f38",
+    "tank05_charuco.png": "e7c8719d0587dbaeb7e74bfad32f997b90d0d531490d659413bd04a48b723f46",
+    "tank06_charuco.pdf": "4c6212fc60ec78b0ed1fc8594a148237c2c96094e0073fad1c76912fc8597c73",
+    "tank06_charuco.png": "82b6d0615d78172fd951d2a10c782d9aab61060274ea80c9b6f46b5b7242ac61",
+    "tank07_charuco.pdf": "6edab8973988ed9297cf2684893b34406e38f95fb09807164fa209fc3083fe69",
+    "tank07_charuco.png": "c3e8217c97f6698a03bb68112ad9546ef427c456ebfbf448e4e72d9a1fb4659c",
+    "tank08_charuco.pdf": "6eb4c8a7d5848f5d666f11633d2ce572138343cec334aac31c6e3b690946b21d",
+    "tank08_charuco.png": "5e6bd8b1cf1b5feb95bb282c7b19cf03db063bf3c37070e28f50218f4ba7aa89",
+    "tank09_charuco.pdf": "06074d512a37f4b9753952886bf027a80a1c6c65101de73230a5ab29fbf4101f",
+    "tank09_charuco.png": "00470ebee49787c4af94db3a1f7bbe1c428cd4f9bf54be482469f9e68a081fe2",
+    "tank10_charuco.pdf": "f6ef96a242eeb5a39a0f3ecc231c6773cd49665bca0028ca4385fae9a1e2b5ac",
+    "tank10_charuco.png": "9f691846f7d9a514bf37cf72b059fa4fe8550e5914e0a414be3bb4c9be83562b",
+    "tank11_charuco.pdf": "8544296f29e78832376a85c3cb24260df91c0496fc458579f5c9cb295b674ab0",
+    "tank11_charuco.png": "07404b999790ad5b1350c4e9deba2c5541400339d0d8b45a5fd1948ed565b87a",
+    "tank12_charuco.pdf": "cf8da23a247ada0c4bfc77237f50441ab300208c0d54a61bc922b480e7c52a99",
+    "tank12_charuco.png": "d8bda758f213351743909fc00c7a466897ab1f3d603a1bc9955db06d22c86cde",
+    "tank13_charuco.pdf": "ed464f00d3ac8b340c08a1f1fbfbf76eb1f10440527ac90bb3ec9800da633fa1",
+    "tank13_charuco.png": "fa2739537c06c856f0316bc3d2d7ceada65f403019707f6f61cfde39fb482322",
+    "tank14_charuco.pdf": "0f4ac99e01ac981d35945c23c703c10d8d18ac2da5dfca792cfc3fb1cf685d6d",
+    "tank14_charuco.png": "96456f707dfdf83077d87d02f91166a7f5c371d672607aec581c3cf41f425603",
+    "tank15_charuco.pdf": "dedc4fd84be5bae3218b204215c752fe994b55a8a24f09f29ae673b383cd27c5",
+    "tank15_charuco.png": "c42d67dc2003bcf63e5f218f3003f4c25000127d6fe7db765a1cf2ca42158e19",
+    "tank16_charuco.pdf": "22f9e97d021d231d17bfbfd8ad6b90baae5e1261b1ac289278cad11ea397f5a1",
+    "tank16_charuco.png": "021bc7cbc05c84e70f71e39f334aec3ec2ce54fb1f46debec757cc4aa785b005"
+  },
+  "validation_report": "validation_report.json"
+}

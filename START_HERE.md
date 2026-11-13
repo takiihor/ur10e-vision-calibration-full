@@ -1,0 +1,151 @@
+# Three test modules and IPC controller
+
+Snapshot date: 11 November 2026. Review-fix revision: 13 November 2026.
+Historical source release: `44f2f0aa`, installed on 10 November 2026; this
+revision contains additional review fixes and regenerated manifests.
+
+This package contains the current standalone Calibration, Teaching and Pick/place
+pages, their shared IPC service, native module cores and saved IPC data.
+The three modules run without the ano app or ROS.
+
+## Package contents
+
+- `src/anodizing-modules/`: all 410 reviewed source, test, packaging and board
+  files in this revision.
+- `state/README.md`: handling notes for the saved IPC data snapshot. The 513 MB
+  archive and its 897-file manifest are **not** in this public source repository;
+  they contain confidential site data and exceed GitHub's per-file limit.
+- `environment/`: installed Python package versions and the recorded IPC launch
+  configuration. This is a version record, not a copied virtual environment.
+- `review/`: handoff, review findings, patch, historical software test results
+  and two screenshots made with fake devices. `results/final-13115877.txt` is a
+  focused 36-test subset, not the full suite.
+- `provenance/`: offline vendor baseline archives, per-file delta mapping and an
+  offline verifier. The bundled vendor trees are not unmodified baselines.
+- `RELEASE_NOTES.md`: changes, limitations and unreconciled work.
+- `PACKAGE_INFO.json`: exact snapshot identity, counts and capture evidence.
+- `CONTENTS.sha256`: hashes of every other file in the package.
+
+SSH keys, passwords, Wi-Fi profiles, browser tokens, virtual environments,
+SDK wheels and Python caches are outside this package.
+
+## Split between the PCs
+
+The IPC runs `app/anodizing_web/server.py`. Its shared job owner admits work from
+all three pages. The native `ur_rtde` backend performs robot operations; the
+shared camera code supplies RealSense or the prepared Basler path. The service
+owns planning, execution, saved data and MCU requests.
+
+The laptop runs the browser and an SSH tunnel. It sends operator requests and
+approvals, then displays IPC status. It does not need a local camera SDK or a
+second robot controller. This package does not add a separate controller daemon.
+
+## Verify after extraction
+
+From this package's top directory:
+
+```bash
+sha256sum -c CONTENTS.sha256
+```
+
+For a source-only check:
+
+```bash
+cd src/anodizing-modules
+sha256sum -c ../../SOURCE_MANIFEST.sha256
+```
+
+`SOURCE_MANIFEST.sha256` describes this release. The source-level `SHA256SUMS`
+is regenerated from the same revised files; both must match the extracted source.
+
+Verify the offline vendor provenance separately:
+
+```bash
+python3 provenance/verify.py
+```
+
+Run the full software suite with one command:
+
+```bash
+cd src/anodizing-modules
+ANODIZING_PYTHON=/path/to/python ./tools/test-all.bash
+```
+
+## First software check
+
+Match the Python version in `environment/` and use a separate virtual environment.
+The captured IPC runs Python 3.12.3. On a matching Linux system, the dependency
+installation commands are:
+
+```bash
+python3.12 -m venv review-venv
+review-venv/bin/python -m pip install -r environment/requirements-ipc-snapshot.txt
+```
+
+The captured third-party requirements and the vendored project metadata describe
+the dependencies. SDK binaries and operating-system packages still need installation
+on a new PC. The launcher supplies all four bundled native modules through
+`PYTHONPATH`; a fresh checkout from GitHub is not required.
+
+Use a new data directory for the first check. Keep the saved snapshot separate.
+From the package's top directory, with an existing prepared interpreter:
+
+```bash
+export MODULE_BUNDLE="$PWD/src/anodizing-modules"
+export ANODIZING_PYTHON="$PWD/review-venv/bin/python"
+export ANODIZING_DATA_DIR="$PWD/offline-check-data"
+mkdir -p "$ANODIZING_DATA_DIR"
+cp -an "$MODULE_BUNDLE/data/boards" "$ANODIZING_DATA_DIR/"
+bash "$MODULE_BUNDLE/tools/probe.bash"
+bash "$MODULE_BUNDLE/tools/run-ipc.bash" --port 8871
+```
+
+This starts the service with hardware opt-ins off. Port 8871 keeps this check
+separate from the installed service on port 8870. The service has no built-in
+robot address, scene, camera serial, joint bounds or named teaching project. It
+discovers board/project/calibration files under `ANODIZING_DATA_DIR`; reviewed
+overrides can be placed in an optional `site-profile.json` there. In another
+terminal with the same variables, run:
+
+```bash
+ANODIZING_PORT=8871 "$ANODIZING_PYTHON" -B "$MODULE_BUNDLE/tools/smoke.py"
+```
+
+For a remote browser, forward this offline port from the laptop:
+
+```bash
+ssh -N -o ExitOnForwardFailure=yes \
+  -L 127.0.0.1:8871:127.0.0.1:8871 USER@IPC_HOST
+```
+
+Open `http://127.0.0.1:8871/calibration`, `/teaching` or `/pick-place`.
+The source README contains the detailed native and hardware configuration.
+
+## Saved data and physical testing
+
+The data snapshot is not included in this public source repository. It is an
+archive, not an automatic restore or resume instruction. Its `.jobs` records
+retain interrupted-job and execution-uncertainty evidence. Review those records
+before any restoration. Preserve recovery evidence; copying the source does not
+establish the physical robot or item state.
+
+If you have the separate local package, extract the archive only in a dedicated
+review directory, as described in `state/README.md`. Do not add the extracted
+data to this repository.
+
+The recorded launch configuration describes the existing installation. It is not
+an instruction to start another hardware controller beside it. Hardware use still
+requires the correct camera serial, active TCP, robot model, scene, calibration
+and explicit task approval. Machine-specific paths in saved records remain intact.
+
+Current physical limits:
+
+- Joint moves can curve and change TCP height. Their workspace bounds apply to
+  the start and endpoint. The selected scene checks the joint path.
+- The supervised-self scene omits external cell objects.
+- MCU acknowledgements do not prove that the rod is held or released.
+- D435 intrinsics were fitted from 16 views, but remain marked unvalidated.
+- Basler preparation uses the 12 mm lens and 32 mm fine boards. Its actual serial,
+  measured lens intrinsics and physical camera test remain outstanding.
+
+Packaging reads files only. It does not provide new physical validation.

@@ -1,0 +1,42 @@
+--- a/src/ur_handeye/cli.py
++++ b/src/ur_handeye/cli.py
+@@ -6,6 +6,9 @@
+ import time
+ from datetime import UTC, datetime
+ from pathlib import Path
++
++# Manual capture uses the receive-only primary interface for both camera arrangements.
++READ_ONLY_MANUAL_CAPTURE = True
+ 
+ import cv2
+ import numpy as np
+@@ -250,8 +253,8 @@
+     if (args.mode == "replay") != bool(args.replay):
+         raise ValueError("--mode replay and --replay SESSION must be provided together")
+     calibration_type = getattr(args, "calibration_type", "eye_in_hand")
+-    if calibration_type == "eye_to_hand" and args.freedrive:
+-        raise ValueError("Eye-to-hand manual capture uses Local Control and pendant jogging; "
++    if args.mode == "manual" and args.freedrive:
++        raise ValueError("Manual capture uses Local Control and pendant jogging; "
+                          "--freedrive is unavailable")
+     if calibration_type == "eye_to_hand" and args.mode == "auto":
+         raise ValueError("Eye-to-hand uses --mode manual or replay; automatic wrist-camera planning is unavailable")
+@@ -272,7 +275,7 @@
+     output = Path(args.output or f"sessions/{datetime.now():%Y%m%d-%H%M%S}")
+     if output.exists() and (not output.is_dir() or any(output.iterdir())):
+         raise DatasetError(f"{output} already contains data; choose a new session folder")
+-    local_capture = calibration_type == "eye_to_hand" and args.mode == "manual"
++    local_capture = args.mode == "manual"
+     robot_class = LocalCaptureRobot if local_capture else URRobot
+     robot = robot_class(args.robot_ip, _limits(args), **({'collision': collision} if collision is not None else {}))
+     try:
+@@ -684,8 +687,7 @@
+         print(f"error: {exc}", file=sys.stderr)
+         return 2
+     except KeyboardInterrupt:
+-        local_capture = (args.command == "collect" and args.calibration_type == "eye_to_hand"
+-                         and args.mode == "manual")
++        local_capture = args.command == "collect" and args.mode == "manual"
+         message = ("Interrupted. Capture closed; the pendant retains robot motion control." if local_capture else
+                    "Interrupted. Check the robot state before any further movement.")
+         print("\n" + message, file=sys.stderr)

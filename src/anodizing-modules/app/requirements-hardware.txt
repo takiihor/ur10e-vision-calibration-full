@@ -1,0 +1,5 @@
+# Optional device libraries. Install only the hardware present on the IPC.
+ur_rtde==1.6.5
+pyrealsense2==2.59.1.11053
+pypylon>=4,<5
+pyserial>=3.5
