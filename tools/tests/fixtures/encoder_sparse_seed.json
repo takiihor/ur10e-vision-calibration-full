@@ -1,0 +1,20 @@
+{
+  "source": "capture/sparse-seed-frame.png",
+  "source_sha256": "49fd970c45c10c5056792f87b1593e780c6a35aa91d3abbba996a23b4d8e9e4c",
+  "crop_origin_xy": [
+    734,
+    1063
+  ],
+  "crop_size_wh": [
+    360,
+    360
+  ],
+  "fixture_sha256": "8b5bcecf63458e373d4a4acbd94bed50cb8bf4dd8d139b24f551a524fb66ff93",
+  "raw_unmodified_crop": true,
+  "visual_plain_dark_centre_xy": [
+    190,
+    170
+  ],
+  "visual_label_tolerance_px": 2,
+  "description": "Dense bright patch at lower left; isolated legitimate dark plain nearest image centre cannot establish two axes. Initial detector rejects the entire view. The bounded dense seed should grow through connected dark cells and measure the central dark plain."
+}
