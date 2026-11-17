@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Guide a hands-free Basler ChArUco capture and fit the resulting intrinsics."""
+"""Guide and confirm Basler ChArUco capture and fit the resulting intrinsics."""
 import argparse
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import socket
@@ -23,64 +24,80 @@ WINDOW = "Basler intrinsics capture"
 BOARD = "calibration_stage2"
 DATA = ROOT / ".ui-data" / "basler-intrinsics"
 MANIFEST = ROOT / "src/anodizing-modules/data/boards/calibration_stage2/board_manifest.json"
+PREVIEW = (672, 562)
+SIDEBAR = 416
+BLUE = (255, 201, 95)
+GREEN = (105, 230, 133)
+AXES = (("left", "right"), ("top", "bottom"))
+
+
+# Directions are relative to the live image, with positive x right and positive y down.
+CENTRE = (0, 0)
+LEFT, RIGHT, TOP, BOTTOM = (-1, 0), (1, 0), (0, -1), (0, 1)
+UPPER_LEFT, UPPER_RIGHT, LOWER_LEFT, LOWER_RIGHT = (-1, -1), (1, -1), (-1, 1), (1, 1)
+CLOSER, FARTHER = (300, 340), (365, 400)
+
+
+@dataclass(frozen=True)
+class Target:
+    region: tuple[int, int]
+    nearer: tuple[int, int]
+    distance_mm: tuple[int, int] = (300, 400)
+    borders: tuple[str, ...] = ()
+
+    @property
+    def tilt_deg(self):
+        return (0, 12) if self.nearer == CENTRE else (20, 40)
+
+
+VERIFY_POSES = (
+    Target(CENTRE, CENTRE),
+    Target(CENTRE, LEFT),
+    Target(CENTRE, RIGHT),
+    Target(LEFT, TOP, borders=("left",)),
+    Target(RIGHT, BOTTOM, borders=("right",)),
+    Target(TOP, RIGHT, borders=("top",)),
+    Target(BOTTOM, LEFT, borders=("bottom",)),
+)
 TRAIN_POSES = (
-    "Centre, facing the camera",
-    "Centre, left edge closer (20-40 degrees)",
-    "Centre, right edge closer (20-40 degrees)",
-    "Centre, top edge closer (20-40 degrees)",
-    "Centre, bottom edge closer (20-40 degrees)",
-    "Near the top of the image, slight left tilt",
-    "Near the bottom of the image, slight right tilt",
-    "Near the left of the image, slight top tilt",
-    "Near the right of the image, slight bottom tilt",
-    "Upper left, facing the camera",
-    "Upper right, slight bottom tilt",
-    "Lower left, slight right tilt",
-    "Lower right, slight left tilt",
-    "Slightly closer, centre, facing the camera",
-    "Slightly closer, left edge closer",
-    "Slightly closer, right edge closer",
-    "Slightly closer, top edge closer",
-    "Slightly closer, bottom edge closer",
-    "Slightly farther, centre, facing the camera",
-    "Slightly farther, upper left, right edge closer",
-    "Slightly farther, upper right, top edge closer",
-    "Slightly farther, lower left, bottom edge closer",
-    "Slightly farther, lower right, left edge closer",
-    "Upper half, tilt on both axes",
-    "Lower half, tilt on both axes in the other direction",
-    "Left half, new compound tilt",
-    "Right half, new compound tilt",
-    "Upper left of the image, slight right tilt",
-    "Upper right of the image, slight bottom tilt",
-    "Lower left of the image, slight top tilt",
+    VERIFY_POSES[0], VERIFY_POSES[3], VERIFY_POSES[1], VERIFY_POSES[2],
+    VERIFY_POSES[5], VERIFY_POSES[4], VERIFY_POSES[6],
+    Target(CENTRE, TOP),
+    Target(CENTRE, BOTTOM),
+    Target(UPPER_LEFT, TOP),
+    Target(UPPER_RIGHT, RIGHT),
+    Target(LOWER_LEFT, LEFT),
+    Target(LOWER_RIGHT, BOTTOM),
+    Target(LEFT, TOP, CLOSER, ("left",)),
+    Target(TOP, RIGHT, FARTHER, ("top",)),
+    Target(CENTRE, LEFT, CLOSER),
+    Target(CENTRE, RIGHT, FARTHER),
+    Target(CENTRE, TOP, CLOSER),
+    Target(CENTRE, BOTTOM, FARTHER),
+    Target(UPPER_LEFT, RIGHT, FARTHER),
+    Target(UPPER_RIGHT, TOP, FARTHER),
+    Target(LOWER_LEFT, BOTTOM, FARTHER),
+    Target(LOWER_RIGHT, LEFT, FARTHER),
+    Target(TOP, UPPER_LEFT, FARTHER),
+    Target(BOTTOM, LOWER_RIGHT, FARTHER),
+    Target(LEFT, LOWER_LEFT, FARTHER, ("left",)),
+    Target(RIGHT, UPPER_RIGHT, FARTHER, ("right",)),
+    Target(UPPER_LEFT, RIGHT, borders=("left", "top")),
+    Target(UPPER_RIGHT, BOTTOM, borders=("right", "top")),
+    Target(LOWER_LEFT, TOP, borders=("left", "bottom")),
 )
 CHECK_POSES = (
-    "Fresh view: centre-left, top-right corner closer",
-    "Fresh view: centre-right, bottom-left corner closer",
-    "Fresh view: upper right, slightly closer, left edge closer",
-    "Fresh view: lower left, slightly farther, right edge closer",
-    "Fresh view: upper left, bottom edge closer",
-    "Fresh view: lower right, top edge closer",
-    "Fresh view: centre, new distance and compound tilt",
-    "Fresh view: left edge, new distance and right tilt",
-    "Fresh view: right edge, new distance and left tilt",
-    "Fresh view: top edge, new distance and bottom tilt",
+    Target(LEFT, UPPER_RIGHT, CLOSER),
+    Target(RIGHT, LOWER_LEFT, CLOSER),
+    Target(UPPER_RIGHT, LEFT, CLOSER),
+    Target(LOWER_LEFT, RIGHT, CLOSER),
+    Target(UPPER_LEFT, BOTTOM, CLOSER),
+    Target(LOWER_RIGHT, TOP, CLOSER),
+    Target(CENTRE, UPPER_LEFT, FARTHER),
+    Target(LEFT, RIGHT, borders=("left",)),
+    Target(RIGHT, LEFT, borders=("right",)),
+    Target(TOP, BOTTOM, borders=("top",)),
 )
-EDGE_TARGETS = {
-    "train": {28: ("left", "top"), 29: ("right", "top"), 30: ("left", "bottom")},
-    "check": {8: ("left",), 9: ("right",), 10: ("top",)},
-}
-VERIFY_POSES = (
-    "Centre, facing the camera",
-    "Centre, left edge closer (20-40 degrees)",
-    "Centre, right edge closer (20-40 degrees)",
-    "Near the left edge, top edge closer (20-40 degrees)",
-    "Near the right edge, bottom edge closer (20-40 degrees)",
-    "Near the top edge, right edge closer (20-40 degrees)",
-    "Near the bottom edge, left edge closer (20-40 degrees)",
-)
-VERIFY_EDGES = {4: ("left",), 5: ("right",), 6: ("top",), 7: ("bottom",)}
 
 
 def distance(first, second):
@@ -91,30 +108,30 @@ def distance(first, second):
     return float(np.sqrt(np.mean(np.sum(offsets**2, axis=1))))
 
 
-def inspect_frame(detector, board, gray, target_edges=()):
+def board_boundary(board):
+    width, height = np.array(board.getChessboardSize()) * board.getSquareLength()
+    return np.float32([[0, 0, 0], [width, 0, 0], [width, height, 0], [0, height, 0]])
+
+
+def board_outline(boundary, objects, pixels):
+    homography, _ = cv2.findHomography(objects[:, :2].copy(), pixels.reshape(-1, 2))
+    if homography is None:
+        return None, "Show the whole board at a gentler angle."
+    outer = cv2.perspectiveTransform(boundary[None, :, :2].copy(), homography)[0]
+    if not (np.isfinite(outer).all() and np.all(outer >= 5) and np.all(outer <= np.array(SIZE) - 6)):
+        return None, "Keep the whole pattern inside the frame."
+    return outer, ""
+
+
+def inspect_frame(detector, board, gray, boundary):
     found = detector.detect(gray)
     corners = {i: xy.ravel() for i, xy in zip(found.charuco_ids, found.charuco_corners)}
     total = len(board.getChessboardCorners())
     if len(corners) < max(12, int(np.ceil(total * 0.8))):
-        return corners, f"Corners {len(corners)}/{total}: show the full board and check focus."
-    square = board.getSquareLength()
-    width, height = board.getChessboardSize()
-    boundary = np.float32([[[0, 0], [width * square, 0],
-                            [width * square, height * square], [0, height * square]]])
-    object_xy = board.getChessboardCorners()[list(corners), :2].copy()
-    homography, _ = cv2.findHomography(object_xy, np.array(list(corners.values())))
-    if homography is None:
-        return corners, "Show the whole board at a gentler angle."
-    outer = cv2.perspectiveTransform(boundary, homography)[0]
-    if not (np.isfinite(outer).all() and np.all(outer >= 5) and np.all(outer <= np.array(SIZE) - 6)):
-        return corners, "Keep the whole pattern inside the frame."
-    if target_edges:
-        x, y = (outer / SIZE).T
-        gaps = {"left": x.min(), "right": 1 - x.max(), "top": y.min(), "bottom": 1 - y.max()}
-        remaining = [edge for edge in target_edges if gaps[edge] > 0.12]
-        if remaining:
-            return corners, f"Move the pattern closer to the {' and '.join(remaining)} image edge."
-    return corners, ""
+        return corners, None, f"Corners {len(corners)}/{total}. Show the full board and check focus."
+    objects = board.getChessboardCorners()[list(corners)]
+    outer, issue = board_outline(boundary, objects, np.array(list(corners.values())))
+    return corners, outer, issue
 
 
 def brightness(gray):
@@ -143,17 +160,83 @@ def check_pose(board, objects, pixels, calibration):
     return rotation, translation, angle, float(np.linalg.norm(centre) * 1000)
 
 
+def edge_depths(boundary, outer, rotation, translation):
+    orientation, _ = cv2.Rodrigues(rotation)
+    depth = (boundary @ orientation[2] + translation[2, 0]) * 1000
+    # Follow the physical corner order, starting with the top edge in the image.
+    top = np.argmin(outer[:, 1] + np.roll(outer[:, 1], -1))
+    outer, depth, boundary = (np.roll(value, -top, axis=0) for value in (outer, depth, boundary))
+    tl, tr, br, bl = depth
+    differences_mm = np.array([(tl + bl - tr - br) / 2, (tl + tr - bl - br) / 2])
+    lengths_mm = 1000 * np.linalg.norm(boundary[1:3] - boundary[:2], axis=1)
+    return outer, differences_mm, differences_mm / lengths_mm
+
+
+def position_name(region):
+    x, y = region
+    horizontal = AXES[0][(x + 1) // 2] if x else ""
+    vertical = ("upper" if y < 0 else "lower") if x else ("top" if y < 0 else "bottom")
+    return " ".join(part for part in (vertical if y else "", horizontal) if part) or "centre"
+
+
+def tip_instruction(direction):
+    x, y = direction
+    if not (x or y):
+        return "Face the board square to the lens"
+    if x and y:
+        return f"Tip the {position_name(direction)} corner toward the lens"
+    return f"Tip the {position_name(direction)} edge toward the lens"
+
+
+def target_issue(target, outer, slope, angle, distance_mm, metric):
+    x, y = (outer / SIZE).T
+    gaps = {"left": x.min(), "right": 1 - x.max(), "top": y.min(), "bottom": 1 - y.max()}
+    borders = [edge for edge in target.borders if gaps[edge] > 0.12]
+    if borders:
+        return f"Move the whole board closer to the {' and '.join(borders)} of the preview."
+    for position, expected in zip((x.mean(), y.mean()), target.region):
+        if ((expected < 0 and position > 0.43) or (expected > 0 and position < 0.57)
+                or (expected == 0 and not 0.34 <= position <= 0.66)):
+            return f"Move the whole board toward the {position_name(target.region)} guide."
+    dx, dy = outer[1] - outer[0]
+    if dx <= 0 or abs(dy) > 0.52 * dx:
+        return "Keep the top edge roughly level in the preview."
+    near, far = target.distance_mm
+    if metric and not near <= distance_mm <= far:
+        direction = "closer" if distance_mm > far else "farther back"
+        return f"Move the whole board {direction} ({near}-{far} mm)."
+    low, high = target.tilt_deg
+    if not low <= angle <= high:
+        direction = "less" if angle > high else "more"
+        return f"Tilt {direction} ({low}-{high} degrees)."
+    if target.nearer != CENTRE:
+        # The signed depth gradient must point within 30 degrees of the requested direction.
+        alignment = np.dot(slope, target.nearer)
+        minimum = np.cos(np.pi / 6) * np.linalg.norm(slope) * np.linalg.norm(target.nearer)
+        if alignment < minimum:
+            return tip_instruction(target.nearer) + "."
+    return ""
+
+
 def review_verification(folder, board, calibration, source):
+    views = observations(folder, board, SIZE)
+    if len(views) != len(VERIFY_POSES):
+        raise ValueError(f"Expected {len(VERIFY_POSES)} usable verification photos, found {len(views)}.")
+    boundary = board_boundary(board)
     checks = []
-    for path, objects, pixels in observations(folder, board, SIZE):
+    for (path, objects, pixels), target in zip(views, VERIFY_POSES):
         rotation, translation, angle, distance_mm = check_pose(board, objects, pixels, calibration)
         rms = reprojection_error(objects, pixels, *calibration, rotation, translation)
+        outer, issue = board_outline(boundary, objects, pixels)
+        if not issue:
+            outer, _, slope = edge_depths(boundary, outer, rotation, translation)
+            issue = target_issue(target, outer, slope, angle, distance_mm, metric=True)
         checks.append({"image": str(path), "reprojection_rmse_px": rms,
-                       "tilt_deg": angle, "distance_mm": distance_mm})
+                       "tilt_deg": angle, "distance_mm": distance_mm, "pose_issue": issue or None})
         print(f"{path.name}: {rms:.3f} px RMS, {angle:.1f} deg, {distance_mm:.0f} mm", flush=True)
-    if len(checks) != len(VERIFY_POSES):
-        raise ValueError(f"Expected {len(VERIFY_POSES)} usable verification photos, found {len(checks)}.")
-    passed = all(check["reprojection_rmse_px"] < 0.5 for check in checks)
+        if issue:
+            print(f"  Pose: {issue}", flush=True)
+    passed = all(check["reprojection_rmse_px"] < 0.5 and not check["pose_issue"] for check in checks)
     report = {"intrinsics": str(source.resolve()), "checks": checks, "threshold_px": 0.5,
               "passed": passed, "working_distance_mm": [300, 400], "tilted_views_deg": [20, 40]}
     path = folder / "verification.json"
@@ -162,18 +245,102 @@ def review_verification(folder, board, calibration, source):
     return 0 if passed else 1
 
 
-def show_preview(gray, corners, title, pose, status, level=""):
-    preview = cv2.resize(gray, (765, 640), interpolation=cv2.INTER_AREA)
+def label(canvas, text, x, y, scale=0.53, colour=(240, 242, 248)):
+    cv2.putText(canvas, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, colour, 1, cv2.LINE_AA)
+
+
+def guide_position(target):
+    return np.array([0.5, 0.5]) + np.array(target.region) * [0.29, 0.25]
+
+
+def draw_nearer_edges(image, polygon, nearer, colour=BLUE):
+    x, y = nearer
+    if x:
+        a, b = (0, 3) if x < 0 else (1, 2)
+        cv2.line(image, tuple(polygon[a]), tuple(polygon[b]), colour, 4, cv2.LINE_AA)
+    if y:
+        a, b = (0, 1) if y < 0 else (3, 2)
+        cv2.line(image, tuple(polygon[a]), tuple(polygon[b]), colour, 4, cv2.LINE_AA)
+
+
+def draw_tilt_guide(panel, y, axis, direction):
+    title = "Top view (left/right tilt)" if axis == 0 else "Side view (top/bottom tilt)"
+    label(panel, title, 20, y)
+    middle = y + 50
+    # The lens faces right; moving a board endpoint left brings it toward the lens.
+    cv2.rectangle(panel, (30, middle - 13), (75, middle + 13), (139, 147, 163), -1)
+    cv2.rectangle(panel, (75, middle - 7), (93, middle + 7), (188, 194, 205), -1)
+    cv2.line(panel, (94, middle), (203, middle), (106, 114, 132), 1, cv2.LINE_AA)
+    first = (211 + 22 * direction, middle - 30)
+    last = (211 - 22 * direction, middle + 30)
+    cv2.line(panel, first, last, (240, 242, 248), 4, cv2.LINE_AA)
+    for index, point in enumerate((first, last)):
+        nearer = direction == (-1, 1)[index]
+        colour = BLUE if nearer else (224, 228, 237)
+        cv2.circle(panel, point, 5, colour, -1, cv2.LINE_AA)
+        label(panel, AXES[axis][index].title(), point[0] + 13, point[1] + 5, colour=colour)
+    label(panel, "Lens", 32, middle + 33, scale=0.44)
+
+
+def render_preview(gray, corners, title, target, status, level="", outer=None, ready=False):
+    preview = cv2.resize(gray, PREVIEW, interpolation=cv2.INTER_AREA)
     preview = cv2.cvtColor(preview, cv2.COLOR_GRAY2BGR)
+    scale = np.array(PREVIEW) / SIZE
     for point in corners.values():
-        cv2.circle(preview, tuple(np.rint(point * (765 / SIZE[0])).astype(int)), 3, (80, 225, 100), -1)
-    panel = np.full((128, 765, 3), 25, dtype=np.uint8)
-    for y, message, scale in ((26, title, 0.64), (54, pose, 0.58), (84, status, 0.55),
-                              (111, level, 0.48)):
-        cv2.putText(panel, message, (14, y), cv2.FONT_HERSHEY_SIMPLEX, scale,
-                    (245, 245, 245), 1, cv2.LINE_AA)
-    cv2.imshow(WINDOW, np.vstack((panel, preview)))
-    return cv2.waitKey(1) & 0xFF
+        cv2.circle(preview, tuple(np.rint(point * scale).astype(int)), 2, GREEN, -1)
+    centre = tuple(np.rint(guide_position(target) * PREVIEW).astype(int))
+    cv2.drawMarker(preview, centre, BLUE, cv2.MARKER_CROSS, 19, 1, cv2.LINE_AA)
+    if outer is not None:
+        outline = np.rint(outer * scale).astype(np.int32)
+        cv2.polylines(preview, [outline], True, GREEN if ready else (190, 195, 204), 2, cv2.LINE_AA)
+        draw_nearer_edges(preview, outline, target.nearer)
+
+    panel = np.full((PREVIEW[1], SIDEBAR, 3), (39, 33, 27), dtype=np.uint8)
+    label(panel, "TARGET IN CAMERA PREVIEW", 20, 27, scale=0.57)
+    label(panel, "Blue edge goes toward the lens", 20, 50, colour=BLUE)
+    origin, size = np.array([20, 65]), np.array([242, 122])
+    cv2.rectangle(panel, tuple(origin), tuple(origin + size), (57, 52, 49), -1)
+    cv2.rectangle(panel, tuple(origin), tuple(origin + size), (129, 121, 115), 1)
+    x, y = np.rint(origin + guide_position(target) * size).astype(int)
+    polygon = np.array([[x - 20, y - 27], [x + 20, y - 27], [x + 20, y + 27], [x - 20, y + 27]])
+    cv2.fillConvexPoly(panel, polygon, (209, 216, 229))
+    for row in range(4):
+        for column in range(3):
+            if (row + column) % 2 == 0:
+                a = (x - 18 + 12 * column, y - 24 + 12 * row)
+                cv2.rectangle(panel, a, (a[0] + 11, a[1] + 11), (65, 60, 57), -1)
+    draw_nearer_edges(panel, polygon, target.nearer)
+    position = position_name(target.region)
+    label(panel, "Centre the board" if position == "centre" else f"Move the board near the {position}", 20, 215)
+    label(panel, tip_instruction(target.nearer), 20, 241, scale=0.48, colour=BLUE)
+    draw_tilt_guide(panel, 278, 0, target.nearer[0])
+    draw_tilt_guide(panel, 393, 1, target.nearer[1])
+    near, far = target.distance_mm
+    low, high = target.tilt_deg
+    label(panel, f"Target  {near}-{far} mm  |  {low}-{high} deg", 20, 535)
+
+    header = np.full((108, PREVIEW[0] + SIDEBAR, 3), (30, 25, 20), dtype=np.uint8)
+    label(header, title, 18, 28, scale=0.77)
+    label(header, status, 18, 61, scale=0.62, colour=GREEN if ready else (240, 242, 248))
+    label(header, level, 18, 89, colour=(192, 198, 211))
+    return np.vstack((header, np.hstack((preview, panel))))
+
+
+def preview_key(delay):
+    key = cv2.waitKey(delay) & 0xFF
+    try:
+        if cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
+            return 27
+    except cv2.error:
+        return 27
+    return key
+
+
+def confirm_preview():
+    while True:
+        key = preview_key(30)
+        if key in (10, 13, 32, 27, ord("r"), ord("R")):
+            return key
 
 
 def existing_poses(folder, board):
@@ -206,8 +373,8 @@ def diagnose(args):
     print(f"Basler {args.serial}: {SIZE[0]} x {SIZE[1]} Mono8, "
           f"exposure {metadata['exposure_time_us']:g} us, gain {metadata['gain_db']:g} dB.")
     print(f"Gray levels (0-255): min={gray.min()}, p01={low}, median={median}, p99={high}, max={gray.max()}.")
-    DATA.mkdir(parents=True, exist_ok=True)
-    path = DATA / "preview-diagnostic.png"
+    args.capture_dir.mkdir(parents=True, exist_ok=True)
+    path = args.capture_dir / "preview-diagnostic.png"
     if not cv2.imwrite(str(path), gray):
         raise RuntimeError(f"Could not save diagnostic frame to {path}.")
     print(f"Saved the original frame to {path}.")
@@ -216,44 +383,61 @@ def diagnose(args):
     return 0
 
 
-def capture(args, board, verification=None, verification_folder=None):
+def capture(args, board, pose_calibration, verification_folder=None):
     detector = CharucoDetector(board)
-    sets = [(DATA / "train", TRAIN_POSES[:args.train_count], EDGE_TARGETS["train"]),
-            (DATA / "check", CHECK_POSES[:args.check_count], EDGE_TARGETS["check"])]
-    if verification is not None:
-        sets = [(verification_folder, VERIFY_POSES, VERIFY_EDGES)]
-    for folder, _, _ in sets:
+    boundary = board_boundary(board)
+    sets = [(args.capture_dir / "train", TRAIN_POSES[:args.train_count]),
+            (args.capture_dir / "check", CHECK_POSES[:args.check_count])]
+    if verification_folder is not None:
+        sets = [(verification_folder, VERIFY_POSES)]
+    for folder, _ in sets:
         folder.mkdir(parents=True, exist_ok=True)
-    saved = [existing_poses(folder, board) for folder, _, _ in sets]
-    if all(len(views) >= len(poses) for views, (_, poses, _) in zip(saved, sets)):
+    saved = [existing_poses(folder, board) for folder, _ in sets]
+    if all(len(views) >= len(poses) for views, (_, poses) in zip(saved, sets)):
         return True
 
+    metric = pose_calibration is not None
+    if not metric:
+        width, height = SIZE
+        focal = 1.8 * width
+        pose_calibration = (np.array([[focal, 0, width / 2], [0, focal, height / 2], [0, 0, 1]]),
+                            np.zeros(5))
+        print("Using approximate pose guidance. Supply --pose-intrinsics to check the distance.", flush=True)
     check_gige_access()
     print(f"Opening Basler {args.serial}. Close pylon Viewer if it is holding the camera.", flush=True)
     from pypylon import genicam
 
     cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(WINDOW, 765, 768)
+    cv2.resizeWindow(WINDOW, PREVIEW[0] + SIDEBAR, PREVIEW[1] + 108)
     try:
-        show_preview(np.zeros(SIZE[::-1], dtype=np.uint8), {}, f"Basler {args.serial}",
-                     "Waiting for the first camera frame", "Check the Terminal if the camera does not respond.")
+        blank = render_preview(np.zeros(SIZE[::-1], dtype=np.uint8), {}, f"Basler {args.serial}",
+                               TRAIN_POSES[0], "Waiting for the first camera frame.")
+        cv2.imshow(WINDOW, blank)
+        if preview_key(1) == 27:
+            return False
         with BaslerCamera(camera_config(args)) as camera:
-            profile_dir = DATA if verification is None else sets[0][0]
+            profile_dir = verification_folder or args.capture_dir
             profile_path = profile_dir / "capture-profile.json"
             profile = dict(camera.metadata, board=args.board, manifest=str(args.manifest.resolve()))
+            source = args.verify_intrinsics or args.pose_intrinsics
+            profile["pose_intrinsics"] = str(source.resolve()) if source else None
+            profile["confirmation"] = "manual"
             if profile_path.exists() and json.loads(profile_path.read_text()) != profile:
                 if any(saved):
-                    raise ValueError("Camera or board settings differ from the previous capture session.")
+                    raise ValueError("Camera, board or pose guidance differs from the previous capture. "
+                                     "Choose a fresh folder with --capture-dir.")
                 profile_path.write_text(json.dumps(profile, indent=2) + "\n")
             elif not profile_path.exists():
+                if any(saved):
+                    raise ValueError("Existing photos have no capture profile. Use --capture-dir for a fresh capture.")
                 profile_path.write_text(json.dumps(profile, indent=2) + "\n")
-            print(f"Opened {camera.serial} at {SIZE[0]} x {SIZE[1]}, Mono8. Press Enter in the preview to start.", flush=True)
+            print(f"Opened {camera.serial} at {SIZE[0]} x {SIZE[1]}, Mono8. "
+                  "Hold the target pose to review a photo, then press Enter to save.", flush=True)
             exposure = camera.metadata["exposure_time_us"]
             gain = camera.metadata["gain_db"]
-            armed = False
-            pause_until = 0.0
             first_frame = True
-            for (folder, poses, edges), views in zip(sets, saved):
+            for (folder, poses), views in zip(sets, saved):
+                group = "Verification" if verification_folder is not None else folder.name.title()
                 reference, stable_since, stable_frames = {}, 0.0, 0
                 while len(views) < len(poses):
                     gray = read_gray(camera)
@@ -262,62 +446,63 @@ def capture(args, board, verification=None, verification_folder=None):
                     if first_frame:
                         print(f"First camera frame: {level}", flush=True)
                         first_frame = False
-                    target_edges = edges.get(len(views) + 1, ())
-                    corners, issue = inspect_frame(detector, board, gray, target_edges)
-                    if verification is not None and not issue:
+                    target = poses[len(views)]
+                    corners, outer, issue = inspect_frame(detector, board, gray, boundary)
+                    if not issue:
                         objects = board.getChessboardCorners()[list(corners)]
                         pixels = np.array(list(corners.values()), dtype=np.float32)
-                        _, _, angle, distance_mm = check_pose(board, objects, pixels, verification)
-                        level = f"Estimated board pose: {angle:.1f} deg | {distance_mm:.0f} mm from camera"
-                        min_angle, max_angle = (0, 12) if not views else (20, 40)
-                        if not 300 <= distance_mm <= 400:
-                            direction = "closer" if distance_mm > 400 else "farther back"
-                            issue = f"Move the board {direction} (target 300-400 mm)."
-                        elif not min_angle <= angle <= max_angle:
-                            direction = "less" if angle > max_angle else "more"
-                            issue = f"Tilt the board {direction} (target {min_angle}-{max_angle} degrees)."
+                        try:
+                            rotation, translation, angle, distance_mm = check_pose(
+                                board, objects, pixels, pose_calibration
+                            )
+                        except (ValueError, cv2.error):
+                            issue = "Show the whole pattern so the pose can be estimated."
+                            outer = None
+                        else:
+                            outer, depths, slope = edge_depths(boundary, outer, rotation, translation)
+                            issue = target_issue(target, outer, slope, angle, distance_mm, metric)
+                            edges = " | ".join(
+                                f"{names[int(depth > 0)].title()} {abs(depth):.0f} mm nearer"
+                                for names, depth in zip(AXES, depths)
+                            )
+                            prefix = "Live" if metric else "Approx."
+                            level = f"{prefix}  {distance_mm:.0f} mm | {angle:.1f} deg | {edges}"
                     if high <= 20 and issue:
                         issue = "Frame is dark. Check lens cap, open iris or add light."
-                    now = monotonic()
-                    status = issue
-                    if not armed and not issue:
-                        status = "Check focus and exposure. Press Enter to start, or Esc to exit."
-                    elif not armed:
-                        status = issue
-                    elif now < pause_until:
-                        status = "Saved. Move to the next pose."
-                    elif not issue:
-                        prior = (view for group in saved for view in group)
-                        if any(distance(corners, view) < 28 for view in prior):
-                            status = "Move or tilt the board farther from earlier poses."
-                        else:
-                            if distance(corners, reference) > 6:
-                                reference, stable_since, stable_frames = corners, now, 0
-                            stable_frames += 1
-                            status = "Hold the board still."
-                            if now - stable_since >= 0.85 and stable_frames >= 4:
-                                number = max((int(p.stem) for p in folder.glob("*.png")
-                                              if p.stem.isdecimal()), default=0) + 1
-                                path = folder / f"{number:03d}.png"
-                                ok, png = cv2.imencode(".png", gray)
-                                if not ok:
-                                    raise RuntimeError("Could not encode the camera frame as PNG.")
-                                with path.open("xb") as stream:
-                                    stream.write(png.tobytes())
-                                views.append(corners)
-                                print(f"Saved {folder.name}/{path.name} ({len(corners)} corners)", flush=True)
-                                pause_until = now + 1.35
-                                reference = {}
-                                continue
-                    if status != "Hold the board still.":
+                    if not issue and any(distance(corners, view) < 28 for group_views in saved for view in group_views):
+                        issue = "Change the position or tilt slightly within the target."
+                    ready = False
+                    if issue:
                         reference = {}
-                    group = "Verification" if verification is not None else folder.name.title()
+                        status = issue
+                    else:
+                        now = monotonic()
+                        if distance(corners, reference) > 6:
+                            reference, stable_since, stable_frames = corners, now, 0
+                        stable_frames += 1
+                        ready = now - stable_since >= 0.65 and stable_frames >= 4
+                        status = ("Pose matched. Enter saves  |  R retakes  |  Esc pauses" if ready
+                                  else "Pose matched. Hold still to review the photo.")
                     title = f"{group} view {len(views) + 1} of {len(poses)}"
-                    key = show_preview(gray, corners, title, poses[len(views)], status, level)
-                    if key == 27 or cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
+                    cv2.imshow(WINDOW, render_preview(gray, corners, title, target, status, level, outer, ready))
+                    key = confirm_preview() if ready else preview_key(1)
+                    if key == 27:
                         return False
-                    if key in (10, 13):
-                        armed = True
+                    if not ready:
+                        continue
+                    reference = {}
+                    if key in (ord("r"), ord("R")):
+                        continue
+                    number = max((int(p.stem) for p in folder.glob("*.png")
+                                  if p.stem.isdecimal()), default=0) + 1
+                    path = folder / f"{number:03d}.png"
+                    ok, png = cv2.imencode(".png", gray)
+                    if not ok:
+                        raise RuntimeError("Could not encode the camera frame as PNG.")
+                    with path.open("xb") as stream:
+                        stream.write(png.tobytes())
+                    views.append(corners)
+                    print(f"Confirmed {folder.name}/{path.name} ({len(corners)} corners). {level}", flush=True)
     except genicam.GenericException as exc:
         raise RuntimeError(f"Basler {args.serial}: {exc}") from exc
     finally:
@@ -336,6 +521,10 @@ def main():
                         metavar="1-23", help="Camera frame rate limit (default: 10). Use a lower rate for long exposures.")
     parser.add_argument("--train-count", type=int, choices=range(25, 31), default=27)
     parser.add_argument("--check-count", type=int, choices=range(5, 11), default=7)
+    parser.add_argument("--capture-dir", type=Path, default=DATA,
+                        help="Folder for a fresh capture or a session to resume")
+    parser.add_argument("--pose-intrinsics", type=Path,
+                        help="Existing Basler intrinsics for distance and tilt guidance during training")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--fit-only", action="store_true", help="Fit existing images without opening the camera")
     mode.add_argument("--diagnose", action="store_true", help="Save one original camera frame and print pixel levels without opening a window")
@@ -348,26 +537,30 @@ def main():
         parser.error("--serial must contain digits only")
     if args.verification_run < 1 or (args.verification_run != 1 and not args.verify_intrinsics):
         parser.error("--verification-run requires --verify-intrinsics and a positive run number")
+    if args.pose_intrinsics and (args.verify_intrinsics or args.fit_only or args.diagnose):
+        parser.error("--pose-intrinsics is for guided training capture")
     if args.diagnose:
         return diagnose(args)
     if not args.fit_only:
         board = reconstruct_board(load_manifest(str(args.manifest)), args.board)
-        verification = None
+        pose_calibration = None
         verification_folder = None
-        if args.verify_intrinsics:
-            data = json.loads(args.verify_intrinsics.read_text())
+        pose_source = args.verify_intrinsics or args.pose_intrinsics
+        if pose_source:
+            data = json.loads(pose_source.read_text())
             if data.get("camera_provider") != "basler" or data.get("camera_serial") != args.serial:
                 raise ValueError("The intrinsics file must match the selected Basler serial.")
-            verification = opencv_calibration(data, SIZE)
+            pose_calibration = opencv_calibration(data, SIZE)
+        if args.verify_intrinsics:
             folder_name = f"verify-{args.verify_intrinsics.stem}"
             if args.verification_run > 1:
                 folder_name += f"-run-{args.verification_run}"
-            verification_folder = DATA / folder_name
-        if not capture(args, board, verification, verification_folder):
+            verification_folder = args.capture_dir / folder_name
+        if not capture(args, board, pose_calibration, verification_folder):
             print("Capture paused. Run the same command to resume.")
             return 0
-        if verification is not None:
-            return review_verification(verification_folder, board, verification, args.verify_intrinsics)
+        if verification_folder is not None:
+            return review_verification(verification_folder, board, pose_calibration, args.verify_intrinsics)
     base = ROOT / ".ui-data" / "calibrations" / f"basler-{args.serial}-intrinsics.json"
     output, revision = base, 1
     while output.exists():
@@ -375,7 +568,7 @@ def main():
         output = base.with_stem(f"{base.stem}-{revision}")
     print("Fitting intrinsics and checking the held-out images...", flush=True)
     return subprocess.run([sys.executable, str(ROOT / "tools" / "basler_intrinsics.py"),
-                           "--images", str(DATA / "train"), "--check", str(DATA / "check"),
+                           "--images", str(args.capture_dir / "train"), "--check", str(args.capture_dir / "check"),
                            "--serial", args.serial, "--manifest", str(args.manifest),
                            "--board", args.board, "--output", str(output)], check=False).returncode
 
