@@ -44,7 +44,7 @@ class PortTests(unittest.TestCase):
             return result
         status, headers, body = get('/style.css')
         self.assertEqual(status, 200)
-        self.assertIn('public', headers['Cache-Control'])
+        self.assertEqual(headers['Cache-Control'], 'no-cache')
         self.assertIn('ETag', headers)
         self.assertIn("frame-ancestors 'none'", headers['Content-Security-Policy'])
         status, headers, body = get('/style.css', {'If-None-Match': headers['ETag']})
