@@ -3,20 +3,29 @@
 ## 18 November 2026
 
 - **F11 robot ownership.** Manual cleanup, Teacher close and teaching abort keep
-  the shared job owner while a timed-out SDK worker is still alive. Cleanup
-  persists execution uncertainty and waits outside the owner lock. A failed
-  fence write retains ownership and uncertainty in memory.
+  the shared job owner while a timed-out SDK worker is still alive. Teacher
+  abort waits for workers registered during cleanup, including native motion
+  workers retained by the Teacher service. Cleanup persists execution uncertainty
+  and waits outside the owner lock. A failed fence write retains ownership and
+  uncertainty in memory.
 - Standalone modules validate bounds and camera inputs, require explicit or
-  matching saved selections, preserve Teaching prefill and revalidate cached
-  assets. Token-bearing pages use `no-store`. Launchers accept the documented
+  matching saved selections, preserve operator edits during Teaching prefill
+  and revalidate cached assets. Basler Teaching receives the reviewed motion
+  bounds. Continue to Teaching fills the selected calibration's TCP for
+  operator confirmation. Teacher defaults accept new project paths inside the
+  data directory and report invalid camera providers. Basler capture requires
+  exposure and gain. Offline solves use recorded images without requiring those
+  fields. Token-bearing pages use `no-store`. Launchers accept the documented
   interpreter configuration.
 - The [verification skill](.agents/skills/verify-anodizing/SKILL.md) exercises the
   real UI service over isolated loopback HTTP. Doctor checks startup, idle
   ownership and disabled hardware. Five read-only journeys cover navigation,
-  Calibration setup, Teaching setup, Pick/place availability and tool-preview assets.
+  Calibration setup, Teaching setup, Pick/place availability and tool-preview
+  assets. Tool preview saves the example scene as `collision-scene.example.json`.
 - [Encoder-plate tools](tools/ENCODER_INTRINSICS.md) require explicit Basler
   serial selection, capture native Mono8 and fit intrinsics offline with held-out
-  views and residual diagnostics.
+  views and residual diagnostics. The fitter checks the capture serial when
+  available and rejects byte-identical images shared by the training and holdout sets.
 - [Provisional Basler intrinsics](review/results/basler-encoder-intrinsics/README.md)
   use restricted `k1` and `k2` with 0.340 px RMS over five holdout views. They are
   review artifacts for the recorded optical settings and require metric validation.
