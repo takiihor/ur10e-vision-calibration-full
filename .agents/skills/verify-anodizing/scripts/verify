@@ -36,6 +36,19 @@ fi
 if [[ "$python" != "$venv/"* && "$python" != "$python_base/"* ]]; then
   python_mounts+=(--ro-bind "$python" "$python")
 fi
+# A venv can point to the runtime through a directory alias, as uv does.
+python_target=$python
+while [[ -L "$python_target" ]]; do
+  link=$(readlink -- "$python_target")
+  if [[ "$link" != /* ]]; then
+    link="${python_target%/*}/$link"
+  fi
+  python_target=$link
+done
+python_alias=$(dirname -- "$(dirname -- "$python_target")")
+if [[ "$python_alias" != "$python_base" && "$(realpath -e -- "$python_alias")" == "$python_base" ]]; then
+  python_mounts+=(--ro-bind "$python_base" "$python_alias")
+fi
 parent=$(realpath -e -- "${2:-/tmp}")
 run=$(mktemp -d -- "${parent%/}/anodizing-verify.XXXXXXXX")
 printf 'Evidence: %s\n' "$run"

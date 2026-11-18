@@ -75,6 +75,19 @@ class InterpreterSelectionTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(f'--\n{venv / "bin/python"}\n-I\n-B\n', result.stdout)
 
+    def test_mounts_runtime_at_the_alias_used_by_the_venv(self):
+        venv = self.root / '.venv'
+        subprocess.run([sys.executable, '-m', 'venv', '--without-pip', venv], check=True)
+        base = Path(sys.base_prefix)
+        alias = self.root / 'runtime alias'
+        alias.symlink_to(base, target_is_directory=True)
+        python = venv / 'bin/python'
+        python.unlink()
+        python.symlink_to(alias / Path(sys._base_executable).resolve().relative_to(base))
+        result = self.run_launcher()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f'--ro-bind\n{base}\n{alias}\n', result.stdout)
+
     def test_explains_how_to_supply_a_missing_interpreter(self):
         result = self.run_launcher()
         self.assertNotEqual(result.returncode, 0)
