@@ -48,11 +48,16 @@ python tools/encoder_intrinsics.py --images /path/to/fresh/session/train \
 ```
 
 The CLI requires at least 12 accepted training views and five accepted fresh
-checks. Output creation never overwrites. Use `--detect-only --images FOLDER
+checks. It rejects any check image with the same SHA-256 digest as a training
+image. When a capture profile beside the split folders records a camera serial,
+it must match `--serial`. For older captures without a recorded serial, both
+models retain the supplied serial and set
+`estimation.camera_serial_recorded_in_capture` to `false`. Output creation never
+overwrites. Use `--detect-only --images FOLDER
 --serial "$BASLER_SERIAL" --pitch-mm 1.68` for detection/indexing without fitting.
 Inputs must be native
-Mono8 PNG/TIFF/BMP, without resizing, ROI or binning changes. Keep copied images
-and repeated training poses out of the check set.
+Mono8 PNG/TIFF/BMP, without resizing, ROI or binning changes. Use independent
+poses for the check set.
 
 The top-level JSON is the full OpenCV five-coefficient model, compatible with
 `ur_handeye.intrinsics.load_intrinsics`. `estimation.comparison` contains a second

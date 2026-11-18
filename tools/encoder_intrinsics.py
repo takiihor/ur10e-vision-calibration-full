@@ -2,6 +2,7 @@
 """Offline intrinsics from plain bright and dark squares on a Vision Encoder plate."""
 import argparse
 from collections import deque
+from hashlib import file_digest
 import json
 from pathlib import Path
 import sys
@@ -371,8 +372,37 @@ def detect_lattice(gray, diagnostics=None):
     return np.asarray(corners)[keep], indices[keep]
 
 
+def image_files(folder):
+    return sorted(p for p in Path(folder).iterdir() if p.suffix.lower() in {".png", ".bmp", ".tif", ".tiff"})
+
+
+def image_digest(path):
+    with path.open("rb") as stream:
+        return file_digest(stream, "sha256").digest()
+
+
+def capture_serial_recorded(folders, serial):
+    recorded = False
+    for path in sorted({folder.resolve().parent / "capture-profile.json" for folder in folders}):
+        if not path.exists():
+            continue
+        profile = json.loads(path.read_text())
+        device = profile.get("device", {}) if isinstance(profile, dict) else None
+        if not isinstance(device, dict):
+            raise ValueError(f"{path}: invalid capture profile device")
+        captured = device.get("serial_number")
+        if captured is None or captured == "":
+            continue
+        if not isinstance(captured, str):
+            raise ValueError(f"{path}: invalid capture camera serial")
+        if captured != serial:
+            raise ValueError(f"{path}: capture camera serial {captured!r} does not match --serial {serial!r}")
+        recorded = True
+    return recorded
+
+
 def observations(folder, size, pitch_m):
-    files = sorted(p for p in Path(folder).iterdir() if p.suffix.lower() in {".png", ".bmp", ".tif", ".tiff"})
+    files = image_files(folder)
     if not files:
         raise ValueError(f"No PNG/TIFF/BMP images in {folder}")
     views = []
@@ -527,6 +557,13 @@ def main():
         parser.error("Fitting requires --output and a separate --check folder")
     if args.output and args.output.exists():
         raise ValueError(f"{args.output} exists; choose a new output filename")
+    if not args.detect_only:
+        serial_recorded = capture_serial_recorded((args.images, args.check), args.serial.strip())
+        training = {image_digest(path): path for path in image_files(args.images)}
+        for path in image_files(args.check):
+            match = training.get(image_digest(path))
+            if match is not None:
+                raise ValueError(f"Training image {match} and check image {path} have the same content (SHA-256)")
     views = observations(args.images, size, pitch)
     if args.detect_only:
         print(f"Accepted {len(views)} indexed views (detection only; no intrinsics fitted)")
@@ -535,6 +572,8 @@ def main():
     if len(checks) < 5:
         raise ValueError("Need at least five usable held-out views")
     result = fit_calibration(views, checks, size, args.serial, pitch)
+    result["estimation"]["camera_serial_recorded_in_capture"] = serial_recorded
+    result["estimation"]["comparison"]["estimation"]["camera_serial_recorded_in_capture"] = serial_recorded
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x", encoding="utf-8") as stream:
         json.dump(result, stream, indent=2, allow_nan=False)

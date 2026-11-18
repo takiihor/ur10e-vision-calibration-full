@@ -19,6 +19,54 @@ from ur_handeye.intrinsics import load_intrinsics
 
 
 class EncoderTargetTests(unittest.TestCase):
+    def fit_session(self, root, device, *, duplicate=False):
+        train, check = root / 'train', root / 'check'
+        train.mkdir()
+        check.mkdir()
+        (root / 'capture-profile.json').write_text(json.dumps({'device': device}))
+        views = []
+        for directory, count in ((train, 12), (check, 5)):
+            split = []
+            for index in range(count):
+                path = directory / f'{index}.png'
+                contents = f'{directory.name}-{index}'
+                if duplicate and directory == check and index == 0:
+                    contents = 'train-0'
+                path.write_bytes(contents.encode())
+                split.append((path, None, None))
+            views.append(split)
+        self.output = root / 'intrinsics.json'
+        args = ['encoder_intrinsics.py', '--images', str(train), '--check', str(check),
+                '--pitch-mm', '1.7', '--serial', '22222222', '--output', str(self.output)]
+        fit = dict(camera_serial='22222222', fx=1., fy=1., ppx=1., ppy=1.,
+                   estimation={'reprojection_rmse_px': 0., 'warnings': []})
+        fit['estimation']['comparison'] = json.loads(json.dumps(fit))
+        with patch.object(sys, 'argv', args), \
+             patch.object(encoder, 'observations', side_effect=views), \
+             patch.object(encoder, 'fit_calibration', return_value=fit), \
+             contextlib.redirect_stdout(io.StringIO()):
+            return encoder.main()
+
+    def test_fit_rejects_a_serial_that_disagrees_with_capture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, r'serial.*11111111.*22222222'):
+                self.fit_session(Path(tmp), {'serial_number': '11111111'})
+            self.assertFalse(self.output.exists())
+
+    def test_fit_records_when_capture_has_no_serial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self.fit_session(Path(tmp), {}), 0)
+            fit = json.loads(self.output.read_text())
+            for model in (fit, fit['estimation']['comparison']):
+                self.assertEqual(model['camera_serial'], '22222222')
+                self.assertIs(model['estimation']['camera_serial_recorded_in_capture'], False)
+
+    def test_fit_rejects_byte_identical_training_and_check_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, r'[Tt]raining.*check.*same content'):
+                self.fit_session(Path(tmp), {'serial_number': '22222222'}, duplicate=True)
+            self.assertFalse(self.output.exists())
+
     def test_serial_is_required_before_reading_images(self):
         with tempfile.TemporaryDirectory() as tmp:
             args = ['encoder_intrinsics.py', '--images', tmp, '--check', tmp,
