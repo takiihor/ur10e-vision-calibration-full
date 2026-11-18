@@ -60,7 +60,8 @@ def page(path, title, filename, token):
 
 def api(path, token):
     data = json.loads(request(path, token))
-    save_json(path.rsplit('/', 1)[-1] + '.json', data)
+    name = path.rsplit('/', 1)[-1]
+    save_json(name if name.endswith('.json') else name + '.json', data)
     return data
 
 

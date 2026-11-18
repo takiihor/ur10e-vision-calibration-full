@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 verify = runpy.run_path(str(Path(__file__).parents[1] / 'scripts' / 'verify.py'))
@@ -14,6 +15,17 @@ launcher = Path(__file__).parents[1] / 'scripts' / 'verify'
 
 BIND = '2 bind(3, {sa_family=AF_INET, sin_port=htons(8871), sin_addr=inet_addr("127.0.0.1")}, 16) = 0\n'
 ACCEPT = '2 accept4(3, {sa_family=AF_INET, sin_port=htons(42424), sin_addr=inet_addr("127.0.0.1")}, [16], SOCK_CLOEXEC) = 4\n'
+
+
+class EvidenceNameTest(unittest.TestCase):
+    def test_json_route_keeps_its_documented_filename(self):
+        api = verify['api']
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(api.__globals__, {
+                'EVIDENCE': Path(tmp), 'request': lambda path, token: b'{}'}):
+            api('/preview/collision-scene.example.json', 'fixture')
+            api('/api/status', 'fixture')
+            self.assertEqual(sorted(p.name for p in Path(tmp).iterdir()),
+                             ['collision-scene.example.json', 'status.json'])
 
 
 class SocketTraceTest(unittest.TestCase):
