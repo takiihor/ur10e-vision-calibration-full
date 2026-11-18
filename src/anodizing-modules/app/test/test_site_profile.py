@@ -6,8 +6,9 @@ from types import SimpleNamespace
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
-from anodizing_web import robot_control, teaching
+from anodizing_web import robot_control, site_profile, teaching
 
 
 class SiteProfileTests(unittest.TestCase):
@@ -30,6 +31,37 @@ class SiteProfileTests(unittest.TestCase):
         self.assertIsNone(defaults['joint_bounds_rad'])
         self.assertIsNone(defaults['workspace_min_m'])
         self.assertNotIn('tank01', json.dumps(defaults))
+
+    def test_nonfinite_profile_numbers_are_rejected(self):
+        for value in (float('nan'), float('inf'), -float('inf'), True, 10**1000):
+            with self.subTest(value=str(value)), self.assertRaises(ValueError):
+                site_profile.finite_numbers([value, 1], 2)
+
+    def test_nonfinite_bounds_do_not_reach_capability_json(self):
+        for value in (float('nan'), float('inf'), -float('inf')):
+            with self.subTest(value=value):
+                profile = {'robot_control': {
+                    'workspace_min_m': [value, -1, 0], 'workspace_max_m': [1, 1, 1],
+                    'joint_bounds_rad': [[value, 1]] * 6,
+                    'joint_bounds_source': 'fixture'}}
+                (self.root / 'site-profile.json').write_text(json.dumps(profile))
+                defaults = robot_control.capability(self.owner())['defaults']
+                self.assertIsNone(defaults['workspace_min_m'])
+                self.assertIsNone(defaults['joint_bounds_rad'])
+                json.dumps(defaults, allow_nan=False)
+
+    def test_available_calibrations_require_an_explicit_selection(self):
+        for name in ('a-old', 'z-new'):
+            path = self.root / 'calibrations' / name / 'calibration.json'
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps({'robot': {'host': name}}))
+        with mock.patch('ur_pick_place.vision.handeye.load_handeye',
+                        return_value=SimpleNamespace(simulated=False, tcp_offset=[0, 0, .2, 0, 0, 0])):
+            found = teaching.defaults(self.root)
+        self.assertEqual(len(found['calibrations']), 2)
+        self.assertEqual(found['settings']['calibration'], '')
+        self.assertEqual(found['settings']['robot_ip'], '')
+        self.assertEqual(found['settings']['tcp'], [0.0] * 6)
 
     def test_profile_prefills_reviewed_values_and_rejects_outside_paths(self):
         (self.root / 'collision').mkdir()

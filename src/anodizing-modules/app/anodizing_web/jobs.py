@@ -75,6 +75,21 @@ class JobOwner:
     def _save(self, job):
         atomic_json(self.directory / (job['id'] + '.json'), job)
 
+    def drain_workers(self, job_id, workers):
+        workers = [worker for worker in workers if worker and worker.is_alive()]
+        if not workers:
+            return
+        with self.lock:
+            self.execution_uncertain = True
+            self.jobs[job_id]['execution_uncertain'] = True
+            try:
+                self._save(self.jobs[job_id])
+            except Exception as exc:
+                self.storage_error = str(exc)
+        # A timed-out SDK worker retains ownership until it actually stops.
+        for worker in workers:
+            worker.join()
+
     def submit(self, request_id, module, payload, function):
         if not isinstance(request_id, str) or not ID.fullmatch(request_id):
             raise ValueError('Request ID must contain 8 to 80 letters, numbers, underscores or hyphens.')

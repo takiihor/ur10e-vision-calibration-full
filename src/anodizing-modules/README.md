@@ -84,6 +84,18 @@ inside the data directory.
 Use values measured or read from the actual controller. The example bounds are
 placeholders, not a recommendation.
 
+Workspace and joint bounds must contain finite numbers. An invalid Teacher
+override that fails validation returns HTTP 400 with the field error, so a
+partial override is not presented as a successful setup. Missing or unreadable
+profile files still leave ordinary discovered defaults available. With no
+matching taught project or explicit profile selection, calibration, robot and
+TCP remain unselected placeholders; available calibration files are listed for
+the operator to choose. Review the TCP before confirming it.
+
+Token-bearing pages use `no-store`; scripts and styles use `no-cache` with ETag
+revalidation. Invalid Basler exposure or gain entries stop form submission;
+enter the intended values instead of relying on a fallback.
+
 ## Start and connect
 
 On the IPC, start offline first:
@@ -149,6 +161,13 @@ The unchanged native checker binds exact start/target joints to the selected sce
 One native Teacher session retains capture identity across browser requests under the existing JobOwner. Ordinary actions retain that session; device workers still use native acquisition/cleanup. Captures are single-use and expire after 60 seconds; restart never restores permission from saved capture files. Request IDs prevent duplicate dispatch. Stop and heartbeat are token-protected, bound to the current Teacher job and independent of normal job admission. The sidebar displays native preflight/checking/moving/stopping/error text and the actual job state separately.
 
 Admission remains held until workers really finish cleanup. SDK calls can block; this does not claim bounded physical stop timing. A failed stop/cleanup or still-live worker sets an explicit execution-uncertainty fence, which survives restart through saved job/path evidence. `/api/status` exposes the fence and recovery notice. There is no automatic replay or clear-fault button: the coordinator must review physical state, worker termination and saved outcomes before a separately reviewed reconciliation. Files remain intact. A clean read-only failure does not invent a motion outcome.
+
+After a cleanup timeout, the job retains ownership while remaining SDK threads
+drain outside the owner lock. Manual cleanup, Teacher-close and teaching-abort
+paths share this rule. A failed fence write records a storage error and keeps
+the in-memory fence and ownership; it cannot skip the worker drain. If a worker
+never stops, the job keeps admission until operator intervention. Review the
+physical state and saved evidence before restarting the service.
 
 Exclusion is within this module service and its workers, not controller-wide or cross-host. Unrelated legacy standalone programs do not consult this JobOwner. Do not run a competing controller. Native UR RTDE remains selected; this candidate does not migrate to the newer shared-controller runtime or ROS. See companion `HANDOFF.md` for exact source/evidence and review status. Offline tests do not establish physical trajectory, stop or alignment performance; deployment and user movement have not been performed by this task.
 

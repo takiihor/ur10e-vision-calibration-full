@@ -71,9 +71,7 @@ def defaults(root):
     projects = sorted((repo / 'teaching').glob('*/project.json'),
                       key=lambda p: p.stat().st_mtime, reverse=True)
     project = {'project': str((repo / 'teaching' / datetime.now().strftime('%Y%m%d-%H%M%S')).relative_to(repo)),
-               'calibration': calibrations[0]['path'] if calibrations else '',
-               'robot_ip': calibrations[0]['robot_ip'] if calibrations else '',
-               'tcp': calibrations[0]['tcp'] if calibrations else [0.0] * 6,
+               'calibration': '', 'robot_ip': '', 'tcp': [0.0] * 6,
                'camera_provider': 'realsense', 'refine_before_pick': False,
                'min_pixels_per_module': 5.0, 'target': target,
                'motion_model': 'planar', 'approach_mm': 100.0,
@@ -317,7 +315,7 @@ def _abort_and_drain(owner, service, job_id, cause):
                 owner._save(owner.jobs[job_id])
             except Exception as exc:
                 owner.storage_error = str(exc)
-    # A bounded wait still leaves the service fenced when a native worker is stuck.
+    # Detect timeouts before draining so the uncertainty fence is persisted promptly.
     for worker in workers:
         if worker and worker.is_alive():
             worker.join(timeout=12)
@@ -331,6 +329,7 @@ def _abort_and_drain(owner, service, job_id, cause):
                         owner._save(owner.jobs[job_id])
                     except Exception as exc:
                         owner.storage_error = str(exc)
+    owner.drain_workers(job_id, workers)
     with owner.lock:
         owner.teacher_service = None
         owner.teacher_job = owner.teacher_project = owner.teacher_settings = None

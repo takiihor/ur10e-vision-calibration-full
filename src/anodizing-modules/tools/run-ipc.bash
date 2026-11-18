@@ -2,7 +2,7 @@
 set -euo pipefail
 bundle_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 python_bin="${ANODIZING_PYTHON:-$bundle_root/.venv/bin/python}"
-if [[ ! -x "$python_bin" ]]; then
+if ! command -v -- "$python_bin" >/dev/null; then
   printf 'Set ANODIZING_PYTHON to the prepared Python interpreter.\n' >&2
   exit 2
 fi

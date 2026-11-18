@@ -41,12 +41,17 @@
         put('robot-workspace-max',d.workspace_max_m?.map(v=>v*1000).join(', '),text=>vector(text,3));
         put('manual-workspace-min',d.workspace_min_m?.map(v=>v*1000).join(', '),text=>vector(text,3));
         put('manual-workspace-max',d.workspace_max_m?.map(v=>v*1000).join(', '),text=>vector(text,3));
+        put('validation-workspace-min',d.workspace_min_m?.map(v=>v*1000).join(', '),text=>vector(text,3));
+        put('validation-workspace-max',d.workspace_max_m?.map(v=>v*1000).join(', '),text=>vector(text,3));
         put('robot-joint-min',d.joint_bounds_rad?.map(p=>p[0]*180/Math.PI).join(', '),text=>vector(text,6));
         put('robot-joint-max',d.joint_bounds_rad?.map(p=>p[1]*180/Math.PI).join(', '),text=>vector(text,6));
         put('manual-joint-min',d.joint_bounds_rad?.map(p=>p[0]*180/Math.PI).join(', '),text=>vector(text,6));
         put('manual-joint-max',d.joint_bounds_rad?.map(p=>p[1]*180/Math.PI).join(', '),text=>vector(text,6));
+        put('descent-joint-min',d.joint_bounds_rad?.map(p=>p[0]*180/Math.PI).join(', '),text=>vector(text,6));
+        put('descent-joint-max',d.joint_bounds_rad?.map(p=>p[1]*180/Math.PI).join(', '),text=>vector(text,6));
         put('robot-joint-source',d.joint_bounds_source);
         put('manual-joint-source',d.joint_bounds_source);
+        put('descent-joint-source',d.joint_bounds_source);
         put('robot-joint-speed',d.joint_speed_deg_s);
       }
       note.textContent='Discovered inputs prefilled from the IPC data directory or site profile. Review every value and keep physical confirmations yours.';

@@ -18,15 +18,17 @@ async function api(path,body){
   return value;
 }
 function field(id){return $(id).value.trim();}
-function positiveNumber(id,fallback){const value=Number(field(id));return Number.isFinite(value)&&value>0?value:fallback;}
-function nonNegativeNumber(id,fallback){const value=Number(field(id));return Number.isFinite(value)&&value>=0?value:fallback;}
+function positiveNumber(id){const value=Number(field(id));if(!field(id)||!Number.isFinite(value)||value<=0)throw Error('Exposure must be a finite number greater than zero.');return value;}
+function nonNegativeNumber(id){const value=Number(field(id));if(!field(id)||!Number.isFinite(value)||value<0)throw Error('Gain must be a finite non-negative number.');return value;}
 function previewCalibration(){document.dispatchEvent(new CustomEvent('preview-calibration-selection',{detail:field('calibration')}));}
 function target(){return field('kind')==='charuco'?{kind:'charuco',board_manifest:field('manifest'),board:field('board')}:
   {kind:'aruco',dictionary:field('dictionary'),marker_id:Number(field('marker_id')),marker_length_mm:Number(field('marker_length_mm'))};}
 function values(action){
   if(moduleName==='calibration') return {action:action==='verify-capture'?'manual':action,session:action==='verify-capture'?field('verification'):field('session'),
     ...(action==='verify-capture'?{fit_session:field('session')}:{}),manifest:field('manifest'),board:field('board'),serial:field('serial'),robot_ip:field('robot_ip'),
-    camera_provider:field('camera_provider'),camera_fps:action==='camera'&&field('camera_provider')==='realsense'?15:Number(field('camera_fps')),camera_exposure_us:positiveNumber('camera_exposure_us',5000),camera_gain_db:nonNegativeNumber('camera_gain_db',0),intrinsics:field('intrinsics'),calibration:['verify','verify-capture','replay'].includes(action)?field('calibration'):'',verification:field('verification'),collision_scene:['plan','collect','replay'].includes(action)?field('collision_scene'):'',
+    camera_provider:field('camera_provider'),camera_fps:action==='camera'&&field('camera_provider')==='realsense'?15:Number(field('camera_fps')),
+    ...(field('camera_provider')==='basler'?{camera_exposure_us:positiveNumber('camera_exposure_us'),camera_gain_db:nonNegativeNumber('camera_gain_db')}:{}),
+    intrinsics:field('intrinsics'),calibration:['verify','verify-capture','replay'].includes(action)?field('calibration'):'',verification:field('verification'),collision_scene:['plan','collect','replay'].includes(action)?field('collision_scene'):'',
     views:Number(field('views')),tilt_deg:Number(field('tilt_deg')),roll_deg:Number(field('roll_deg'))};
   const project=field('project'), calibration=field('calibration');
   if(action==='simulate') return {action,project,calibration,target:target()};
