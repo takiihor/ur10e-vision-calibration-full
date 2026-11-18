@@ -318,9 +318,10 @@ def _abort_and_drain(owner, service, job_id, cause):
     while True:
         # The supervisor can publish a native worker until it exits.
         with service.lock:
-            motion = service.motion
-            workers = [worker for worker in (service.worker_thread, service.motion_thread,
-                       getattr(motion, '_worker', None)) if worker and worker.is_alive()]
+            motion = getattr(service, 'motion', None)
+            workers = (getattr(service, 'worker_thread', None), getattr(service, 'motion_thread', None),
+                       getattr(motion, '_worker', None))
+            workers = [worker for worker in workers if worker and worker.is_alive()]
         if not uncertain and getattr(motion, 'cleanup_uncertain', False):
             fence('native worker still active')
             uncertain = True
