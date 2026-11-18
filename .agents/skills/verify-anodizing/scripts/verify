@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 1 || $# -gt 2 || $1 == --help ]]; then
+  printf 'Usage: %s FEATURE [EVIDENCE_PARENT]\n' "$0"
+  printf 'Features: doctor, navigation, calibration-setup, teaching-setup, pick-place-availability, tool-preview\n'
+  [[ ${1:-} == --help ]]
+  exit
+fi
+
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
+python=${ANODIZING_PYTHON:-${ANODIZING_VENV:-$root/.venv}/bin/python}
+if [[ ! -f "$python" || ! -x "$python" ]]; then
+  printf 'error: cannot execute %s. Set ANODIZING_PYTHON to a prepared CPython 3.12 executable.\n' "$python" >&2
+  exit 1
+fi
+# Resolve the directory while preserving the executable symlink that selects the venv.
+python="$(cd -- "$(dirname -- "$python")" && pwd -P)/$(basename -- "$python")"
+if ! prefixes=$("$python" -I -B -c '
+import sys
+if sys.implementation.name != "cpython" or sys.version_info[:2] != (3, 12):
+    raise SystemExit(1)
+print(sys.prefix)
+print(sys.base_prefix)
+'); then
+  printf 'error: verification requires CPython 3.12. Set ANODIZING_PYTHON to a prepared executable.\n' >&2
+  exit 1
+fi
+mapfile -t prefixes <<< "$prefixes"
+venv=${prefixes[0]}
+python_base=${prefixes[1]}
+python_mounts=(--ro-bind "$python_base" "$python_base")
+if [[ "$venv" != "$python_base" ]]; then
+  python_mounts+=(--ro-bind "$venv" "$venv")
+fi
+if [[ "$python" != "$venv/"* && "$python" != "$python_base/"* ]]; then
+  python_mounts+=(--ro-bind "$python" "$python")
+fi
+parent=$(realpath -e -- "${2:-/tmp}")
+run=$(mktemp -d -- "${parent%/}/anodizing-verify.XXXXXXXX")
+printf 'Evidence: %s\n' "$run"
+{
+  git -C "$root" rev-parse HEAD
+  git -C "$root" status --short --untracked-files=all
+} > "$run/revision.txt"
+
+# Use a private /tmp and /dev and expose only the source, Python and evidence.
+# The namespace remains mandatory even when the default sandbox blocks it.
+exec bwrap --unshare-net --unshare-pid --unshare-ipc --new-session --die-with-parent \
+  --clearenv --setenv PATH /usr/bin:/bin \
+  --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib \
+  --ro-bind-try /lib64 /lib64 --ro-bind /etc /etc \
+  --dev /dev --proc /proc --tmpfs /tmp \
+  --ro-bind "$root" /checkout "${python_mounts[@]}" --bind "$run" /evidence \
+  --chdir /checkout -- "$python" -I -B /checkout/.agents/skills/verify-anodizing/scripts/verify.py \
+  "$1" "$(readlink /proc/self/ns/net)"
