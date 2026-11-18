@@ -217,7 +217,7 @@ class Handler(BaseHTTPRequestHandler):
             profile = section(self.server.root, 'teacher')
             try:
                 if isinstance(profile.get('project'), str) and profile['project'].strip():
-                    settings['project'] = str(inside(self.server.root, profile['project']))
+                    settings['project'] = str(inside(self.server.root, profile['project'], required=False))
                 if isinstance(profile.get('calibration'), str) and profile['calibration'].strip():
                     settings['calibration'] = str(inside(self.server.root, profile['calibration']))
                 if isinstance(profile.get('robot_ip'), str):
@@ -225,8 +225,11 @@ class Handler(BaseHTTPRequestHandler):
                 if profile.get('tcp') is not None:
                     from ur_pick_place.config import vector
                     settings['tcp'] = vector(profile['tcp'], 6, 'Site profile TCP')
-                if isinstance(profile.get('camera_provider'), str) and profile['camera_provider'] in ('realsense', 'basler'):
-                    settings['camera_provider'] = profile['camera_provider']
+                if 'camera_provider' in profile:
+                    provider = profile['camera_provider']
+                    if provider not in ('realsense', 'basler'):
+                        raise ValueError('camera_provider must be realsense or basler.')
+                    settings['camera_provider'] = provider
                 if isinstance(profile.get('motion_model'), str) and profile['motion_model'] in ('planar', 'full'):
                     settings['motion_model'] = profile['motion_model']
                 if isinstance(profile.get('target'), dict) and profile['target'].get('board'):

@@ -10,8 +10,8 @@ WEB = Path(__file__).parents[1] / 'anodizing_web' / 'web'
 
 @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
 class WebProfileTests(unittest.TestCase):
-    def run_js(self, script, filename):
-        result = subprocess.run(['node', '-e', script, str(WEB / filename)],
+    def run_js(self, script, filename, *args):
+        result = subprocess.run(['node', '-e', script, str(WEB / filename), *args],
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -36,26 +36,66 @@ fields.camera_provider = 'realsense'; fields.camera_exposure_us = 'bad'; fields.
 assert.doesNotThrow(() => context.values('camera'));
 """, 'app.js')
 
-    def test_teacher_motion_fields_receive_profile_bounds(self):
+    def check_teacher_profile(self, mode):
         self.run_js(r"""
 const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
+const mode = process.argv[2];
 const ids = ['test-profile-note', 'project', 'camera_provider', 'calibration', 'validation-collision-scene',
  'validation-workspace-min', 'validation-workspace-max', 'descent-joint-min', 'descent-joint-max', 'descent-joint-source'];
-const fields = Object.fromEntries(ids.map(id => [id, {value: '', defaultValue: '', dataset: {}}]));
+const fields = Object.fromEntries(ids.map(id => [id, {id, value: '', defaultValue: '', dataset: {}}]));
+fields.camera_provider.value = mode === 'basler' ? 'basler' : 'realsense';
 fields['validation-workspace-max'].value = '800, 800, 1100';
-const context = {window: {}, Event: class {}, document: {addEventListener: () => {}, dispatchEvent: () => {},
+let onInput;
+const context = {window: {}, Event: class {}, document: {addEventListener: (type, fn) => { onInput = fn; },
+ dispatchEvent: () => {},
  getElementById: id => fields[id], querySelector: () => ({content: 'fixture'})},
- fetch: async path => ({ok: true, json: async () => path === '/api/teacher-defaults'
+ fetch: async path => {
+   if (path === '/api/robot-control' && mode === 'edit') {
+     const field = fields['validation-workspace-min'];
+     field.value = '-80, ';
+     onInput({target: field});
+   }
+   return {ok: true, json: async () => path === '/api/teacher-defaults'
    ? {settings: {project: 'teaching/example'}}
    : {defaults: {collision_scene: 'collision/example.json', workspace_min_m: [-.9, -.9, 0],
        workspace_max_m: [.9, .9, 1.2], joint_bounds_rad: Array(6).fill([-Math.PI, Math.PI]),
-       joint_bounds_source: 'reviewed fixture'}}})};
+       joint_bounds_source: 'reviewed fixture'}}};
+ }};
 vm.createContext(context); vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), context);
 context.window.applyTestProfile().then(() => {
- assert.equal(fields['validation-workspace-min'].value, '-900, -900, 0');
+ assert.equal(fields['validation-workspace-min'].value, mode === 'edit' ? '-80, ' : '-900, -900, 0');
  assert.equal(fields['validation-workspace-max'].value, '800, 800, 1100');
  assert.equal(fields['descent-joint-min'].value, Array(6).fill(-180).join(', '));
  assert.equal(fields['descent-joint-max'].value, Array(6).fill(180).join(', '));
  assert.equal(fields['descent-joint-source'].value, 'reviewed fixture');
 }).catch(error => { console.error(error); process.exitCode = 1; });
-""", 'test-profile.js')
+""", 'test-profile.js', mode)
+
+    def test_teacher_motion_fields_receive_profile_bounds(self):
+        for provider in ('realsense', 'basler'):
+            with self.subTest(provider=provider):
+                self.check_teacher_profile(provider)
+
+    def test_teacher_profile_preserves_an_incomplete_operator_edit(self):
+        self.check_teacher_profile('edit')
+
+    def check_form(self, module, scenario):
+        result = subprocess.run(['node', str(Path(__file__).with_name('web_form.cjs')), str(WEB),
+                                 module, scenario], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_teacher_handoff_uses_selected_calibration_tcp_and_requires_confirmation(self):
+        for source in ('listed', 'unlisted'):
+            with self.subTest(source=source):
+                self.check_form('teaching', source)
+
+    def test_teacher_initial_defaults_preserve_operator_input(self):
+        self.check_form('teaching', 'edit')
+
+    def test_saved_blank_basler_fields_block_preview_without_sending(self):
+        for field in ('exposure', 'gain'):
+            with self.subTest(field=field):
+                self.check_form('calibration', field)
+
+    def test_basler_solve_builds_an_offline_request_with_blank_exposure(self):
+        self.check_form('calibration', 'solve')

@@ -4,6 +4,7 @@ const token = document.querySelector('meta[name="teach-token"]').content;
 let defaults, state = {version:'0.3.1',busy:null,error:'',completed:null,failed:null,project:null}, dirty = false, posting = false, previousResult = '', imageVersion = 0;
 let minPixelsPerModule = 5;
 let connectionOK = true, validationImageId = '';
+let initialEdits = new Set();
 const steps = ['configure', 'capture', 'teach', 'locate', 'validate'];
 let activeStep = 0;
 const stepNames = ['Set up', 'Capture marker', 'Teach pick', 'Read & export', 'Validation'];
@@ -61,15 +62,16 @@ function showCalibrationTCP() {
     ? 'Calibration TCP (XYZ mm, rotation-vector rad): '+tcpText(calibration.tcp)
     : 'This TCP must match the TCP recorded in your selected calibration.';
 }
-function fill(s) {
-  for (const id of ['project','calibration','robot_ip','motion_model','approach_mm']) $(id).value=s[id];
-  $('max_shift_mm').value=s.limits?.max_shift_mm??100; $('max_rotation_deg').value=s.limits?.max_rotation_deg??180;
-  $('camera_provider').value=s.camera_provider||'realsense';
+function setField(id,value,property='value') { $(id)[property]=value; }
+function fill(s,put=setField) {
+  for (const id of ['project','calibration','robot_ip','motion_model','approach_mm']) put(id,s[id]);
+  put('max_shift_mm',s.limits?.max_shift_mm??100); put('max_rotation_deg',s.limits?.max_rotation_deg??180);
+  put('camera_provider',s.camera_provider||'realsense');
   minPixelsPerModule=s.min_pixels_per_module??5;
-  $('refine_before_pick').checked=s.refine_before_pick??false;
-  $('tcp').value=tcpText(s.tcp); $('kind').value=s.target.kind;
-  if(s.target.kind==='charuco') { $('manifest').value=s.target.board_manifest; $('board').value=s.target.board; }
-  else { for(const id of ['dictionary','marker_id','marker_length_mm']) $(id).value=s.target[id]; }
+  put('refine_before_pick',s.refine_before_pick??false,'checked');
+  put('tcp',tcpText(s.tcp)); put('kind',s.target.kind);
+  if(s.target.kind==='charuco') { put('manifest',s.target.board_manifest); put('board',s.target.board); }
+  else { for(const id of ['dictionary','marker_id','marker_length_mm']) put(id,s.target[id]); }
   targetFields(); showCalibrationTCP();
 }
 function settings() {
@@ -373,7 +375,7 @@ $('open').addEventListener('click',async()=>{
     message('Saved project loaded. Check its active TCP on the pendant, then complete setup to continue.'); render();
   } catch(e) { message(e.message,true); }
 });
-$('setup').addEventListener('input',()=>{dirty=true;activeStep=0;targetFields();$('observation-return-confirmed').checked=false;$('tcp_confirmed').checked=false;$('marker_unchanged').checked=false;message('Setup changed. Check the TCP and complete step 1 again.');render();});
+$('setup').addEventListener('input',event=>{initialEdits?.add(event.target.id);dirty=true;activeStep=0;targetFields();$('observation-return-confirmed').checked=false;$('tcp_confirmed').checked=false;$('marker_unchanged').checked=false;message('Setup changed. Check the TCP and complete step 1 again.');render();});
 // Checking the declaration itself must not immediately uncheck it.
 $('tcp_confirmed').addEventListener('input',e=>{e.stopPropagation();render();});
 $('calibration').addEventListener('change',()=>{const item=defaults.calibrations.find(c=>c.path===$('calibration').value);if(item){$('tcp').value=tcpText(item.tcp);$('robot_ip').value=item.robot_ip;}showCalibrationTCP();});
@@ -458,15 +460,20 @@ for(const id of ['tcp_confirmed','marker_unchanged','validation-confirmed','obse
       for(const item of items){const option=document.createElement('option');option.value=item;$(id).append(option);}
     await poll();
     const initial=state.project?{...state.project.settings,project:state.project.project}:defaults.settings;
-    fill(initial);
+    const prefill=(id,value,property)=>{if(!initialEdits.has(id))setField(id,value,property);};
+    fill(initial,prefill);
     const handoff=JSON.parse(localStorage.getItem('ano-handoff-teaching')||'null');
     localStorage.removeItem('ano-handoff-teaching');
-    if(handoff&&typeof handoff.calibration==='string'){
+    if(handoff&&typeof handoff.calibration==='string'&&!initialEdits.has('calibration')){
       $('calibration').value=handoff.calibration;$('calibration').dataset.handoff='true';
-      $('camera_provider').value=handoff.camera_provider||'realsense';if(handoff.robot_ip)$('robot_ip').value=handoff.robot_ip;
+      prefill('camera_provider',handoff.camera_provider||'realsense');
+      if(handoff.robot_ip)prefill('robot_ip',handoff.robot_ip);
+      const tcp=defaults.calibrations.find(c=>c.path===handoff.calibration)?.tcp??handoff.tcp;
+      prefill('tcp',Array.isArray(tcp)&&tcp.length===6&&tcp.every(Number.isFinite)?tcpText(tcp):'');
       $('teaching-handoff').textContent=(handoff.simulation?'Simulated calibration. No physical qualification. ':'Selected calibration. ')+(handoff.serial?'Camera serial: '+handoff.serial+'. ':'')+'Select the picking board and confirm the TCP.';
       dirty=true;showCalibrationTCP();
     }
+    initialEdits=null;
     await window.applyTestProfile();
     activeStep=state.manual_handoff?4:dirty?0:state.project?.flow?.taught?3:availableStep();
     $('tcp_confirmed').checked=false; $('marker_unchanged').checked=false;

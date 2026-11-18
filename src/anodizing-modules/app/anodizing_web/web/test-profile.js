@@ -4,8 +4,8 @@
   document.addEventListener('input',event=>{if(event.target.id)edited.add(event.target.id);});
   const vector=(value,n)=>!!value.trim()&&value.trim().split(/[\s,]+/).length===n&&value.trim().split(/[\s,]+/).every(v=>Number.isFinite(Number(v)));
   function put(id,value,valid=text=>!!text.trim()) {
-    const field=el(id);if(!field||value===undefined||value===null)return;
-    const untouchedDefault=!edited.has(id)&&!applied.has(id)&&field.value===field.defaultValue;
+    const field=el(id);if(!field||edited.has(id)||value===undefined||value===null)return;
+    const untouchedDefault=!applied.has(id)&&field.value===field.defaultValue;
     if(!valid(field.value)||untouchedDefault){field.value=String(value);applied.add(id);}
   }
   async function get(path) {
@@ -17,21 +17,20 @@
   window.applyTestProfile=async()=>{
     const note=el('test-profile-note');
     try {
-      if(el('camera_provider')?.value==='basler'||el('calibration')?.dataset.handoff==='true'){
-        note.textContent='Selected camera calibration retained. Enter and review the remaining setup.';return;
+      if(el('camera_provider')?.value!=='basler'&&el('calibration')?.dataset.handoff!=='true'){
+        const found=await get('/api/teacher-defaults'), saved=found.settings||{}, target=saved.target||{};
+        put('project',saved.project);
+        put('calibration',saved.calibration);
+        put('manifest',target.board_manifest);
+        put('board',target.board);
+        put('robot_ip',saved.robot_ip);
+        put('camera_provider',saved.camera_provider);
+        put('motion_model',saved.motion_model);
+        put('approach_mm',saved.approach_mm);
+        put('tcp',saved.tcp?.map((v,i)=>i<3?v*1000:v).join(', '),text=>vector(text,6));
+        put('manual-pick-tag',target.board);
+        put('manual-place-tag',target.board);
       }
-      const found=await get('/api/teacher-defaults'), saved=found.settings||{}, target=saved.target||{};
-      put('project',saved.project);
-      put('calibration',saved.calibration);
-      put('manifest',target.board_manifest);
-      put('board',target.board);
-      put('robot_ip',saved.robot_ip);
-      put('camera_provider',saved.camera_provider);
-      put('motion_model',saved.motion_model);
-      put('approach_mm',saved.approach_mm);
-      put('tcp',saved.tcp?.map((v,i)=>i<3?v*1000:v).join(', '),text=>vector(text,6));
-      put('manual-pick-tag',target.board);
-      put('manual-place-tag',target.board);
       if(el('manual-scene')||el('validation-collision-scene')){
         const control=await get('/api/robot-control'), d=control.defaults||{};
         put('manual-scene',d.collision_scene);put('validation-collision-scene',d.collision_scene);

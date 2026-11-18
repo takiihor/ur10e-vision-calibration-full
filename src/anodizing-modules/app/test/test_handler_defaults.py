@@ -65,3 +65,28 @@ class HandlerDefaultsTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(headers['Cache-Control'], 'no-store')
         self.assertIn('Site profile TCP', json.loads(raw)['error'])
+
+    def test_teacher_defaults_accept_a_new_project_without_creating_it(self):
+        path = self.root / 'teaching' / 'next-run'
+        (self.root / 'site-profile.json').write_text(json.dumps({'teacher': {
+            'project': 'teaching/next-run'}}))
+        status, _, raw = self.get('/api/teacher-defaults')
+        self.assertEqual(status, 200, raw)
+        self.assertEqual(json.loads(raw)['settings']['project'], str(path))
+        self.assertFalse(path.parent.exists())
+
+    def test_teacher_defaults_reject_a_project_outside_the_data_directory(self):
+        (self.root / 'escape').symlink_to(self.root.parent, target_is_directory=True)
+        for project in ('../next-run', 'escape/next-run', '.jobs/next-run'):
+            with self.subTest(project=project):
+                (self.root / 'site-profile.json').write_text(json.dumps({'teacher': {
+                    'project': project}}))
+                status, _, raw = self.get('/api/teacher-defaults')
+                self.assertEqual(status, 400, raw)
+
+    def test_teacher_defaults_reject_unknown_camera_provider(self):
+        (self.root / 'site-profile.json').write_text(json.dumps({'teacher': {
+            'camera_provider': 'baselr', 'motion_model': 'full'}}))
+        status, _, raw = self.get('/api/teacher-defaults')
+        self.assertEqual(status, 400, raw)
+        self.assertIn('camera_provider', json.loads(raw)['error'])
