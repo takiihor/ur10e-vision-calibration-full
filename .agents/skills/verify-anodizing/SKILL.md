@@ -7,11 +7,14 @@ description: Verify the anodizing Interface PC web app headlessly through its us
 
 ## Launch
 
-From the checkout root on Linux with `bwrap` (Bubblewrap), `strace`, `ss`, Git and the prepared CPython 3.12 environment `~/venvs/anodizing-test-py312`, run:
+From the checkout root on Linux with `bwrap` (Bubblewrap), `strace`, `ss`, Git and a prepared CPython 3.12 interpreter with the app dependencies, run:
 
 ```bash
+export ANODIZING_PYTHON=/absolute/path/to/venv/bin/python
 .agents/skills/verify-anodizing/scripts/verify teaching-setup
 ```
+
+With `ANODIZING_PYTHON` unset, the helper uses the launcher's existing `${ANODIZING_VENV:-.venv}/bin/python` from the checkout root. Prepare that environment in advance or set `ANODIZING_PYTHON` to your interpreter. The helper creates no environment and installs no dependencies.
 
 The helper runs the repository's `./start-ui.sh --no-browser --port 8871 --data-dir /tmp/ui-data` inside a fresh network and PID namespace. The app uses its normal launcher to copy bundled boards and initialize job storage. A private `/tmp` gives the app an independent data directory and service lock. The checkout and interpreter are read-only mounts. The isolated process can only reach its own loopback and has a private `/dev`; it has no robot route or camera devices. Keep all hardware flags off and use only the new data directory. Never fall back to direct launch if isolation is unavailable.
 

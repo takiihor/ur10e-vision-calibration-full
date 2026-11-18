@@ -1,10 +1,16 @@
+import os
 import runpy
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 
 verify = runpy.run_path(str(Path(__file__).parents[1] / 'scripts' / 'verify.py'))
 check_trace = verify['check_trace']
+launcher = Path(__file__).parents[1] / 'scripts' / 'verify'
 
 BIND = '2 bind(3, {sa_family=AF_INET, sin_port=htons(8871), sin_addr=inet_addr("127.0.0.1")}, 16) = 0\n'
 ACCEPT = '2 accept4(3, {sa_family=AF_INET, sin_port=htons(42424), sin_addr=inet_addr("127.0.0.1")}, [16], SOCK_CLOEXEC) = 4\n'
@@ -24,3 +30,58 @@ class SocketTraceTest(unittest.TestCase):
                 check_trace(BIND + ACCEPT +
                     f'2 connect(8, {{sa_family=AF_INET, sin_port=htons({port}), '
                     f'sin_addr=inet_addr("{host}")}}, 16) = -1 ENETUNREACH\n')
+
+
+class InterpreterSelectionTest(unittest.TestCase):
+    def setUp(self):
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.root = Path(scratch.name)
+        self.launcher = self.root / launcher.relative_to(launcher.parents[4])
+        self.launcher.parent.mkdir(parents=True)
+        shutil.copy2(launcher, self.launcher)
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        subprocess.run(['git', '-C', str(self.root), '-c', 'user.name=Verifier',
+                        '-c', 'user.email=verifier@example.test', 'commit', '-qm', 'Fixture',
+                        '--allow-empty'], check=True)
+        bwrap = self.root / 'bwrap'
+        bwrap.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+        bwrap.chmod(0o755)
+        self.env = dict(os.environ, PATH=f'{self.root}:{os.environ["PATH"]}')
+        self.env.pop('ANODIZING_PYTHON', None)
+        self.env.pop('ANODIZING_VENV', None)
+
+    def run_launcher(self):
+        return subprocess.run([self.launcher, 'doctor', self.root], env=self.env,
+                              capture_output=True, text=True)
+
+    def test_uses_explicit_interpreter(self):
+        python = self.root / 'custom-python'
+        python.symlink_to(sys.executable)
+        self.env['ANODIZING_PYTHON'] = str(python)
+        result = self.run_launcher()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f'--\n{python}\n-I\n-B\n', result.stdout)
+
+    def test_uses_existing_launcher_venv(self):
+        default = self.root / '.venv'
+        custom = self.root / 'custom venv'
+        subprocess.run([sys.executable, '-m', 'venv', '--without-pip', default, custom], check=True)
+        for venv in (default, custom):
+            with self.subTest(venv=venv.name):
+                if venv == custom:
+                    self.env['ANODIZING_VENV'] = str(custom)
+                result = self.run_launcher()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f'--\n{venv / "bin/python"}\n-I\n-B\n', result.stdout)
+
+    def test_explains_how_to_supply_a_missing_interpreter(self):
+        result = self.run_launcher()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Set ANODIZING_PYTHON', result.stderr)
+
+    def test_rejects_an_interpreter_that_fails_the_version_check(self):
+        self.env['ANODIZING_PYTHON'] = '/bin/false'
+        result = self.run_launcher()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('requires CPython 3.12', result.stderr)
