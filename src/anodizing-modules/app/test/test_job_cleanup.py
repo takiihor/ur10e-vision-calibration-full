@@ -13,23 +13,32 @@ from anodizing_web.teaching import _abort_and_drain
 
 
 class JobCleanupTests(unittest.TestCase):
-    def abort_with_live_workers(self, fail_storage=False, close_error=True):
+    def abort_with_live_workers(self, fail_storage=False, close_error=True, late_motion=False):
         with tempfile.TemporaryDirectory() as tmp:
             owner = JobOwner(tmp)
             gates = [threading.Event() for _ in range(3)]
-            workers = [threading.Thread(target=gate.wait, daemon=True) for gate in gates]
-            for worker in workers:
-                worker.start()
+
+            def run_worker(index):
+                gates[index].wait()
+                if late_motion and index == 1:
+                    with service.lock:
+                        service.motion = motion
+
+            workers = [threading.Thread(target=run_worker, args=(index,), daemon=True)
+                       for index in range(len(gates))]
+            motion = SimpleNamespace(_worker=workers[2], cleanup_uncertain=False)
             joins = [worker.join for worker in workers]
             draining = [threading.Event() for _ in workers]
             checkpoint, finished = threading.Event(), threading.Event()
             service = SimpleNamespace(worker_thread=workers[0], motion_thread=workers[1],
-                motion=SimpleNamespace(_worker=workers[2], cleanup_uncertain=False),
+                motion=None if late_motion else motion, lock=threading.RLock(),
                 stop=lambda: None,
                 close=mock.Mock(side_effect=RuntimeError('SDK close timed out') if close_error else None))
             owner.teacher_service = service
             owner.teacher_job = 'aborted-teacher-job'
             original_save = owner._save
+            for worker in workers:
+                worker.start()
 
             def save(job):
                 try:
@@ -40,6 +49,8 @@ class JobCleanupTests(unittest.TestCase):
                     if job.get('finished'):
                         finished.set()
                         checkpoint.set()
+                        if late_motion:
+                            draining[2].set()
 
             def joiner(index):
                 def join(timeout=None):
@@ -80,6 +91,8 @@ class JobCleanupTests(unittest.TestCase):
                         self.assertTrue(draining[index].wait(3))
                         with owner.lock:
                             self.assertEqual(owner.active, 'aborted-teacher-job')
+                            self.assertNotIn('finished', owner.jobs[owner.active])
+                            self.assertTrue(workers[index].is_alive())
                         gate.set()
                         joins[index](3)
                         self.assertFalse(workers[index].is_alive())
@@ -99,6 +112,9 @@ class JobCleanupTests(unittest.TestCase):
 
     def test_teaching_abort_retains_ownership_until_all_workers_stop(self):
         self.abort_with_live_workers()
+
+    def test_teaching_abort_drains_motion_registered_during_cleanup(self):
+        self.abort_with_live_workers(late_motion=True)
 
     def test_storage_failure_does_not_release_live_workers(self):
         self.abort_with_live_workers(fail_storage=True)

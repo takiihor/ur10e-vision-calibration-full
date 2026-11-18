@@ -302,34 +302,38 @@ def _abort_and_drain(owner, service, job_id, cause):
         service.close()
     except Exception as exc:
         cleanup_error = str(exc)
-    motion = getattr(service, 'motion', None)
-    workers = [getattr(service, 'worker_thread', None), getattr(service, 'motion_thread', None),
-               getattr(motion, '_worker', None)]
-    uncertain = bool(cleanup_error or getattr(motion, 'cleanup_uncertain', False))
-    if uncertain:
+    def fence(reason):
         with owner.lock:
             owner.execution_uncertain = True
             owner.jobs[job_id]['execution_uncertain'] = True
-            owner.jobs[job_id]['error'] += '; cleanup uncertain: '+(cleanup_error or 'native worker still active')
+            owner.jobs[job_id]['error'] += '; cleanup uncertain: '+reason
             try:
                 owner._save(owner.jobs[job_id])
             except Exception as exc:
                 owner.storage_error = str(exc)
-    # Detect timeouts before draining so the uncertainty fence is persisted promptly.
-    for worker in workers:
-        if worker and worker.is_alive():
-            worker.join(timeout=12)
-            if worker.is_alive() and not uncertain:
-                uncertain = True
-                with owner.lock:
-                    owner.execution_uncertain = True
-                    owner.jobs[job_id]['execution_uncertain'] = True
-                    owner.jobs[job_id]['error'] += '; cleanup uncertain: native worker still active'
-                    try:
-                        owner._save(owner.jobs[job_id])
-                    except Exception as exc:
-                        owner.storage_error = str(exc)
-    owner.drain_workers(job_id, workers)
+
+    uncertain = cleanup_error is not None
+    if uncertain:
+        fence(cleanup_error)
+    while True:
+        # The supervisor can publish a native worker until it exits.
+        with service.lock:
+            motion = service.motion
+            workers = [worker for worker in (service.worker_thread, service.motion_thread,
+                       getattr(motion, '_worker', None)) if worker and worker.is_alive()]
+        if not uncertain and getattr(motion, 'cleanup_uncertain', False):
+            fence('native worker still active')
+            uncertain = True
+        if not workers:
+            break
+        if not uncertain:
+            for worker in workers:
+                worker.join(timeout=12)
+                if worker.is_alive():
+                    fence('native worker still active')
+                    uncertain = True
+                    break
+        owner.drain_workers(job_id, workers)
     with owner.lock:
         owner.teacher_service = None
         owner.teacher_job = owner.teacher_project = owner.teacher_settings = None
