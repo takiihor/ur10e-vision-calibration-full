@@ -5,6 +5,7 @@ bounds or tool dimensions. An operator may place ``site-profile.json`` in the
 allowed data directory to prefill reviewed values.
 """
 import json
+import math
 from pathlib import Path
 
 
@@ -31,7 +32,11 @@ def section(root, name):
 
 def finite_numbers(value, size):
     """Validate a flat list of finite numbers without accepting booleans."""
-    if (not isinstance(value, list) or len(value) != size
-            or any(type(item) not in (int, float) for item in value)):
+    try:
+        valid = (isinstance(value, list) and len(value) == size
+                 and all(type(item) in (int, float) and math.isfinite(item) for item in value))
+    except OverflowError:
+        valid = False
+    if not valid:
         raise ValueError('Enter a finite number for each value.')
     return value

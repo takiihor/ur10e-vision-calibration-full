@@ -136,7 +136,7 @@ class OfflineRobot:
     def stopScript(self):
         if self.cleanup_gate:
             self.cleanup_entered.set()
-            self.cleanup_gate.wait(5)
+            self.cleanup_gate.wait()
         self.motion=None
         return True
     def disconnect(self):self.connected=False
@@ -814,6 +814,63 @@ class ManualWorkerTests(unittest.TestCase):
         self.assertIsNone(owner.current_alignment,'An interrupted admitted descent cannot reuse alignment')
 
 
+    def teacher_close_timeout(self, fail_storage=False):
+        from unittest import mock
+        from anodizing_web.jobs import JobOwner
+        owner=self.public_server()
+        release,checkpoint,finished=threading.Event(),threading.Event(),threading.Event()
+        self.addCleanup(release.set)
+        thread=threading.Thread(target=release.wait,daemon=True)
+        thread.start()
+        original_join=thread.join
+        def close():
+            if thread.is_alive():
+                raise RuntimeError('Teacher worker did not stop')
+        service=SimpleNamespace(worker_thread=thread,motion_thread=None,motion=None,close=close)
+        owner.teacher_service=service
+        original_save=owner._save
+        def save(job):
+            try:
+                if fail_storage and job.get('execution_uncertain'):
+                    raise OSError('Injected Teacher fence persistence failure')
+                original_save(job)
+            finally:
+                if job.get('finished'):
+                    finished.set();checkpoint.set()
+        def controlled_join(timeout=None):
+            if timeout is None:
+                checkpoint.set()
+                return original_join()
+        with mock.patch.object(thread,'join',side_effect=controlled_join), \
+             mock.patch.object(owner,'_save',side_effect=save):
+            try:
+                status,raw=self.request('POST','/api/manual-pick-place',self.public_body)
+                self.assertEqual(status,202,raw)
+                self.assertTrue(checkpoint.wait(3))
+                with owner.lock:
+                    self.assertTrue(thread.is_alive())
+                    self.assertEqual(owner.active,self.public_body['request_id'])
+                    self.assertTrue(owner.execution_uncertain)
+                    self.assertTrue(owner.jobs[owner.active]['execution_uncertain'])
+                if fail_storage:
+                    self.assertIn('Injected Teacher fence persistence failure',owner.storage_error)
+                self.assertEqual(self.robot.moves,[],'Manual RTDE work cannot start before Teacher cleanup')
+                competitor=dict(self.public_body,request_id='competing-manual')
+                self.assertEqual(self.request('POST','/api/manual-pick-place',competitor)[0],400)
+            finally:
+                release.set();original_join(3)
+                finished.wait(3)
+        with owner.lock:
+            self.assertIsNone(owner.active)
+        if not fail_storage:
+            self.assertTrue(JobOwner(self.root).execution_uncertain)
+
+    def test_teacher_close_timeout_retains_owner_until_teacher_worker_stops(self):
+        self.teacher_close_timeout()
+
+    def test_teacher_close_storage_failure_does_not_release_live_worker(self):
+        self.teacher_close_timeout(fail_storage=True)
+
     def test_cleanup_timeout_retains_owner_while_sdk_worker_alive_and_restart_fence(self):
         from unittest import mock
         from anodizing_web.jobs import JobOwner
@@ -839,21 +896,38 @@ class ManualWorkerTests(unittest.TestCase):
             worker.confirm(state['manual']['prompt'],True)
         release=threading.Event();self.addCleanup(release.set)
         self.robot.cleanup_gate=release
+        checkpoint=threading.Event()
         original_join=worker._worker.join
-        def quick_join(timeout=None):return original_join(None if timeout is None else .02)
-        with mock.patch.object(worker._worker,'join',side_effect=quick_join):
-            worker.confirm(state['manual']['prompt'],True)
-            self.assertTrue(self.robot.cleanup_entered.wait(3),'Native cleanup must be attempted')
-            deadline=time.monotonic()+3
-            while not owner.execution_uncertain and time.monotonic()<deadline:time.sleep(.01)
-            self.assertTrue(worker._worker.is_alive())
-            self.assertEqual(owner.active,job_id,'A live SDK worker retains the shared owner')
-            self.assertTrue(owner.execution_uncertain,'A close timeout must set the uncertainty fence')
-            competitor=dict(self.public_body,request_id='competing-manual')
-            self.assertEqual(self.request('POST','/api/manual-pick-place',competitor)[0],400)
-            release.set();original_join(2)
-            self.assertFalse(worker._worker.is_alive())
-        job=self.wait_public(lambda j:j['state'] not in ('running','waiting'))
+        original_save=owner._save
+        def save(job):
+            original_save(job)
+            if job.get('finished'):
+                checkpoint.set()
+        def controlled_join(timeout=None):
+            if timeout is None:
+                checkpoint.set()
+                return original_join()
+            # Simulate an expired bounded wait while the SDK gate remains closed.
+        with mock.patch.object(worker._worker,'join',side_effect=controlled_join), \
+             mock.patch.object(owner,'_save',side_effect=save):
+            try:
+                worker.confirm(state['manual']['prompt'],True)
+                self.assertTrue(self.robot.cleanup_entered.wait(3),'Native cleanup must be attempted')
+                self.assertTrue(checkpoint.wait(3),'Reach retained drain or terminal finalization')
+                with owner.lock:
+                    self.assertTrue(worker._worker.is_alive())
+                    self.assertEqual(owner.active,job_id,'A live SDK worker retains the shared owner')
+                    self.assertTrue(owner.execution_uncertain,'A close timeout must set the uncertainty fence')
+                    import json
+                    saved=json.loads((owner.directory/(job_id+'.json')).read_text())
+                    self.assertTrue(saved['execution_uncertain'])
+                competitor=dict(self.public_body,request_id='competing-manual')
+                self.assertEqual(self.request('POST','/api/manual-pick-place',competitor)[0],400)
+            finally:
+                release.set();original_join(3)
+        self.assertFalse(worker._worker.is_alive())
+        job=self.wait_public(lambda j:bool(j.get('finished')))
+        self.assertIsNone(owner.active)
         self.assertEqual(job['state'],'failed')
         self.assertTrue(job['execution_uncertain'])
         restarted=JobOwner(self.root)

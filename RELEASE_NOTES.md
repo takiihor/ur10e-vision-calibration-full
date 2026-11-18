@@ -1,9 +1,47 @@
-# Release notes — review fixes
+# Release notes
+
+## 18 November 2026
+
+- **F11 robot ownership.** Manual cleanup, Teacher close and teaching abort keep
+  the shared job owner while a timed-out SDK worker is still alive. Teacher
+  abort waits for workers registered during cleanup, including native motion
+  workers retained by the Teacher service. Cleanup persists execution uncertainty
+  and waits outside the owner lock. A failed fence write retains ownership and
+  uncertainty in memory.
+- Standalone modules validate bounds and camera inputs, require explicit or
+  matching saved selections, preserve operator edits during Teaching prefill
+  and revalidate cached assets. Basler Teaching receives the reviewed motion
+  bounds. Continue to Teaching fills the selected calibration's TCP for
+  operator confirmation. Teacher defaults accept new project paths inside the
+  data directory and report invalid camera providers. Basler capture requires
+  exposure and gain. Offline solves use recorded images without requiring those
+  fields. Token-bearing pages use `no-store`. Launchers accept the documented
+  interpreter configuration.
+- The [verification skill](.agents/skills/verify-anodizing/SKILL.md) exercises the
+  real UI service over isolated loopback HTTP. Doctor checks startup, idle
+  ownership and disabled hardware. Five read-only journeys cover navigation,
+  Calibration setup, Teaching setup, Pick/place availability and tool-preview
+  assets. Tool preview saves the example scene as `collision-scene.example.json`.
+- [Encoder-plate tools](tools/ENCODER_INTRINSICS.md) require explicit Basler
+  serial selection, capture native Mono8 and fit intrinsics offline with held-out
+  views and residual diagnostics. The fitter checks the capture serial when
+  available and rejects byte-identical images shared by the training and holdout sets.
+- [Provisional Basler intrinsics](review/results/basler-encoder-intrinsics/README.md)
+  use restricted `k1` and `k2` with 0.340 px RMS over five holdout views. They are
+  review artifacts for the recorded optical settings and require metric validation.
+
+Verification is software-only. The bundled tests use fake hardware, loopback HTTP
+and offline fixtures. The IPC, robot and AGV, physical stop timing and metric
+accuracy remain untested. The unchanged vendor test
+`test_tcp_change_or_rejected_stop_during_motion_is_reported` can intermittently
+record `stopped` where it expects `failed`.
+
+## 13 November 2026 review fixes
 
 This revision addresses the review findings in the packaged bundle. It is still a
 software review artifact, not a hardware qualification.
 
-## What changed
+### What changed
 
 - All bundled Python suites now pass from the package root. A single runner is at
   `src/anodizing-modules/tools/test-all.bash`.
@@ -30,7 +68,7 @@ software review artifact, not a hardware qualification.
 - `review/results/final-13115877.txt` is labelled as a 36-test focused subset,
   not full-suite acceptance.
 
-## Limitations and open items
+### Limitations and open items
 
 - **No hardware validation.** No robot, camera, MCU, PLC, IPC service or physical
   stop was exercised while preparing this revision. Offline tests do not
@@ -65,7 +103,7 @@ software review artifact, not a hardware qualification.
   packages used by the tests. Transitive resolution still depends on the package
   index or a prepared offline wheel set.
 
-## Verification performed for this revision
+### Verification performed for this revision
 
 Final run on 13 November 2026 with Python 3.12.16 and pytest 8.4.2:
 

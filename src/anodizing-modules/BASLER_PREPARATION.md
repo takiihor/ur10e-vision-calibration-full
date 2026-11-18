@@ -16,7 +16,7 @@ The draft full-frame profile is **2448 × 2048, 20 FPS, Mono8, 5000 µs exposure
 
 ## Required first physical calibration
 
-No Basler camera or serial was available during preparation. No Basler lens intrinsic file exists in this candidate. The D435 fitted intrinsics belong to the D435 and cannot calibrate this camera.
+The initial preparation had no Basler camera or serial. A later [provisional Basler lens estimate](../../review/results/basler-encoder-intrinsics/README.md) is available for the recorded camera and optical settings. Complete physical validation before relying on the estimate for metric work. The D435 fitted intrinsics apply only to the D435.
 
 1. Mount the final 12 mm lens rigidly. Set focus and aperture for the intended working distance.
 2. Use pylon Viewer or an external OpenCV calibration procedure to acquire varied board images. Use the intended image profile, ROI and lens settings.

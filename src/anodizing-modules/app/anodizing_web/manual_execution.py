@@ -620,10 +620,16 @@ def run(owner, root, body, job_id):
                 with owner.lock:
                     owner.execution_uncertain = True
                     owner.jobs[job_id]['execution_uncertain'] = True
-                    owner._save(owner.jobs[job_id])
-                for thread in (getattr(service,'worker_thread',None),getattr(service,'motion_thread',None),getattr(getattr(service,'motion',None),'_worker',None)):
+                    try:
+                        owner._save(owner.jobs[job_id])
+                    except Exception as exc:
+                        owner.storage_error = str(exc)
+                workers = (getattr(service,'worker_thread',None),getattr(service,'motion_thread',None),
+                           getattr(getattr(service,'motion',None),'_worker',None))
+                for thread in workers:
                     if thread and thread.is_alive():
                         thread.join(timeout=12)
+                owner.drain_workers(job_id, workers)
                 raise
             owner.teacher_service = None
             owner.teacher_job = owner.teacher_project = owner.teacher_settings = None
@@ -679,5 +685,6 @@ def run(owner, root, body, job_id):
                 worker._worker.join(timeout=10)
                 if worker._worker.is_alive():
                     cleanup_error = cleanup_error or 'RTDE worker did not stop within 10 seconds.'
+            owner.drain_workers(job_id, [worker._worker])
             if cleanup_error:
                 raise RuntimeError('Manual cleanup failed: '+cleanup_error)

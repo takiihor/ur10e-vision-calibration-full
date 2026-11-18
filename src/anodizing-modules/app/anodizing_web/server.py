@@ -166,7 +166,7 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection = True
 
     def send_asset(self, data, mime, *, mtime=None, etag=None, editor_frame=False,
-                   cache_control='public, max-age=3600'):
+                   cache_control='no-cache'):
         return self.reply(200, data, mime, editor_frame=editor_frame,
                           cache_control=cache_control, etag=etag or f'"{hashlib.sha256(data).hexdigest()}"',
                           last_modified=formatdate(mtime, usegmt=True) if mtime is not None else None)
@@ -217,7 +217,7 @@ class Handler(BaseHTTPRequestHandler):
             profile = section(self.server.root, 'teacher')
             try:
                 if isinstance(profile.get('project'), str) and profile['project'].strip():
-                    settings['project'] = str(inside(self.server.root, profile['project']))
+                    settings['project'] = str(inside(self.server.root, profile['project'], required=False))
                 if isinstance(profile.get('calibration'), str) and profile['calibration'].strip():
                     settings['calibration'] = str(inside(self.server.root, profile['calibration']))
                 if isinstance(profile.get('robot_ip'), str):
@@ -225,8 +225,11 @@ class Handler(BaseHTTPRequestHandler):
                 if profile.get('tcp') is not None:
                     from ur_pick_place.config import vector
                     settings['tcp'] = vector(profile['tcp'], 6, 'Site profile TCP')
-                if isinstance(profile.get('camera_provider'), str) and profile['camera_provider'] in ('realsense', 'basler'):
-                    settings['camera_provider'] = profile['camera_provider']
+                if 'camera_provider' in profile:
+                    provider = profile['camera_provider']
+                    if provider not in ('realsense', 'basler'):
+                        raise ValueError('camera_provider must be realsense or basler.')
+                    settings['camera_provider'] = provider
                 if isinstance(profile.get('motion_model'), str) and profile['motion_model'] in ('planar', 'full'):
                     settings['motion_model'] = profile['motion_model']
                 if isinstance(profile.get('target'), dict) and profile['target'].get('board'):
@@ -234,8 +237,8 @@ class Handler(BaseHTTPRequestHandler):
                     if target.get('board_manifest'):
                         target['board_manifest'] = str(inside(self.server.root, target['board_manifest']))
                     settings['target'] = target
-            except (OSError, ValueError, KeyError, TypeError):
-                pass
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                return self.reply(400, {'error': f'Teacher site profile is invalid: {exc}'})
             return self.reply(200, found)
         if path in ('/api/teacher-project', '/api/teacher-file'):
             try:
@@ -356,7 +359,8 @@ class Handler(BaseHTTPRequestHandler):
                                         b'The preview shows the robot visual model and collision boxes for the selected model. Check the physical geometry and cell before motion.')
                     data = data.replace(b'Preview only \xc2\xb7 UR10e nominal collision hulls', b'Preview only \xc2\xb7 selected UR10e collision hulls')
             return self.send_asset(data, preview_files[name], mtime=mtime,
-                                   editor_frame=(name == 'tool-envelope.html'))
+                                   editor_frame=(name == 'tool-envelope.html'),
+                                   cache_control='no-store' if name == 'tool-envelope.html' else 'no-cache')
         routes = {'/': ('index.html', 'text/html; charset=utf-8'),
                  '/calibration': ('calibration.html', 'text/html; charset=utf-8'),
                  '/teaching': ('teaching.html', 'text/html; charset=utf-8'),
@@ -387,7 +391,7 @@ class Handler(BaseHTTPRequestHandler):
                     data = data.replace(placeholder, part)
             data = data.replace(b'__TOKEN__', self.server.token.encode()).replace(b'__TEACH_TOKEN__', self.server.token.encode())
         return self.send_asset(data, mime, mtime=mtime, editor_frame=False,
-                               cache_control='no-cache' if name.endswith('.html') else 'public, max-age=3600')
+                               cache_control='no-store' if name.endswith('.html') else 'no-cache')
 
     def do_POST(self):
         if not self.authorized(token=True):

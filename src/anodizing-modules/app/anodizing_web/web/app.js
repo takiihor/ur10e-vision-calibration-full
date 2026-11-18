@@ -18,15 +18,18 @@ async function api(path,body){
   return value;
 }
 function field(id){return $(id).value.trim();}
-function positiveNumber(id,fallback){const value=Number(field(id));return Number.isFinite(value)&&value>0?value:fallback;}
-function nonNegativeNumber(id,fallback){const value=Number(field(id));return Number.isFinite(value)&&value>=0?value:fallback;}
+function positiveNumber(id){const value=Number(field(id));if(!field(id)||!Number.isFinite(value)||value<=0)throw Error('Exposure must be a finite number greater than zero.');return value;}
+function nonNegativeNumber(id){const value=Number(field(id));if(!field(id)||!Number.isFinite(value)||value<0)throw Error('Gain must be a finite non-negative number.');return value;}
 function previewCalibration(){document.dispatchEvent(new CustomEvent('preview-calibration-selection',{detail:field('calibration')}));}
 function target(){return field('kind')==='charuco'?{kind:'charuco',board_manifest:field('manifest'),board:field('board')}:
   {kind:'aruco',dictionary:field('dictionary'),marker_id:Number(field('marker_id')),marker_length_mm:Number(field('marker_length_mm'))};}
 function values(action){
+  const usesExposure=['camera','camera-preview','manual','verify-capture','plan','collect','replay'].includes(action);
   if(moduleName==='calibration') return {action:action==='verify-capture'?'manual':action,session:action==='verify-capture'?field('verification'):field('session'),
     ...(action==='verify-capture'?{fit_session:field('session')}:{}),manifest:field('manifest'),board:field('board'),serial:field('serial'),robot_ip:field('robot_ip'),
-    camera_provider:field('camera_provider'),camera_fps:action==='camera'&&field('camera_provider')==='realsense'?15:Number(field('camera_fps')),camera_exposure_us:positiveNumber('camera_exposure_us',5000),camera_gain_db:nonNegativeNumber('camera_gain_db',0),intrinsics:field('intrinsics'),calibration:['verify','verify-capture','replay'].includes(action)?field('calibration'):'',verification:field('verification'),collision_scene:['plan','collect','replay'].includes(action)?field('collision_scene'):'',
+    camera_provider:field('camera_provider'),camera_fps:action==='camera'&&field('camera_provider')==='realsense'?15:Number(field('camera_fps')),
+    ...(usesExposure&&field('camera_provider')==='basler'?{camera_exposure_us:positiveNumber('camera_exposure_us'),camera_gain_db:nonNegativeNumber('camera_gain_db')}:{}),
+    intrinsics:field('intrinsics'),calibration:['verify','verify-capture','replay'].includes(action)?field('calibration'):'',verification:field('verification'),collision_scene:['plan','collect','replay'].includes(action)?field('collision_scene'):'',
     views:Number(field('views')),tilt_deg:Number(field('tilt_deg')),roll_deg:Number(field('roll_deg'))};
   const project=field('project'), calibration=field('calibration');
   if(action==='simulate') return {action,project,calibration,target:target()};
@@ -168,10 +171,6 @@ function syncBaslerFields(){
   const basler=field('camera_provider')==='basler';
   $('basler-exposure-field').hidden=!basler;
   $('basler-gain-field').hidden=!basler;
-  if(basler){
-    if(!field('camera_exposure_us'))$('camera_exposure_us').value='5000';
-    if(!field('camera_gain_db'))$('camera_gain_db').value='0';
-  }
 }
 if(moduleName==='calibration'){
   const saved=JSON.parse(localStorage.getItem('ano-calibration-form')||'{}');
@@ -183,7 +182,7 @@ if(moduleName==='calibration'){
   document.addEventListener('calibration-scene-scope',event=>{if(event.detail?.selection!==field('collision_scene'))return;$('plan-scene-scope').textContent=event.detail.scope==='supervised_self'?'Selected scene: arm and attached tools only. External objects are not checked.':'Selected scene: cell scope. Check external objects and cell coverage.';});
   document.addEventListener('calibration-scene-saved',event=>{if(typeof event.detail!=='string'||!event.detail.startsWith('/'))return;$('collision_scene').value=event.detail;saveCalibrationForm();});
   $('calibration').addEventListener('input',()=>{$('continue-teaching').disabled=!calibrationHandoff||field('calibration')!==calibrationHandoff.path;previewCalibration();});
-  $('continue-teaching').addEventListener('click',()=>{if(!calibrationHandoff||field('calibration')!==calibrationHandoff.path)return;const r=calibrationHandoff.result;localStorage.setItem('ano-handoff-teaching',JSON.stringify({calibration:calibrationHandoff.path,robot_ip:r.robot?.host==='simulated'?'':(r.robot?.host||''),serial:r.camera?.device?.serial_number||'',camera_provider:r.camera?.provider||'realsense',camera_fps:r.camera?.stream?.fps,camera_exposure_time_us:r.camera?.exposure_time_us,simulation:!!(r.simulation_truth||r.camera?.simulated||r.robot?.host==='simulated')}));location.href='/teaching';});
+  $('continue-teaching').addEventListener('click',()=>{if(!calibrationHandoff||field('calibration')!==calibrationHandoff.path)return;const r=calibrationHandoff.result;localStorage.setItem('ano-handoff-teaching',JSON.stringify({calibration:calibrationHandoff.path,tcp:r.camera_in_tcp?.tcp_offset,robot_ip:r.robot?.host==='simulated'?'':(r.robot?.host||''),serial:r.camera?.device?.serial_number||'',camera_provider:r.camera?.provider||'realsense',camera_fps:r.camera?.stream?.fps,camera_exposure_time_us:r.camera?.exposure_time_us,simulation:!!(r.simulation_truth||r.camera?.simulated||r.robot?.host==='simulated')}));location.href='/teaching';});
   let toolViewNeedsFit=true;
   document.querySelectorAll('[data-step]').forEach(button=>button.onclick=()=>{
     document.querySelectorAll('[data-page]').forEach(page=>page.hidden=page.dataset.page!==button.dataset.step);

@@ -10,7 +10,7 @@ The three modules run without the ano app or ROS.
 
 ## Package contents
 
-- `src/anodizing-modules/`: all 410 reviewed source, test, packaging and board
+- `src/anodizing-modules/`: the reviewed source, test, packaging and board
   files in this revision.
 - `state/README.md`: handling notes for the saved IPC data snapshot. The 513 MB
   archive and its 897-file manifest are **not** in this public source repository;
@@ -166,7 +166,9 @@ Current physical limits:
 - The supervised-self scene omits external cell objects.
 - MCU acknowledgements do not prove that the rod is held or released.
 - D435 intrinsics were fitted from 16 views, but remain marked unvalidated.
-- Basler preparation uses the 12 mm lens and 32 mm fine boards. Its actual serial,
-  measured lens intrinsics and physical camera test remain outstanding.
+- Basler preparation uses the 12 mm lens and 32 mm fine boards. A [provisional
+  encoder-plate estimate](review/results/basler-encoder-intrinsics/README.md) is
+  available for the recorded Basler and optical settings. Physical validation
+  remains outstanding.
 
 Packaging reads files only. It does not provide new physical validation.

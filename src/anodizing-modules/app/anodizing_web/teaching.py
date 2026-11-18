@@ -71,9 +71,7 @@ def defaults(root):
     projects = sorted((repo / 'teaching').glob('*/project.json'),
                       key=lambda p: p.stat().st_mtime, reverse=True)
     project = {'project': str((repo / 'teaching' / datetime.now().strftime('%Y%m%d-%H%M%S')).relative_to(repo)),
-               'calibration': calibrations[0]['path'] if calibrations else '',
-               'robot_ip': calibrations[0]['robot_ip'] if calibrations else '',
-               'tcp': calibrations[0]['tcp'] if calibrations else [0.0] * 6,
+               'calibration': '', 'robot_ip': '', 'tcp': [0.0] * 6,
                'camera_provider': 'realsense', 'refine_before_pick': False,
                'min_pixels_per_module': 5.0, 'target': target,
                'motion_model': 'planar', 'approach_mm': 100.0,
@@ -304,33 +302,39 @@ def _abort_and_drain(owner, service, job_id, cause):
         service.close()
     except Exception as exc:
         cleanup_error = str(exc)
-    motion = getattr(service, 'motion', None)
-    workers = [getattr(service, 'worker_thread', None), getattr(service, 'motion_thread', None),
-               getattr(motion, '_worker', None)]
-    uncertain = bool(cleanup_error or getattr(motion, 'cleanup_uncertain', False))
-    if uncertain:
+    def fence(reason):
         with owner.lock:
             owner.execution_uncertain = True
             owner.jobs[job_id]['execution_uncertain'] = True
-            owner.jobs[job_id]['error'] += '; cleanup uncertain: '+(cleanup_error or 'native worker still active')
+            owner.jobs[job_id]['error'] += '; cleanup uncertain: '+reason
             try:
                 owner._save(owner.jobs[job_id])
             except Exception as exc:
                 owner.storage_error = str(exc)
-    # A bounded wait still leaves the service fenced when a native worker is stuck.
-    for worker in workers:
-        if worker and worker.is_alive():
-            worker.join(timeout=12)
-            if worker.is_alive() and not uncertain:
-                uncertain = True
-                with owner.lock:
-                    owner.execution_uncertain = True
-                    owner.jobs[job_id]['execution_uncertain'] = True
-                    owner.jobs[job_id]['error'] += '; cleanup uncertain: native worker still active'
-                    try:
-                        owner._save(owner.jobs[job_id])
-                    except Exception as exc:
-                        owner.storage_error = str(exc)
+
+    uncertain = cleanup_error is not None
+    if uncertain:
+        fence(cleanup_error)
+    while True:
+        # The supervisor can publish a native worker until it exits.
+        with service.lock:
+            motion = getattr(service, 'motion', None)
+            workers = (getattr(service, 'worker_thread', None), getattr(service, 'motion_thread', None),
+                       getattr(motion, '_worker', None))
+            workers = [worker for worker in workers if worker and worker.is_alive()]
+        if not uncertain and getattr(motion, 'cleanup_uncertain', False):
+            fence('native worker still active')
+            uncertain = True
+        if not workers:
+            break
+        if not uncertain:
+            for worker in workers:
+                worker.join(timeout=12)
+                if worker.is_alive():
+                    fence('native worker still active')
+                    uncertain = True
+                    break
+        owner.drain_workers(job_id, workers)
     with owner.lock:
         owner.teacher_service = None
         owner.teacher_job = owner.teacher_project = owner.teacher_settings = None
