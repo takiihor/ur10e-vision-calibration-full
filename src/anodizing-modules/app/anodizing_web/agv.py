@@ -45,7 +45,7 @@ ARGUMENTS = {
     'call_station': {'min': 1, 'max': 255, 'default': 1, 'label': 'Station number'},
 }
 URGENT = {'stop', 'pause'}
-READS = {'query_status': 0x25, 'read_speed': 0x21}
+READS = {'query_status', 'read_speed'}
 
 
 def hex_bytes(raw):
@@ -284,7 +284,7 @@ def motion_block(owner):
 
 def expected_status(name, value):
     return {
-        'query_status': {}, 'read_speed': None, 'set_speed': {'set_speed_m_h': value},
+        'set_speed': {'set_speed_m_h': value},
         'forward': {'stopped': False, 'leading_end': 1},
         'reverse': {'stopped': False, 'leading_end': 255},
         'stop': {'stopped': True, 'command_stop': True}, 'pause': {'paused': True, 'stopped': True},
@@ -301,6 +301,7 @@ class Connection:
     def __init__(self, owner):
         self.owner = owner
         self.lock = Lock()
+        self.send_lock = Lock()
         self.transport = None
         self.id = self.sequence = 0
         self.connected_at = None
@@ -309,6 +310,7 @@ class Connection:
         self.status = self.status_at = self.status_hex = None
         self.results = {}
         self.pending = {}
+        self.reading = None
         self.recent_tx = {}
         # shortcut: Keep the latest 200 server events; add durable capture if tests need unattended logging.
         self.log = deque(maxlen=200)
@@ -328,7 +330,6 @@ class Connection:
                 del self.pending[name]
 
     def _receive(self):
-        received = set()
         chunk = self.transport.read(min(4096, self.transport.in_waiting))
         for raw, error in self.splitter.feed(chunk):
             if error:
@@ -352,19 +353,20 @@ class Connection:
                 self.status, self.status_hex, self.status_at = decoded, hex_bytes(raw), monotonic()
                 for name, (expected, before, _) in list(self.pending.items()):
                     if expected is not None and all(decoded.get(key) == value for key, value in expected.items()) and (
-                            not expected or any(key in before and before[key] != value for key, value in expected.items())
-                            or name == 'read_speed'):
+                            any(key in before and before[key] != value for key, value in expected.items())):
                         self.results[name]['state'] = 'confirmed by status'
                         del self.pending[name]
-                received.add(0x25)
-            elif 'read_speed_m_h' in decoded:
-                received.add(0x21)
-                if 'read_speed' in self.pending:
-                    _, before, sent_at = self.pending['read_speed']
-                    self.pending['read_speed'] = ({'set_speed_m_h': decoded['read_speed_m_h']}, before, sent_at)
-        return received
+                if self.reading == 'query_status':
+                    self._finish_read('reply: status')
+            elif self.reading == 'read_speed' and 'read_speed_m_h' in decoded:
+                self._finish_read(f"reply: {decoded['read_speed_m_h']} m/h")
+
+    def _finish_read(self, state):
+        self.results[self.reading]['state'] = state
+        self.reading = None
 
     def _snapshot(self):
+        self._expire()
         self.sequence += 1
         now = monotonic()
         age = None if self.status_at is None else now - self.status_at
@@ -389,7 +391,6 @@ class Connection:
                     self._receive()
                 except OSError as exc:
                     self._transport_error(exc)
-            self._expire()
             return dict(self._snapshot(), serial_available=serial is not None, ports=ports,
                         port_error=port_error, commands=[
                             dict(name=name, label=label, payload=payload, argument=ARGUMENTS.get(name),
@@ -439,6 +440,8 @@ class Connection:
     def _close(self):
         transport, self.transport = self.transport, None
         self.armed = False
+        if self.reading is not None:
+            self._finish_read('no reply')
         for name in self.pending:
             self.results[name]['state'] = 'not confirmed'
         self.pending.clear()
@@ -477,28 +480,51 @@ class Connection:
         if value is not None:
             detail['value'] = value
         self._record('TX', raw, detail)
+        if name in READS:
+            self.reading = name
+            self.results[name] = {'state': 'waiting for reply'}
+            return sent_at
+
         result = {'state': SENT}
         before = self.status if self.status is not None else {}
         maximum = before.get('max_stations')
         if name == 'call_station' and maximum is not None and value > maximum:
             result['warning'] = f'Station {value} is above the last reported maximum ({maximum}).'
-        if name not in READS and name != 'set_speed':
+        if name != 'set_speed':
             for pending in list(self.pending):
-                if pending not in READS and pending not in ('set_speed', name):
+                if pending not in ('set_speed', name):
                     self.results[pending]['state'] = 'not confirmed'
                     del self.pending[pending]
         self.results[name] = result
         self.pending[name] = (expected_status(name, value), before, sent_at)
-        reply = READS.get(name)
-        if reply is not None:
-            deadline = sent_at + REPLY_TIMEOUT
-            while reply not in self._receive() and monotonic() < deadline:
-                sleep(.01)
+
+    def _wait_for_reply(self, transport, deadline):
+        while True:
+            with self.lock:
+                if self.transport is not transport or self.reading is None:
+                    return self._snapshot()
+                try:
+                    self._receive()
+                except OSError as exc:
+                    self._transport_error(exc)
+                    raise ValueError(self.error) from exc
+                if self.reading is None:
+                    return self._snapshot()
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    self._finish_read('no reply')
+                    return self._snapshot()
+            sleep(min(.01, remaining))
 
     def submit(self, body):
         action, name = body.get('action'), body.get('command')
         if action == 'send' and (not isinstance(name, str) or name not in COMMANDS):
             raise ValueError('Select a known AGV command.')
+        # Preserve half-duplex pacing for ordinary writes while Stop and Pause bypass the reply wait.
+        with self.send_lock if action == 'send' and name not in URGENT else nullcontext():
+            return self._submit(body, action, name)
+
+    def _submit(self, body, action, name):
         motion = action == 'send' and name not in URGENT and name not in READS
         with self.owner.lock if motion else nullcontext(), self.lock:
             if action == 'connect':
@@ -517,7 +543,7 @@ class Connection:
                                 raise ValueError('Tick Armed for this AGV connection first.')
                         elif name in READS and body.get('connection_id') is not None:
                             self._check_connection(body['connection_id'])
-                        self._send(name, body.get('value') if name not in URGENT else None)
+                        sent_at = self._send(name, body.get('value') if name not in URGENT else None)
                     else:
                         self._check_connection(body.get('connection_id'))
                         if action == 'disconnect':
@@ -531,5 +557,7 @@ class Connection:
                 except OSError as exc:
                     self._transport_error(exc)
                     raise ValueError(self.error) from exc
-            self._expire()
-            return self._snapshot()
+            if action != 'send' or name not in READS:
+                return self._snapshot()
+            transport = self.transport
+        return self._wait_for_reply(transport, sent_at + REPLY_TIMEOUT)

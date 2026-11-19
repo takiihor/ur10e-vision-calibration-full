@@ -1,12 +1,14 @@
 """Exercise the authenticated HTTP handler with an in-process AGV, without sockets or devices."""
 import ast
+from concurrent.futures import ThreadPoolExecutor
 from email.message import Message
 from http.server import BaseHTTPRequestHandler
 from io import BytesIO
 import json
 from pathlib import Path
 import secrets
-from threading import RLock
+from threading import Event, RLock
+from time import monotonic
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
@@ -96,6 +98,112 @@ def test_owner_blocks_motion_but_allows_stop_and_pause_even_without_arm(session,
         assert payload in state['log'][-1]['hex']
 
 
+@pytest.mark.parametrize('command', ['stop', 'pause'])
+def test_urgent_write_bypasses_silent_read_and_owner_lock(session, monkeypatch, command):
+    read_written = Event()
+    read_times, urgent_times = [], []
+
+    class ObservedLink(agv.Simulator):
+        def write(self, raw):
+            if agv.parse_frame(raw).command == 0x26:
+                read_times.append(monotonic())
+                read_written.set()
+            else:
+                urgent_times.append(monotonic())
+            return super().write(raw)
+
+    monkeypatch.setattr(agv, 'Simulator', ObservedLink)
+    owner, request = session
+    connection_id = open_simulator(request)
+    request(dict(action='silence', silent=True, connection_id=connection_id))
+    owner.active = 'robot-job-1'
+    with ThreadPoolExecutor(max_workers=2) as pool, owner.lock:
+        read = pool.submit(send, request, 'query_status', connection_id)
+        assert read_written.wait(2)
+
+        def submit_urgent():
+            started = monotonic()
+            status, state = send(request, command)
+            assert status == 200 and state['results'][command]['state'] == agv.SENT
+            return started
+
+        started = pool.submit(submit_urgent).result(timeout=3)
+        status, state = read.result(timeout=3)
+        read_elapsed = monotonic() - read_times[0]
+
+    latency = urgent_times[0] - started
+    print(f'{command} reached transport.write in {latency * 1000:.2f} ms during a {read_elapsed:.3f} s read')
+    assert latency < .050
+    assert read_elapsed >= agv.REPLY_TIMEOUT
+    assert status == 200 and state['results']['query_status']['state'] == 'no reply'
+
+
+def test_concurrent_reads_keep_the_silent_read_window_free_of_other_writes(session, monkeypatch):
+    first_written = Event()
+    writes = []
+
+    class ObservedLink(agv.Simulator):
+        def write(self, raw):
+            command = agv.parse_frame(raw).command
+            writes.append((command, monotonic()))
+            if command == 0x21:
+                first_written.set()
+                return len(raw)
+            return super().write(raw)
+
+    monkeypatch.setattr(agv, 'Simulator', ObservedLink)
+    _, request = session
+    connection_id = open_simulator(request)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(send, request, 'read_speed', connection_id)
+        assert first_written.wait(2)
+        second = pool.submit(send, request, 'query_status', connection_id)
+        first_status, first_state = first.result(timeout=3)
+        second_status, second_state = second.result(timeout=3)
+
+    (first_command, first_at), (second_command, second_at) = writes
+    assert (first_command, second_command) == (0x21, 0x26)
+    assert second_at - first_at >= agv.REPLY_TIMEOUT
+    assert first_status == second_status == 200
+    assert first_state['results']['read_speed']['state'] == 'no reply'
+    assert second_state['results']['query_status']['state'] == 'reply: status'
+
+
+def test_urgent_write_can_receive_the_pending_read_reply(session, monkeypatch, agv_clock):
+    reply = b''
+
+    class ReplyOnNextCheck(agv.Simulator):
+        @property
+        def in_waiting(self):
+            nonlocal reply
+            self.buffer += reply
+            reply = b''
+            return super().in_waiting
+
+        def write(self, raw):
+            if agv.parse_frame(raw).command == 0x21:
+                return len(raw)
+            return super().write(raw)
+
+    monkeypatch.setattr(agv, 'Simulator', ReplyOnNextCheck)
+    _, request = session
+    connection_id = open_simulator(request)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        def interleave(seconds):
+            nonlocal reply
+            agv_clock.now += seconds
+            reply = bytes.fromhex('A5 5A 07 21 DC 05 08')
+            status, state = pool.submit(send, request, 'stop', connection_id).result(timeout=1)
+            assert status == 200
+            assert state['results']['read_speed']['state'] == 'reply: 1500 m/h'
+
+        monkeypatch.setattr(agv, 'sleep', interleave)
+        status, state = send(request, 'read_speed', connection_id)
+
+    assert status == 200
+    assert state['results']['read_speed']['state'] == 'reply: 1500 m/h'
+
+
 def test_simulator_reports_motion_speed_target_pause_and_stop(session):
     _, request = session
     connection_id = open_simulator(request)
@@ -149,6 +257,19 @@ def test_unchanged_status_does_not_confirm_repeat_of_completed_command(session, 
     assert send(request, 'query_status')[1]['results']['stop']['state'] == 'not confirmed'
 
 
+def test_command_confirmation_expires_during_silent_read(session, agv_clock):
+    _, request = session
+    connection_id = open_simulator(request)
+    send(request, 'query_status')
+    send(request, 'pause')
+    request(dict(action='silence', silent=True, connection_id=connection_id))
+    agv_clock.now += agv.STALE_AFTER - 1
+
+    status, state = send(request, 'query_status', connection_id)
+    assert status == 200 and state['results']['query_status']['state'] == 'no reply'
+    assert state['results']['pause']['state'] == 'not confirmed'
+
+
 def test_agv_uses_existing_request_authorization(session):
     _, request = session
     assert request(token='wrong')[0] == 403
@@ -174,7 +295,7 @@ def test_captured_replies_confirm_and_only_status_refreshes_the_link(session, mo
     state = send(request, 'query_status', connection_id)[1]
     assert state['status_hex'] == status_reply.hex(' ').upper()
     assert state['status']['reply_prefix'] == '00 FF 04'
-    assert state['results']['query_status']['state'] == 'confirmed by status'
+    assert state['results']['query_status']['state'] == 'reply: status'
 
     clock.now += 4
     state = send(request, 'query_status', connection_id)[1]
@@ -188,16 +309,12 @@ def test_captured_replies_confirm_and_only_status_refreshes_the_link(session, mo
     assert unknown['decode']['description'] == 'unidentified frame 01 (not in the XBOT protocol)'
     assert 'error' not in unknown['decode']
     assert state['status_age_s'] == 2 and not state['stale']
-    assert state['results']['read_speed']['state'] == agv.SENT
-
-    state = send(request, 'query_status', connection_id)[1]
-    assert state['status_age_s'] == 0 and not state['stale']
-    assert state['results']['read_speed']['state'] == 'confirmed by status'
+    assert state['results']['read_speed']['state'] == 'reply: 1500 m/h'
 
     clock.now += agv.STALE_AFTER + .01
     state = send(request, 'read_speed', connection_id)[1]
-    assert state['status_age_s'] == pytest.approx(5.01) and state['stale']
-    assert state['results']['read_speed']['state'] == agv.SENT
+    assert state['status_age_s'] == pytest.approx(7.01) and state['stale']
+    assert state['results']['read_speed']['state'] == 'reply: 1500 m/h'
 
 
 def test_simulator_uses_captured_wire_forms_and_reports_01_periodically(session, monkeypatch):
@@ -255,11 +372,10 @@ def test_echoed_speed_request_is_followed_by_a_real_reply(session, monkeypatch):
     assert echo['decode'] == {'description': 'echo of our transmission'}
     assert reply['hex'] == '00 FF 04 A5 5A 07 21 DC 05 08'
     assert reply['decode']['read_speed_m_h'] == 1500
-    state = send(request, 'query_status', connection_id)[1]
-    assert state['results']['read_speed']['state'] == 'confirmed by status'
+    assert state['results']['read_speed']['state'] == 'reply: 1500 m/h'
 
 
-def test_echo_without_speed_reply_times_out_unconfirmed(session, monkeypatch, agv_clock):
+def test_echo_without_speed_reply_times_out_at_the_reply_deadline(session, monkeypatch, agv_clock):
     class EchoOnlyLink(agv.Simulator):
         def write(self, raw):
             self.buffer += raw
@@ -270,9 +386,10 @@ def test_echo_without_speed_reply_times_out_unconfirmed(session, monkeypatch, ag
     connection_id = open_simulator(request)
     state = send(request, 'read_speed', connection_id)[1]
     assert state['log'][-1]['decode'] == {'description': 'echo of our transmission'}
-    assert state['results']['read_speed']['state'] == agv.SENT
+    assert agv_clock.now == 10.0 + agv.REPLY_TIMEOUT
+    assert state['results']['read_speed']['state'] == 'no reply'
     agv_clock.now = 10.0 + agv.STALE_AFTER
-    assert request()[1]['results']['read_speed']['state'] == 'not confirmed'
+    assert request()[1]['results']['read_speed']['state'] == 'no reply'
 
 
 def test_echoed_status_query_does_not_refresh_status_age(session, monkeypatch, agv_clock):
@@ -295,11 +412,11 @@ def test_echoed_status_query_does_not_refresh_status_age(session, monkeypatch, a
     assert state['log'][-1]['decode'] == {'description': 'echo of our transmission'}
     assert state['status_age_s'] == pytest.approx(agv_clock.now - 10.0)
     assert state['status_hex'] == initial['status_hex']
-    assert state['results']['query_status']['state'] == agv.SENT
+    assert state['results']['query_status']['state'] == 'no reply'
 
 
-@pytest.mark.parametrize('delay', [.60, 1.50])
-def test_prefixless_radio_speed_reply_confirms_with_status(session, monkeypatch, agv_clock, delay):
+@pytest.mark.parametrize('delay', [.58, .60, 1.50])
+def test_prefixless_radio_speed_reply_completes_read_without_status(session, monkeypatch, agv_clock, delay):
     class DelayedLink(agv.Simulator):
         reply_at = None
 
@@ -320,9 +437,10 @@ def test_prefixless_radio_speed_reply_confirms_with_status(session, monkeypatch,
     _, request = session
     connection_id = open_simulator(request)
     state = send(request, 'read_speed', connection_id)[1]
+    assert agv_clock.now == 10.0 + delay
     assert state['log'][-1]['decode'] == {'read_speed_m_h': 1500}
-    state = send(request, 'query_status', connection_id)[1]
-    assert state['results']['read_speed']['state'] == 'confirmed by status'
+    assert state['results']['read_speed']['state'] == 'reply: 1500 m/h'
+    assert state['status'] is None
 
 
 def test_query_waits_for_reply_or_full_timeout_before_next_request(session, monkeypatch, agv_clock):
@@ -338,9 +456,9 @@ def test_query_waits_for_reply_or_full_timeout_before_next_request(session, monk
     connection_id = open_simulator(request)
     state = send(request, 'query_status', connection_id)[1]
     assert agv_clock.now == 10.60
-    assert state['results']['query_status']['state'] == 'confirmed by status'
+    assert state['results']['query_status']['state'] == 'reply: status'
 
     request(dict(action='silence', silent=True, connection_id=connection_id))
     state = send(request, 'query_status', connection_id)[1]
     assert agv_clock.now == 12.10
-    assert state['results']['query_status']['state'] == agv.SENT
+    assert state['results']['query_status']['state'] == 'no reply'
