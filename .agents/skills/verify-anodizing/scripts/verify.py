@@ -180,13 +180,24 @@ def agv(_, token, __):
     require(connected['connected'] and connected['settings']['mode'] == 'simulator'
             and not connected['armed'], 'Expected an unarmed simulator connection.')
     queried = action('query', action='send', command='query_status')
-    require(queried['status']['length'] == 31 and not queried['stale'], 'Expected a fresh 31-byte status.')
+    status = queried['status']
+    require(not queried['stale'] and status['length'] == 29 and status['reply_prefix'] == '00 FF 04'
+            and queried['status_hex'].startswith('00 FF 04 A5 5A 1D 25 '),
+            'Expected a fresh 29-byte AGV600 reply with radio prefix 00 FF 04.')
+    require(status['obstacle_input'] == 0xCC and not {'attachment_active', 'roller_speed'} & status.keys(),
+            'Expected the captured obstacle input and absent attachment fields.')
+    speed = action('read-speed', action='send', command='read_speed')
+    require(any(event['hex'] == '00 FF 04 A5 5A 07 21 DC 05 08'
+                and event['decode'].get('read_speed_m_h') == 1500 for event in speed['log']),
+            'Expected the short 1500 m/h speed reply.')
     stopped = action('stop', action='send', command='stop')
     require(stopped['log'][-1]['hex'] == '00 01 04 A5 5A 08 23 87 04 00 B5',
             'Stop did not send the expected vendor frame.')
     checked = action('check-stop', action='send', command='query_status')
     require(checked['status']['stopped'] and checked['results']['stop']['state'] == 'confirmed by status',
             'The next simulator report did not corroborate the Stop.')
+    require(checked['results']['read_speed']['state'] == 'confirmed by status',
+            'The next simulator report did not corroborate the read speed.')
     disconnected = action('disconnect', action='disconnect', connection_id=connected['connection_id'])
     require(not disconnected['connected'], 'Simulator did not disconnect.')
 
