@@ -1,7 +1,7 @@
 """XBOT AGV600 frames, simulator and a serialized, operator-owned test link."""
 
 from collections import deque
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -22,6 +22,8 @@ DEFAULT_PREFIX = b'\x00\x01\x04'
 REPLY_TIMEOUT = 1.5
 WRITE_TIMEOUT = .5
 STALE_AFTER = 5
+RECIPE_STALE_S = 3
+RECIPE_POLL_S = .5
 UNIDENTIFIED_INTERVAL = 11.22
 SENT = 'sent'
 LINK_LOST = 'Link lost. The AGV may still be moving. Use its e-stop if needed.'
@@ -373,6 +375,10 @@ class Connection:
 
     def __init__(self, owner):
         self.owner = owner
+        self.recipe_active = False
+        self.recipe_statuses = deque(maxlen=64)
+        self.recipe_urgent = False
+        self.urgent_generation = 0
         self.lock = Lock()
         self.send_lock = Lock()
         self.transport = None
@@ -447,6 +453,8 @@ class Connection:
             if field in decoded and before is not None and decoded[field] != before:
                 self._event(field, before, decoded[field])
         self.status, self.status_hex, self.status_at = decoded, hex_bytes(raw), monotonic()
+        if self.recipe_active:
+            self.recipe_statuses.append((decoded, self.status_at))
         self._check_stale(self.status_at)
         for name, pending in list(self.pending.items()):
             pending.status_seen = True
@@ -515,7 +523,8 @@ class Connection:
         age = None if self.status_at is None else now - self.status_at
         if self.reading is not None:
             self.results[self.reading]['remaining_s'] = max(0, REPLY_TIMEOUT - (now - self.read_sent_at))
-        return dict(connected=self.transport is not None, connection_id=self.id, sequence=self.sequence, settings=self.settings,
+        robot_configured = getattr(self.owner, 'robot_configured', False)
+        return dict(robot_interlock=robot_configured, recipe_active=self.recipe_active, connected=self.transport is not None, connection_id=self.id, sequence=self.sequence, settings=self.settings,
                     connection_started_at=self.connected_iso,
                     armed=self.armed, motion_block=motion_block(self.owner), status=self.status,
                     status_hex=self.status_hex, status_age_s=age,
@@ -524,6 +533,17 @@ class Connection:
                     log=list(self.log), error=self.error,
                     log_truncated=self.log_id > self.log.maxlen,
                     silent=isinstance(self.transport, Simulator) and self.transport.silent)
+
+    def link_state(self):
+        with self.lock:
+            now = monotonic()
+            last = self.status_at if self.status_at is not None else self.connected_at
+            return {'connected': self.transport is not None,
+                    'mode': self.settings['mode'] if self.transport is not None else None,
+                    'stale': last is not None and now-last >= RECIPE_STALE_S,
+                    'status_age_s': None if self.status_at is None else now-self.status_at,
+                    'status': self.status, 'results': {name: dict(self.results[name])
+                                                       for name in URGENT if name in self.results}}
 
     def capability(self):
         try:
@@ -625,7 +645,7 @@ class Connection:
         except OSError as close_error:
             self._record('Link', b'', {'error': str(close_error)})
 
-    def _send(self, name, value, *, background=False):
+    def _send(self, name, value, *, background=False, prewrite=None):
         frame = command_frame(name, value, self.splitter.prefix)
         try:
             self._receive()
@@ -635,6 +655,8 @@ class Connection:
             self._record('RX', b'', {'error': str(exc)})
         before = self.status or {}
         maximum = before.get('max_stations')
+        if prewrite:
+            prewrite()
         if name == 'call_station' and maximum and value > maximum:
             raise ValueError(f'Choose a learned station from 1 to {maximum}.')
         raw = frame.encode()
@@ -669,6 +691,7 @@ class Connection:
         self.results[name] = result
         self.awaiting_ack[entry['id']] = (name, sent_at, result)
         self.pending[name] = Confirmation(expected_status(name, value), before, sent_at)
+        return sent_at
 
     def _wait_for_reply(self, transport, deadline):
         while True:
@@ -698,7 +721,31 @@ class Connection:
 
     def _submit(self, body, action, name):
         motion = action == 'send' and name not in URGENT and name not in READS
-        with self.owner.lock if motion else nullcontext(), self.lock:
+        with self.owner.lock if motion else nullcontext():
+            if motion and getattr(self.owner, 'robot_configured', False):
+                from . import travel_pose
+                with self.lock:
+                    urgent_generation = self.urgent_generation
+                    self._check_manual_motion(body)
+                reason = travel_pose.motion_block(self.owner)
+                if reason:
+                    raise ValueError(reason)
+            else:
+                urgent_generation = None
+            return self._submit_locked(body, action, name, motion, urgent_generation)
+
+    def _check_manual_motion(self, body):
+        if self.transport is None:
+            raise ValueError('Connect an AGV transport first.')
+        self._check_connection(body.get('connection_id'))
+        reason = motion_block(self.owner)
+        if reason:
+            raise ValueError(reason)
+        if not self.armed:
+            raise ValueError('Tick Armed first.')
+
+    def _submit_locked(self, body, action, name, motion, urgent_generation):
+        with self.lock:
             if action == 'connect':
                 self._connect(body)
             elif self.transport is None:
@@ -707,19 +754,24 @@ class Connection:
                 try:
                     if action == 'send':
                         if motion:
-                            self._check_connection(body.get('connection_id'))
-                            reason = motion_block(self.owner)
-                            if reason:
-                                raise ValueError(reason)
-                            if not self.armed:
-                                raise ValueError('Tick Armed first.')
-                        elif name in READS and body.get('connection_id') is not None:
-                            self._check_connection(body['connection_id'])
+                            self._check_manual_motion(body)
+                            if urgent_generation is not None and self.urgent_generation != urgent_generation:
+                                raise ValueError('Stop or Pause cancelled this movement. Check the AGV before trying again.')
+                        elif name in READS:
+                            if self.recipe_active:
+                                raise ValueError('The recipe is checking AGV status. Follow Current operation.')
+                            if body.get('connection_id') is not None:
+                                self._check_connection(body['connection_id'])
+                        else:
+                            self.urgent_generation += 1
+                            self.recipe_urgent = name if self.recipe_active else False
                         sent_at = self._send(name, body.get('value') if name not in URGENT else None,
-                                                 background=name == 'query_status' and body.get('background') is True)
+                                             background=name == 'query_status' and body.get('background') is True)
                     else:
                         self._check_connection(body.get('connection_id'))
                         if action == 'disconnect':
+                            if self.recipe_active:
+                                raise ValueError('Stop the active recipe before disconnecting the AGV.')
                             self._close()
                         elif action == 'arm' and type(body.get('armed')) is bool:
                             self.armed = body['armed']
@@ -734,3 +786,71 @@ class Connection:
                 return self._snapshot()
             transport = self.transport
         return self._wait_for_reply(transport, sent_at + REPLY_TIMEOUT)
+
+    @contextmanager
+    def recipe_link(self):
+        # Finish an earlier ordinary read before claiming the link. Urgent writes
+        # continue to use only the short transport lock.
+        with self.send_lock, self.lock:
+            if self.transport is None or self.recipe_active:
+                raise ValueError('Connect the AGV on the AGV page before starting the recipe.')
+            self.recipe_active = True
+            self.armed = False
+            self.recipe_urgent = False
+            self.recipe_transport = self.transport
+            self.recipe_statuses.clear()
+            self.recipe_next_poll = 0
+        try:
+            yield self.settings['mode']
+        finally:
+            with self.lock:
+                self.recipe_active = False
+                self.recipe_statuses.clear()
+
+    def _recipe_check_link(self):
+        if self.recipe_urgent:
+            raise ValueError('AGV Stop or Pause cancelled the recipe. Check the line and start a new reviewed run.')
+        if self.transport is not self.recipe_transport:
+            raise ValueError('AGV link lost. Check the radio and reconnect on the AGV page.')
+
+    def recipe_feedback(self):
+        with self.lock:
+            self._recipe_check_link()
+            try:
+                self._receive()
+                if monotonic() >= self.recipe_next_poll:
+                    sent = self._send('query_status', None, background=True)
+                    self.recipe_next_poll = sent + RECIPE_POLL_S
+                    self._receive()
+            except OSError as exc:
+                self._transport_error(exc)
+                raise ValueError(self.error) from exc
+            updates = tuple(self.recipe_statuses)
+            self.recipe_statuses.clear()
+            return (self.status, self.status_at, updates,
+                    self.results.get('call_station', {}).get('ack_elapsed_s'))
+
+    def recipe_call(self, station, validate):
+        with self.lock:
+            self._recipe_check_link()
+
+            def prewrite():
+                validate(self.status, self.status_at, self.recipe_statuses)
+                if self.awaiting_ack:
+                    raise ValueError('An earlier AGV command is awaiting acknowledgement. Check the AGV and try again.')
+            # Leave the transport open on a failed write so the urgent abort can
+            # attempt Stop even if some or all of the call reached the AGV.
+            return self._send('call_station', station, prewrite=prewrite)
+
+    def recipe_stop(self):
+        with self.lock:
+            if self.transport is not self.recipe_transport:
+                return False
+            if self.recipe_urgent == 'stop':
+                return True
+            try:
+                self._send('stop', None)
+                return True
+            except OSError as exc:
+                self._transport_error(exc)
+                return False

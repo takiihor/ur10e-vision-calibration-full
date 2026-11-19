@@ -194,6 +194,9 @@ class ManualExecution(TeacherJointMotion):
             self._poll()
             time.sleep(.02)
 
+    def _interruption_details(self):
+        return {}
+
     def _execute(self, command, payload, generation):
         if command != 'move_tcp':
             return super()._execute(command,payload,generation)
@@ -208,7 +211,8 @@ class ManualExecution(TeacherJointMotion):
                 exc = RuntimeError(f'{exc}; stop failed: {stop_error}')
             if self.phases:
                 self.phases.interrupt(exc)
-            self._publish(stage='interrupted', item_state='unknown', prompt=None, error=str(exc))
+            self._publish(stage='interrupted', item_state='unknown', prompt=None, error=str(exc),
+                          **self._interruption_details())
             raise exc
 
     def _dispatch_validation(self, target, after, generation):
@@ -647,11 +651,19 @@ def run(owner, root, body, job_id):
             emit(worker.state()['manual'])
         def wait():
             while True:
-                guard()
+                try:
+                    guard()
+                except ValueError:
+                    if not (repeat and worker.cancelled.is_set()):
+                        raise
+                    # The repeat worker owns native and AGV Stop and writes the
+                    # specific interruption before it clears the active command.
                 state = worker.state()
                 if state['error']:
                     raise ValueError(state['error'])
                 if not state['pending'] and not state['moving']:
+                    if worker.cancelled.is_set():
+                        raise ValueError('Manual operation stopped; no resume.')
                     return state
                 time.sleep(.02)
         worker.submit('connect'); wait(); guard()

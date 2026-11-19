@@ -13,7 +13,7 @@ from importlib.resources import files
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import calibration, teaching, pick_place, manual_pick_place, tool_power, mcu, robot_control, agv
+from . import calibration, teaching, pick_place, manual_pick_place, tool_power, mcu, robot_control, agv, travel_pose
 from .jobs import JobOwner
 from .paths import check_tree, inside
 
@@ -25,7 +25,7 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, port, root, *, allow_camera=False, allow_teaching=False, allow_manual=False, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False):
+    def __init__(self, port, root, *, allow_camera=False, allow_teaching=False, allow_manual=False, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False, allow_agv_in_recipe=False):
         lock_path = Path(tempfile.gettempdir()) / f'anodizing-modules-{os.getuid()}.lock'
         self.lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         self.data_lock_fd = None
@@ -81,8 +81,9 @@ class Server(ThreadingHTTPServer):
                 Scene(self.preview_scene, model_path=self.model_source)
                 self.model_spec = {'source': str(self.model_source), 'sha256': self.model_hash}
                 self.check_model()
-            self.owner = JobOwner(self.root, allow_auto_calibration=allow_auto_calibration, robot_model=self.model_spec, allow_teacher_motion=allow_teacher_motion, allow_manual_pick_place=allow_manual_pick_place)
-            self.agv = agv.Connection(self.owner)
+            self.owner = JobOwner(self.root, allow_auto_calibration=allow_auto_calibration, robot_model=self.model_spec, allow_teacher_motion=allow_teacher_motion, allow_manual_pick_place=allow_manual_pick_place,
+                                  allow_agv_in_recipe=allow_agv_in_recipe, robot_read_access=allow_manual or allow_teaching)
+            self.agv = self.owner.agv = agv.Connection(self.owner)
             self.token = secrets.token_urlsafe(32)
             self.allow_camera, self.allow_teaching, self.allow_manual = allow_camera, allow_teaching, allow_manual
             super().__init__(('127.0.0.1', port), Handler)
@@ -198,6 +199,8 @@ class Handler(BaseHTTPRequestHandler):
                                     'allow_auto_calibration': self.server.owner.allow_auto_calibration, 'allow_teacher_motion': self.server.owner.allow_teacher_motion, 'robot_model': model})
         if path == '/api/tool-power':
             return self.reply(200, tool_power.capability(self.server.owner))
+        if path == '/api/agv-travel-pose':
+            return self.reply(200, travel_pose.state(self.server.owner))
         if path == '/api/agv':
             return self.reply(200, self.server.agv.capability())
         if path == '/api/mcu':
@@ -424,6 +427,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, owner.answer(body.get('job_id'), body.get('request_id'), body.get('value')))
             if path == '/api/tool-power':
                 return self.reply(202, tool_power.submit(owner, body))
+            if path == '/api/agv-travel-pose':
+                return self.reply(200, travel_pose.save(owner, body))
             if path == '/api/agv':
                 return self.reply(200, self.server.agv.submit(body))
             if path == '/api/mcu':
@@ -459,12 +464,13 @@ def main():
     parser.add_argument('--allow-manual', action='store_true', help='Allow pendant-positioned read-only calibration collection')
     parser.add_argument('--allow-auto-calibration', action='store_true', help='Allow scene-gated automatic calibration control')
     parser.add_argument('--allow-manual-pick-place', action='store_true', help='Allow reviewed manual Pick/Place, Teacher descent and finite robot-card joint steps')
+    parser.add_argument('--allow-agv-in-recipe', action='store_true', help='Allow approved AGV station calls in Pick/place repeat recipes')
     parser.add_argument('--allow-teacher-motion', action='store_true', help='Allow reviewed planar-endpoint checked joint tests')
     parser.add_argument('--robot-model', help='Robot model JSON inside the data directory')
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error('Port must be 1 to 65535.')
-    server = Server(args.port, args.data_dir, allow_camera=args.allow_camera, allow_teaching=args.allow_teaching, allow_manual=args.allow_manual, allow_auto_calibration=args.allow_auto_calibration, robot_model=args.robot_model, allow_teacher_motion=args.allow_teacher_motion, allow_manual_pick_place=args.allow_manual_pick_place)
+    server = Server(args.port, args.data_dir, allow_camera=args.allow_camera, allow_teaching=args.allow_teaching, allow_manual=args.allow_manual, allow_auto_calibration=args.allow_auto_calibration, robot_model=args.robot_model, allow_teacher_motion=args.allow_teacher_motion, allow_manual_pick_place=args.allow_manual_pick_place, allow_agv_in_recipe=args.allow_agv_in_recipe)
     print(f'Anodizing modules: http://127.0.0.1:{args.port}/  data: {server.root}', flush=True)
     try:
         server.serve_forever(poll_interval=.2)

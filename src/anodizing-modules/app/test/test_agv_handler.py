@@ -636,3 +636,58 @@ def test_repeating_a_press_marks_the_previous_unchecked_press(session):
     assert name == 'pause' and replaced['state'] == 'not checked'
     assert replaced['tx_id'] == first['results']['pause']['tx_id']
     assert second['results']['pause']['tx_id'] != replaced['tx_id']
+
+
+@pytest.mark.parametrize('command', ['stop', 'pause'])
+def test_robot_interlock_refuses_motion_and_urgent_commands_bypass_it(session, monkeypatch, command):
+    from anodizing_web import travel_pose
+    owner, request = session
+    owner.robot_configured = True
+    connection_id = open_simulator(request)
+    request(dict(action='arm', armed=True, connection_id=connection_id))
+    entered, release = Event(), Event()
+
+    def refuse(owner):
+        entered.set()
+        assert release.wait(2)
+        return 'Robot is outside the saved AGV travel pose. Fold the arm before movement.'
+
+    monkeypatch.setattr(travel_pose,'motion_block',refuse)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        motion=pool.submit(send,request,'forward',connection_id)
+        try:
+            assert entered.wait(1)
+            start=monotonic()
+            status,state=send(request,command)
+            assert status==200 and state['results'][command]['state']==agv.SENT
+            assert monotonic()-start < .050
+        finally:
+            release.set()
+        status,state=motion.result(timeout=1)
+    assert status==400 and 'travel pose' in state['error']
+
+
+def test_stop_cancels_manual_motion_awaiting_travel_pose_check(session, monkeypatch):
+    from anodizing_web import travel_pose
+    owner, request = session
+    owner.robot_configured = True
+    connection_id = open_simulator(request)
+    request(dict(action='arm', armed=True, connection_id=connection_id))
+    entered, release = Event(), Event()
+
+    def at_travel_pose(owner):
+        entered.set()
+        assert release.wait(2)
+        return ''
+
+    monkeypatch.setattr(travel_pose,'motion_block',at_travel_pose)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        motion = pool.submit(send,request,'forward',connection_id)
+        try:
+            assert entered.wait(1)
+            assert send(request,'stop')[0] == 200
+        finally:
+            release.set()
+        status,state = motion.result(timeout=1)
+    assert status == 400 and 'cancelled' in state['error']
+    assert 'forward' not in request()[1]['results']

@@ -8,6 +8,7 @@ import unittest
 from types import SimpleNamespace
 
 import test_manual_execution as manual_tests
+from anodizing_web import agv
 
 
 class RepeatTests(unittest.TestCase):
@@ -37,7 +38,15 @@ class RepeatTests(unittest.TestCase):
                 ctx.provenance['project'] = str(self.root/name)
                 ctx.settings['calibration'] = 'fixture-calibration'
                 self.contexts[name,operation] = ctx
+        mock.patch('anodizing_web.recipe_agv.require_serial').start()
+        self.link = self.server.agv
+        self.link.submit({'action':'connect'})
+        self.vehicle = self.link.transport
+        self.vehicle.station = self.vehicle.target = 2
+        self.vehicle.speed = 500
         self.recipe = SimpleNamespace(contexts=self.contexts, transfers=transfers, settle_s=0,
+            stations={'A':2,'B':2}, agv_timeout_s=120, agv_speed_cap_m_h=1000,
+            agv_approved=False, travel_pose=None,
             summary={'transfers':transfers,'A':'A','B':'B','end':'A' if transfers%2==0 else 'B',
                 'approach_mm':{'A':40,'B':40},'settle_s':0,'recipe_sha256':'fixture-reviewed-recipe'}, check_inputs=lambda:None)
         mock.patch.object(repeat_pick_place,'load_recipe',return_value=self.recipe).start()
@@ -80,6 +89,168 @@ class RepeatTests(unittest.TestCase):
         self.assertIsNone(owner.active)
         self.assertEqual([m[0] for m in self.robot.moves],['moveJ','moveJ','moveL','moveL']*4)
         self.assertEqual(len(list(owner.directory.glob('*.withdrawal.manual-path.json'))),4)
+
+    def configure_travel(self, *, drive=True):
+        owner=self.setup_repeat()
+        owner.allow_agv_in_recipe=drive
+        self.recipe.stations={'A':2,'B':3}
+        self.recipe.agv_approved=True
+        self.recipe.travel_pose={'robot_ip':self.context.settings['robot_ip'],
+            'joints_rad':[.32,.1,.45,0,0,0]}
+        self.public_body['agv_manual_confirmed']=True
+        self.calls=[]
+        self.agv_stops=[]
+        self.on_call=lambda:None
+        write=self.vehicle.write
+        def send(raw):
+            frame=agv.parse_frame(raw)
+            result=write(raw)
+            if frame.command==0x23 and frame.data[0]==0x9D:
+                self.calls.append(frame.data[1])
+                self.vehicle.acknowledgements[-1]=time.monotonic()+.10
+                self.vehicle.arrives_at=time.monotonic()+.35
+                self.on_call()
+            if frame.command==0x23 and frame.data[0]==0x87 and frame.data[1]==4:
+                self.agv_stops.append(time.monotonic())
+            return result
+        self.vehicle.write=send
+        return owner
+
+    def run_repeat(self):
+        status,raw=self.request('POST','/api/manual-pick-place',self.public_body)
+        self.assertEqual(status,202,raw)
+        return self.wait_public(lambda j:j['state'] not in ('running','waiting'),timeout=9)
+
+    def test_two_transfers_move_agv_out_and_back(self):
+        self.configure_travel()
+        job=self.run_repeat()
+        self.assertEqual(job['state'],'done',job['error'])
+        self.assertEqual(self.calls,[3,2])
+        self.assertEqual(self.vehicle.station,2)
+        repeat=job['manual']['repeat']
+        self.assertEqual([(t['source_station'],t['destination_station']) for t in repeat['records']],[(2,3),(3,2)])
+        legs=[leg for transfer in repeat['records'] for leg in transfer['agv_legs']]
+        self.assertEqual([leg['to_station'] for leg in legs],[3,2])
+        for leg in legs:
+            self.assertLess(0,leg['ack_s'])
+            self.assertLess(leg['ack_s'],leg['arrival_s'])
+        self.assertEqual(self.agv_stops,[])
+
+    def assert_agv_abort(self, text, *, stop=True, robot_stop=False, alarm=True):
+        job=self.run_repeat()
+        self.assertEqual(job['state'],'failed',job)
+        self.assertIn(text,job['error'])
+        self.assertEqual(job['manual']['item_state'],'unknown')
+        self.assertIn(text,job['manual']['repeat']['abort_reason'])
+        self.assertEqual(bool(self.agv_stops),stop)
+        self.assertEqual(bool(self.robot.stops),robot_stop)
+        self.assertEqual(bool(job['manual'].get('agv_alarm')),alarm)
+
+    def test_no_ack_stops_agv_even_if_it_arrives(self):
+        self.configure_travel()
+        self.on_call=self.vehicle.acknowledgements.clear
+        self.assert_agv_abort('acknowledgement')
+
+    def test_stale_status_during_travel(self):
+        self.configure_travel()
+        # Leave the response to the station command enabled, but lose status replies.
+        originally=self.vehicle.write
+        def send(raw):
+            if self.calls and not self.agv_stops and agv.parse_frame(raw).command==0x26:
+                return len(raw)
+            return originally(raw)
+        self.vehicle.write=send
+        self.assert_agv_abort('status is stale')
+
+    def test_stale_status_during_robot_motion(self):
+        self.configure_travel()
+        def begin(*args):
+            if not self.robot.moves:
+                self.vehicle.silent=True
+                self.robot.duration=4.5
+        self.robot.dispatch_hook=begin
+        self.assert_agv_abort('status is stale',robot_stop=True)
+
+    def test_agv_auto_restart_stops_robot(self):
+        self.configure_travel()
+        def begin(*args):
+            if not self.robot.moves:
+                self.vehicle.stopped=False
+                self.robot.duration=1.5
+        self.robot.dispatch_hook=begin
+        self.assert_agv_abort('moved during robot work',robot_stop=True)
+
+    def test_robot_leaves_travel_pose(self):
+        self.configure_travel()
+        self.on_call=lambda:self.robot.q.__setitem__(0,self.robot.q[0]+.1)
+        self.assert_agv_abort('left the travel pose')
+
+    def test_fault_during_travel(self):
+        self.configure_travel()
+        write=self.vehicle.write
+        def report_fault(raw):
+            result=write(raw)
+            if self.calls and agv.parse_frame(raw).command==0x26:
+                reply=agv.parse_frame(self.vehicle.buffer,offset=3)
+                data=bytearray(reply.data)
+                data[12]=17
+                self.vehicle.buffer=agv.Frame(0x25,bytes(data),reply.prefix).encode()
+            return result
+        self.vehicle.write=report_fault
+        self.assert_agv_abort('fault 17')
+
+    def test_persistent_obstacle_stops_agv(self):
+        self.configure_travel()
+        self.on_call=lambda:setattr(self.vehicle,'arrives_at',None)
+        write=self.vehicle.write
+        def report_obstacle(raw):
+            result=write(raw)
+            if self.calls and agv.parse_frame(raw).command==0x26:
+                reply=agv.parse_frame(self.vehicle.buffer,offset=3)
+                data=bytearray(reply.data)
+                data[5]=1
+                self.vehicle.buffer=agv.Frame(0x25,bytes(data),reply.prefix).encode()
+            return result
+        self.vehicle.write=report_obstacle
+        with mock.patch('anodizing_web.recipe_agv.OBSTACLE_S', .25):
+            self.assert_agv_abort('obstacle stop exceeded')
+
+    def test_travel_times_out(self):
+        self.configure_travel()
+        self.recipe.agv_timeout_s=1
+        self.on_call=lambda:setattr(self.vehicle,'arrives_at',None)
+        self.assert_agv_abort('travel timed out')
+
+    def test_speed_over_cap_refuses_call(self):
+        self.configure_travel()
+        self.vehicle.speed=1200
+        self.assert_agv_abort('above the recipe cap',stop=False,alarm=False)
+        self.assertEqual(self.calls,[])
+
+    def test_flag_off_checks_only_and_refuses_cross_station_run(self):
+        self.configure_travel(drive=False)
+        self.assert_agv_abort('check-only',stop=False,alarm=False)
+        self.assertEqual(self.calls,[])
+        self.assertEqual(self.robot.moves,[])
+
+    def test_confirmation_is_required_even_with_startup_flag(self):
+        self.configure_travel()
+        self.recipe.agv_approved=False
+        self.assert_agv_abort('Confirm the Manual mode',stop=False,alarm=False)
+        self.assertEqual(self.calls,[])
+        self.assertEqual(self.robot.moves,[])
+
+    def test_flag_off_refuses_wrong_initial_station_even_for_one_station(self):
+        self.configure_travel(drive=False)
+        self.recipe.stations={'A':3,'B':3}
+        self.assert_agv_abort('check-only',stop=False,alarm=False)
+        self.assertEqual(self.calls,[])
+        self.assertEqual(self.robot.moves,[])
+
+    def test_recipe_refuses_simulator_at_real_execution_boundary(self):
+        from anodizing_web.recipe_agv import require_serial
+        with self.assertRaisesRegex(ValueError,'serial AGV'):
+            require_serial('simulator')
 
     def test_mcu_failure_ends_entire_run_before_next_motion(self):
         self.setup_repeat()
@@ -236,7 +407,7 @@ class RecipeTests(unittest.TestCase):
         mock.patch.object(manual_execution,'prepare',side_effect=fixture_prepare).start()
         mock.patch.object(HandEyeCalibration,'require_hardware').start()
         self.body.update(place_project='B',action='REPEAT',transfers=2,settle_s=1,
-            collision_scene='scene.json',initial_item_state='operator_confirmed_released')
+            collision_scene='scene.json',station_a=2,initial_item_state='operator_confirmed_released')
 
     def load(self,body=None,approved=False):
         from anodizing_web.repeat_pick_place import load_recipe
@@ -265,6 +436,16 @@ class RecipeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'changed'):self.load(body,approved=True)
         path=self.root/'B/grasp_pick.json';path.write_bytes(path.read_bytes()+b' ')
         with self.assertRaisesRegex(ValueError,'changed'):recipe.check_inputs()
+
+    def test_stations_are_reviewed_and_change_the_hash(self):
+        same=self.load()
+        other=self.load(dict(self.body,station_b=3))
+        self.assertEqual(same.summary['stations'],{'A':2,'B':2})
+        self.assertEqual(other.summary['stations'],{'A':2,'B':3})
+        self.assertNotEqual(same.summary['recipe_sha256'],other.summary['recipe_sha256'])
+        for invalid in (0,256,True,'3'):
+            with self.subTest(invalid=invalid),self.assertRaisesRegex(ValueError,'station'):
+                self.load(dict(self.body,station_b=invalid))
 
     def test_counts_are_bounded_integers_and_incompatible_projects_refuse(self):
         for count in (0,101,True,1.5,'2',None):

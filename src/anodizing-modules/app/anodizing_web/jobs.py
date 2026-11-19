@@ -26,7 +26,8 @@ def atomic_json(path, value):
 
 
 class JobOwner:
-    def __init__(self, root, *, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False):
+    def __init__(self, root, *, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False,
+                 allow_agv_in_recipe=False, robot_read_access=False):
         self.directory = Path(root) / '.jobs'
         if self.directory.is_symlink():
             raise ValueError('Job directory must not be a symbolic link.')
@@ -35,6 +36,10 @@ class JobOwner:
         self.allow_auto_calibration = allow_auto_calibration
         self.allow_teacher_motion = allow_teacher_motion
         self.allow_manual_pick_place = allow_manual_pick_place
+        self.allow_agv_in_recipe = allow_agv_in_recipe
+        self.robot_configured = (robot_read_access or allow_auto_calibration
+                                 or allow_teacher_motion or allow_manual_pick_place)
+        self.agv = None
         self.execution_uncertain = False
         self.robot_model = robot_model
         self.current_alignment = None  # Runtime-only; restart never restores permission to descend.
@@ -58,7 +63,13 @@ class JobOwner:
                 if job['state'] in ('running', 'waiting'):
                     job.update(state='interrupted', pending=None, error='Service restarted. Review the saved artifacts.')
                     if job.get('manual'):
-                        job['manual'].update(stage='interrupted',prompt=None,item_state='unknown')
+                        manual = job['manual']
+                        manual.update(stage='interrupted',prompt=None,item_state='unknown')
+                        if manual.get('agv_transport'):
+                            from .recipe_agv import ALARM
+                            manual.update(agv_alarm=ALARM, agv_stop_sent=False)
+                            manual['repeat']['abort_reason'] = job['error']
+                            job['error'] += ' ' + ALARM
                     atomic_json(path, job)
                 self.jobs[job['id']] = job
                 self.execution_uncertain |= bool(job.get('execution_uncertain'))
