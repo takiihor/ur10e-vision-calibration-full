@@ -194,6 +194,26 @@ def agv(_, token, __):
             'Expected the short 1500 m/h speed reply.')
     require(speed['results']['read_speed']['state'] == 'reply: 1500 m/h',
             'The valid speed reply did not complete the read.')
+    connection_id = connected['connection_id']
+    require(status['max_stations'] == 3 and status['current_station'] == 1, 'Expected three learned stations.')
+    action('arm', action='arm', connection_id=connection_id, armed=True)
+    action('reverse', action='send', command='reverse', connection_id=connection_id)
+    reversed_state = action('check-reverse', action='send', command='query_status')
+    require(reversed_state['status']['actual_speed_m_h'] == -1500, 'Reverse speed must be signed.')
+    time.sleep(1.1)
+    acknowledged = action('check-acknowledged', action='send', command='query_status')
+    require(acknowledged['results']['reverse']['ack_elapsed_s'] >= 1 and any(
+        entry['decode'].get('acknowledged_command') == 'reverse' for entry in acknowledged['log']),
+        'Expected an acknowledged reverse command.')
+    action('station-call', action='send', command='call_station', value=2, connection_id=connection_id)
+    moving = action('check-station-target', action='send', command='query_status')
+    require(moving['status']['target_station'] == 2 and not moving['status']['stopped'],
+            'Expected travel toward station 2.')
+    time.sleep(3.1)
+    arrived = action('check-station-arrival', action='send', command='query_status')
+    require(arrived['status']['current_station'] == 2 and arrived['status']['stopped']
+            and arrived['results']['call_station']['state'] == 'arrived', 'Expected stopped arrival at station 2.')
+    action('disarm', action='arm', connection_id=connection_id, armed=False)
     stopped = action('stop', action='send', command='stop')
     require(stopped['log'][-1]['hex'] == '00 01 04 A5 5A 08 23 87 04 00 B5',
             'Stop did not send the expected vendor frame.')
