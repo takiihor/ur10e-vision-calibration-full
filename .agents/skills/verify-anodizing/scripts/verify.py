@@ -25,6 +25,7 @@ PAGES = {
     '/calibration': ('Calibration', 'calibration.html'),
     '/teaching': ('Marker Pick Teacher', 'teaching.html'),
     '/pick-place': ('Pick/place test', 'pick-place.html'),
+    '/agv': ('AGV test', 'agv.html'),
 }
 
 
@@ -37,17 +38,22 @@ def save_json(name, data):
     (EVIDENCE / name).write_text(json.dumps(data, indent=2) + '\n')
 
 
-def request(path, token=None):
+def request(path, token=None, *, payload=None):
+    method = 'GET' if payload is None else 'POST'
+    headers = {'X-Module-Token': token} if token else {}
+    if payload is not None:
+        headers['Content-Type'] = 'application/json'
     connection = http.client.HTTPConnection(HOST, PORT, timeout=3)
     try:
-        connection.request('GET', path, headers={'X-Module-Token': token} if token else {})
+        connection.request(method, path, body=None if payload is None else json.dumps(payload), headers=headers)
         response = connection.getresponse()
         body = response.read()
     finally:
         connection.close()
     with (EVIDENCE / 'requests.jsonl').open('a') as log:
-        log.write(json.dumps({'method': 'GET', 'path': path, 'status': response.status}) + '\n')
-    require(response.status == 200, f'GET {path} returned {response.status}')
+        log.write(json.dumps({'method': method, 'path': path, 'status': response.status,
+                              **({'payload': payload} if payload is not None else {})}) + '\n')
+    require(response.status == 200, f'{method} {path} returned {response.status}')
     return body
 
 
@@ -160,6 +166,31 @@ def tool_preview(_, token, status):
             'Example preview unexpectedly claims confirmation or cell coverage.')
 
 
+def agv(_, token, __):
+    page('/agv', *PAGES['/agv'], token)
+    initial = api('/api/agv', token)
+    require(initial['connected'] is False and initial['armed'] is False, 'AGV link must start disconnected.')
+
+    def action(step, **payload):
+        state = json.loads(request('/api/agv', token, payload=payload))
+        save_json('agv-' + step + '.json', state)
+        return state
+
+    connected = action('connect', action='connect', mode='simulator')
+    require(connected['connected'] and connected['settings']['mode'] == 'simulator'
+            and not connected['armed'], 'Expected an unarmed simulator connection.')
+    queried = action('query', action='send', command='query_status')
+    require(queried['status']['length'] == 31 and not queried['stale'], 'Expected a fresh 31-byte status.')
+    stopped = action('stop', action='send', command='stop')
+    require(stopped['log'][-1]['hex'] == '00 01 04 A5 5A 08 23 87 04 00 B5',
+            'Stop did not send the expected vendor frame.')
+    checked = action('check-stop', action='send', command='query_status')
+    require(checked['status']['stopped'] and checked['results']['stop']['state'] == 'confirmed by status',
+            'The next simulator report did not corroborate the Stop.')
+    disconnected = action('disconnect', action='disconnect', connection_id=connected['connection_id'])
+    require(not disconnected['connected'], 'Simulator did not disconnect.')
+
+
 def check_trace(trace):
     bound = False
     accepted = 0
@@ -180,7 +211,7 @@ def check_trace(trace):
 
 FEATURES = {'doctor': None, 'navigation': navigation, 'calibration-setup': calibration_setup,
             'teaching-setup': teaching_setup, 'pick-place-availability': pick_place_availability,
-            'tool-preview': tool_preview}
+            'tool-preview': tool_preview, 'agv': agv}
 
 
 def main():

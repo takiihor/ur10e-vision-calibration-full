@@ -5,7 +5,7 @@ The Calibration workspace opens on Setup with the bundled stage 2 calibration bo
 ## Sub-features
 
 - `default-board` shows the board manifest and board name for a new setup.
-- `calibration-run` covers previewing a live camera, capturing a board, pose feedback, planning, fitting and verification. Hardware-only, not driven by this skill. Camera and robot actions need site equipment and configured inputs. Saved-view and simulated calibration runs also stay out of the read-only workflow.
+- `calibration-run` covers previewing a live camera, capturing a board, pose feedback, planning, fitting and verification. This journey covers setup. Camera and robot actions need site equipment and configured inputs. Saved-view and simulated calibration runs also stay out of the read-only workflow.
 
 ## How to get to it (user POV)
 

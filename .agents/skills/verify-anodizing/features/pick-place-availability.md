@@ -11,7 +11,7 @@ The Pick/place page reports whether the service offers manual movement, tool vol
 ## How to get to it (user POV)
 
 - Choose `Pick/place` in the header or `Pick/place test` on the landing card.
-- The `Manual PICK / PLACE`, `Automatic rod transfer test` and peripheral controls are on the same page.
+- The `Advanced — single PICK / PLACE`, `Automatic rod transfer test` and peripheral controls are on the same page.
 - Teaching can hand off to this page after an actual teaching flow. That entry needs a completed teaching project and stays outside this skill.
 
 ## Driving it with HTTP
