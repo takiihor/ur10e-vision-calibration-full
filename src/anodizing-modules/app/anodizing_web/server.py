@@ -13,7 +13,7 @@ from importlib.resources import files
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import calibration, teaching, pick_place, manual_pick_place, tool_power, mcu, robot_control
+from . import calibration, teaching, pick_place, manual_pick_place, tool_power, mcu, robot_control, agv
 from .jobs import JobOwner
 from .paths import check_tree, inside
 
@@ -82,6 +82,7 @@ class Server(ThreadingHTTPServer):
                 self.model_spec = {'source': str(self.model_source), 'sha256': self.model_hash}
                 self.check_model()
             self.owner = JobOwner(self.root, allow_auto_calibration=allow_auto_calibration, robot_model=self.model_spec, allow_teacher_motion=allow_teacher_motion, allow_manual_pick_place=allow_manual_pick_place)
+            self.agv = agv.Connection(self.owner)
             self.token = secrets.token_urlsafe(32)
             self.allow_camera, self.allow_teaching, self.allow_manual = allow_camera, allow_teaching, allow_manual
             super().__init__(('127.0.0.1', port), Handler)
@@ -122,6 +123,7 @@ class Server(ThreadingHTTPServer):
     def server_close(self):
         super().server_close()
         self.owner.shutdown()
+        self.agv.close()
         if self.data_lock_fd is not None:
             os.close(self.data_lock_fd)
             self.data_lock_fd = None
@@ -196,6 +198,8 @@ class Handler(BaseHTTPRequestHandler):
                                     'allow_auto_calibration': self.server.owner.allow_auto_calibration, 'allow_teacher_motion': self.server.owner.allow_teacher_motion, 'robot_model': model})
         if path == '/api/tool-power':
             return self.reply(200, tool_power.capability(self.server.owner))
+        if path == '/api/agv':
+            return self.reply(200, self.server.agv.capability())
         if path == '/api/mcu':
             return self.reply(200, mcu.capability(self.server.owner))
         if path == '/api/robot-control':
@@ -365,6 +369,8 @@ class Handler(BaseHTTPRequestHandler):
                  '/calibration': ('calibration.html', 'text/html; charset=utf-8'),
                  '/teaching': ('teaching.html', 'text/html; charset=utf-8'),
                  '/pick-place': ('pick-place.html', 'text/html; charset=utf-8'),
+                 '/agv': ('agv.html', 'text/html; charset=utf-8'),
+                 '/agv.js': ('agv.js', 'text/javascript; charset=utf-8'),
                  '/manual-job.js': ('manual-job.js', 'text/javascript; charset=utf-8'),
                  '/tool-power.js': ('tool-power.js', 'text/javascript; charset=utf-8'),
                  '/mcu.js': ('mcu.js', 'text/javascript; charset=utf-8'),
@@ -418,6 +424,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, owner.answer(body.get('job_id'), body.get('request_id'), body.get('value')))
             if path == '/api/tool-power':
                 return self.reply(202, tool_power.submit(owner, body))
+            if path == '/api/agv':
+                return self.reply(200, self.server.agv.submit(body))
             if path == '/api/mcu':
                 return self.reply(202, mcu.submit(owner, body))
             if path not in ('/api/calibration', '/api/teaching', '/api/pick-place', '/api/manual-pick-place', '/api/robot-control'):

@@ -51,3 +51,28 @@ body[data-module] .operation-column{position:sticky;top:12px;min-width:0;max-hei
 #current-operation fieldset{min-width:0;margin:12px 0 0;padding:12px}
 .operation-guide{margin-top:20px}
 @media(max-width:1050px){body[data-module] .workspace{grid-template-columns:1fr}body[data-module] .operation-column{display:block;position:static;grid-row:1;max-height:65vh;border-left:0;border-bottom:1px solid var(--border);border-radius:14px 14px 0 0}body[data-module] .step-content{grid-row:2}}
+
+body[data-module="agv"]{--page-accent:#1d4ed8}
+.agv-safety{position:sticky;top:84px;z-index:3;background:#f3f6fa;padding:8px 0 12px}
+.agv-warning{margin:0;padding:10px 14px;background:#fff0ee;border:1px solid #edc1ba;border-radius:8px;color:#8f241c}
+.agv-safety .actions{margin:8px 0 0;gap:8px}
+.agv-safety button{font-size:16px;min-width:112px;min-height:44px}
+.agv-panel{min-width:0;min-height:0;margin-bottom:16px;padding:16px;background:white;border:1px solid var(--border);border-radius:12px}
+.agv-panel h2{font-size:20px;margin:0}
+.agv-panel .check{align-items:center;margin:0}
+.agv-settings,.agv-work{display:grid;gap:12px}
+.agv-settings{grid-template-columns:1fr 1.6fr 1fr 1fr;margin-top:12px}
+.agv-work{grid-template-columns:minmax(0,2fr) minmax(0,1fr);align-items:start}
+.agv-table-wrap{overflow-x:auto}
+.agv-table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px;text-align:left}
+.agv-table th,.agv-table td{border-bottom:1px solid var(--border);padding:7px;vertical-align:middle}
+.agv-table input:not([type=checkbox]){width:84px}
+.agv-table input[type=checkbox]{width:16px;height:16px;margin:0 auto}
+.agv-table button{padding:6px 9px}
+.agv-table code{white-space:nowrap;font-size:11px}
+#agv-status{display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:12px;margin:0}
+#agv-status dd{margin:0;text-align:right;font-weight:600}
+#agv-status-title+.check{margin-top:10px}
+#agv-log{max-height:20rem;overflow:auto}
+@media(max-width:960px){.agv-work{grid-template-columns:1fr}.agv-work section:last-child{grid-row:1}}
+@media(max-width:540px){.agv-settings{grid-template-columns:1fr 1fr}.agv-safety{top:72px}}

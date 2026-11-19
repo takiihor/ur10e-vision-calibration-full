@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="module-token" content="__TOKEN__">
+<link rel="stylesheet" href="/teacher-style.css">
+<link rel="stylesheet" href="/style.css">
+<script src="/agv.js" defer></script>
+<title>AGV test</title>
+</head>
+<body data-module="agv">
+<header><div class="brand"><div><h1>AGV test</h1><p>XBOT AGV600 · RS485</p></div></div>
+<nav><a href="/calibration">Calibration</a> · <a href="/teaching">Teaching</a> · <a href="/pick-place">Pick/place</a> · <a href="/agv" aria-current="page">AGV</a></nav></header>
+<main>
+<div class="agv-safety">
+<p class="agv-warning"><strong>XBOT has not documented link-loss or e-stop reset behaviour. If this page or the link stops, the AGV may keep moving. Keep the AGV's e-stop within reach.</strong></p>
+<div class="actions"><button class="danger" id="agv-stop" disabled>Stop</button><button class="secondary" id="agv-pause" disabled>Pause</button></div>
+</div>
+<p id="message" role="status">Loading AGV controls…</p>
+<section class="agv-panel" aria-labelledby="agv-connection-title">
+<h2 id="agv-connection-title">Connection</h2>
+<div class="agv-settings">
+<label>Mode<select id="agv-mode"><option value="simulator">Simulator</option><option value="serial">Serial port</option></select></label>
+<label>Port<select id="agv-port" disabled><option value="">Select a port</option></select></label>
+<label>Address (hex)<input id="agv-address" value="00 01" autocomplete="off" spellcheck="false"></label>
+<label>Channel (hex)<input id="agv-channel" value="04" autocomplete="off" spellcheck="false"></label>
+</div>
+<div class="actions">
+<button class="primary" id="agv-connect" disabled>Connect</button>
+<button class="secondary" id="agv-disconnect" disabled>Disconnect</button>
+<label class="check"><input id="agv-armed" type="checkbox" disabled>Armed</label>
+<label class="check" id="agv-silence-label" hidden><input id="agv-silence" type="checkbox">Simulate a silent link</label>
+</div>
+<p id="agv-connection-note" class="hint">Arm the current connection to send movement and speed commands.</p>
+</section>
+<div class="agv-work">
+<section class="agv-panel" aria-labelledby="agv-commands-title">
+<h2 id="agv-commands-title">Commands</h2>
+<p class="hint">Query status before and after a command, or turn on auto-poll before sending.</p>
+<div class="agv-table-wrap">
+<table class="agv-table"><thead><tr><th scope="col">Command</th><th scope="col">TX frame</th><th scope="col">Send</th><th scope="col">Result</th><th scope="col">Observed OK</th></tr></thead>
+<tbody id="agv-commands"></tbody></table>
+</div>
+</section>
+<section class="agv-panel" aria-labelledby="agv-status-title">
+<h2 id="agv-status-title">Status</h2>
+<label class="check"><input type="checkbox" id="agv-auto" disabled>Auto-poll every 1 s</label>
+<p class="light" id="agv-link">Disconnected</p>
+<dl id="agv-status"></dl>
+<pre id="agv-raw" aria-label="Raw status frame"></pre>
+</section>
+</div>
+<section class="agv-panel" aria-labelledby="agv-log-title">
+<h2 id="agv-log-title">Serial log</h2>
+<div class="actions"><button class="secondary" id="agv-download" disabled>Download test record</button></div>
+<p id="agv-log-gap" class="hint" hidden>Earlier log entries are missing from this page’s test record.</p>
+<pre id="agv-log" aria-label="Timestamped serial log" tabindex="0"></pre>
+</section>
+</main>
+</body>
+</html>
