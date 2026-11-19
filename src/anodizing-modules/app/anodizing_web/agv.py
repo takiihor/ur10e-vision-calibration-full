@@ -799,7 +799,8 @@ class Connection:
             self.recipe_urgent = False
             self.recipe_transport = self.transport
             self.recipe_statuses.clear()
-            self.recipe_next_poll = 0
+            self.recipe_next_poll = self.recipe_ack_window = 0
+            self.recipe_call_waiting = False
         try:
             yield self.settings['mode']
         finally:
@@ -818,7 +819,14 @@ class Connection:
             self._recipe_check_link()
             try:
                 self._receive()
-                if monotonic() >= self.recipe_next_poll:
+                now = monotonic()
+                ack = self.results.get('call_station', {}).get('ack_elapsed_s')
+                if self.reading is not None and now-self.read_sent_at >= REPLY_TIMEOUT:
+                    self._finish_read('no reply')
+                # The matched ACK and status can take about a second on the
+                # radio. Leave room for them on its half-duplex link.
+                if (self.reading is None and not self.recipe_call_waiting and now >= self.recipe_next_poll
+                        and (ack is not None or now >= self.recipe_ack_window)):
                     sent = self._send('query_status', None, background=True)
                     self.recipe_next_poll = sent + RECIPE_POLL_S
                     self._receive()
@@ -833,6 +841,11 @@ class Connection:
     def recipe_call(self, station, validate):
         with self.lock:
             self._recipe_check_link()
+            self._receive()
+            if self.reading is not None:
+                self.recipe_call_waiting = True
+                return None
+            self.recipe_call_waiting = False
 
             def prewrite():
                 validate(self.status, self.status_at, self.recipe_statuses)
@@ -840,7 +853,9 @@ class Connection:
                     raise ValueError('An earlier AGV command is awaiting acknowledgement. Check the AGV and try again.')
             # Leave the transport open on a failed write so the urgent abort can
             # attempt Stop even if some or all of the call reached the AGV.
-            return self._send('call_station', station, prewrite=prewrite)
+            sent = self._send('call_station', station, prewrite=prewrite)
+            self.recipe_ack_window = sent + REPLY_TIMEOUT
+            return sent
 
     def recipe_stop(self):
         with self.lock:

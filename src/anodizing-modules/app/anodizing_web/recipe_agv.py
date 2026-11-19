@@ -183,12 +183,15 @@ class StationVisit:
                 if unsafe:
                     self._stop()
                 raise
+            if self.sent is None:
+                return False
             self.pose_at = pose_at
             self.travel_deadline = self.sent+timeout
             self.obstacle_at = None
             self.arrivals = 0
             self.leg = dict(from_station=self.station, to_station=target, sent_at=agv.timestamp(),
                             deadline_epoch=time.time()+timeout, ack_deadline_epoch=time.time()+ACK_S)
+            return True
 
     def progress(self, pose_at):
         with self.lock:

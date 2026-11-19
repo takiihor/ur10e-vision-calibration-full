@@ -691,3 +691,35 @@ def test_stop_cancels_manual_motion_awaiting_travel_pose_check(session, monkeypa
         status,state = motion.result(timeout=1)
     assert status == 400 and 'cancelled' in state['error']
     assert 'forward' not in request()[1]['results']
+
+
+def test_recipe_keeps_the_radio_reply_window_clear_of_ordinary_writes(agv_clock):
+    link = agv.Connection(SimpleNamespace(closing=False, active=None, storage_error=None, execution_uncertain=False))
+    link.submit({'action':'connect'})
+    simulator = link.transport
+    write = simulator.write
+    writes = []
+
+    def delayed_status(raw):
+        command = agv.parse_frame(raw).command
+        writes.append(command)
+        return len(raw) if command == 0x26 else write(raw)
+
+    simulator.write = delayed_status
+    with link.recipe_link():
+        link.recipe_feedback()
+        agv_clock.now += .6
+        link.recipe_feedback()
+        assert writes == [0x26]
+        assert link.recipe_call(2, lambda *args: None) is None
+        write(agv.command_frame('query_status', None, simulator.prefix).encode())
+        assert link.recipe_call(2, lambda *args: None) is not None
+        agv_clock.now += .6
+        status, _, _, ack = link.recipe_feedback()
+        assert status['current_station'] == 1 and ack is None
+        assert writes == [0x26, 0x23]
+        agv_clock.now += .5
+        _, _, _, ack = link.recipe_feedback()
+        assert 1 <= ack < agv.REPLY_TIMEOUT
+        assert writes == [0x26, 0x23, 0x26]
+    link.close()

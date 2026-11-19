@@ -191,9 +191,9 @@ class RepeatExecution(ManualExecution):
         q = pose['joints_rad']
         if not travel_pose.at_pose(self._read()['joints_rad'], pose):
             self._joint_transit(q, 'agv-travel-pose', generation)
-        pose_at = self._confirm_travel_pose(pose)
-        self._tick()
-        visit.start_leg(target, self.recipe.agv_speed_cap_m_h, self.recipe.agv_timeout_s, pose_at, self.cancelled)
+        while not visit.start_leg(target, self.recipe.agv_speed_cap_m_h, self.recipe.agv_timeout_s,
+                                  self._confirm_travel_pose(pose), self.cancelled):
+            self.cancelled.wait(WATCH_S)
         last = None
         while True:
             self._tick()
