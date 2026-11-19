@@ -105,7 +105,9 @@ def test_simulator_reports_motion_speed_target_pause_and_stop(session):
     state = send(request, 'query_status')[1]
     assert state['status']['set_speed_m_h'] == 1257
     assert state['results']['set_speed']['state'] == 'confirmed by status'
-    assert send(request, 'read_speed')[1]['log'][-1]['decode'] == {'read_speed_m_h': 1257}
+    assert send(request, 'read_speed')[1]['log'][-1]['decode'] == {
+        'read_speed_m_h': 1257, 'reply_prefix': '00 FF 04',
+    }
     state = send(request, 'call_station', connection_id, value=255)[1]
     assert 'maximum' in state['results']['call_station']['warning']
     state = send(request, 'query_status')[1]
@@ -152,3 +154,75 @@ def test_agv_uses_existing_request_authorization(session):
     assert request(token='wrong')[0] == 403
     assert request({'action': 'connect'}, origin='http://elsewhere')[0] == 403
     assert request()[1]['connected'] is False
+
+
+def test_captured_replies_confirm_and_only_status_refreshes_the_link(session, monkeypatch):
+    clock = SimpleNamespace(now=10.0)
+    monkeypatch.setattr(agv, 'monotonic', lambda: clock.now)
+    capture = Path(__file__).with_name('fixtures') / 'agv600-protocol-vectors.txt'
+    status_reply, speed_reply, unidentified = (bytes.fromhex(line) for line in capture.read_text().splitlines())
+
+    class CapturedReplies(agv.Simulator):
+        def write(self, raw):
+            command = agv.parse_frame(raw).command
+            self.buffer += {0x26: status_reply, 0x21: speed_reply + unidentified}[command]
+            return len(raw)
+
+    monkeypatch.setattr(agv, 'Simulator', CapturedReplies)
+    _, request = session
+    connection_id = open_simulator(request)
+    state = send(request, 'query_status', connection_id)[1]
+    assert state['status_hex'] == status_reply.hex(' ').upper()
+    assert state['status']['reply_prefix'] == '00 FF 04'
+    assert state['results']['query_status']['state'] == 'confirmed by status'
+
+    clock.now += 4
+    state = send(request, 'query_status', connection_id)[1]
+    assert state['status_age_s'] == 0 and not state['stale']
+    clock.now += 2
+    state = send(request, 'read_speed', connection_id)[1]
+    reply, unknown = state['log'][-2:]
+    assert reply['hex'] == speed_reply.hex(' ').upper()
+    assert reply['decode']['reply_prefix'] == '00 FF 04' and reply['decode']['read_speed_m_h'] == 1500
+    assert unknown['hex'] == unidentified.hex(' ').upper()
+    assert unknown['decode']['description'] == 'unidentified frame 01 (not in the XBOT protocol)'
+    assert 'error' not in unknown['decode']
+    assert state['status_age_s'] == 2 and not state['stale']
+    assert state['results']['read_speed']['state'] == agv.SENT
+
+    state = send(request, 'query_status', connection_id)[1]
+    assert state['status_age_s'] == 0 and not state['stale']
+    assert state['results']['read_speed']['state'] == 'confirmed by status'
+
+    clock.now += agv.STALE_AFTER + .01
+    state = send(request, 'read_speed', connection_id)[1]
+    assert state['status_age_s'] == pytest.approx(5.01) and state['stale']
+    assert state['results']['read_speed']['state'] == agv.SENT
+
+
+def test_simulator_uses_captured_wire_forms_and_reports_01_periodically(session, monkeypatch):
+    clock = SimpleNamespace(now=0.0)
+    monkeypatch.setattr(agv, 'monotonic', lambda: clock.now)
+    _, request = session
+    connection_id = open_simulator(request)
+    assert request()[1]['log'] == []
+
+    state = send(request, 'query_status', connection_id)[1]
+    assert state['status_hex'].startswith('00 FF 04 A5 5A 1D 25 ')
+    assert state['status']['obstacle_input'] == 0xCC
+    assert not {'attachment_active', 'roller_speed'} & state['status'].keys()
+    assert send(request, 'read_speed', connection_id)[1]['log'][-1]['hex'] == '00 FF 04 A5 5A 07 21 DC 05 08'
+
+    for tick in (11.22, 22.44):
+        clock.now = tick - .01
+        before = request()[1]['log']
+        clock.now = tick
+        state = request()[1]
+        assert len(state['log']) == len(before) + 1
+        assert state['log'][-1]['hex'] == 'A5 5A 05 01 05'
+        assert state['status_age_s'] == tick and state['stale']
+        assert request()[1]['log'] == state['log']
+
+    request(dict(action='silence', silent=True, connection_id=connection_id))
+    clock.now += 12
+    assert request()[1]['log'] == state['log']

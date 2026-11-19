@@ -9,16 +9,17 @@ let capability, busy = false, fetching = false, nextPoll = 0, nextRefresh = 0;
 let record = [], logGap = false, renderedLog = null, renderedStatus = null;
 
 const fieldLabels = {
-  header: 'Header (hex)', length: 'Frame length (bytes)', command: 'Command (hex)',
+  reply_prefix: 'Reply prefix (hex)', header: 'Header (hex)', length: 'Frame length (bytes)', command: 'Command (hex)',
   vehicle_id: 'Vehicle ID', battery_percent: 'Battery (%)', set_speed_m_h: 'Set speed (m/h)',
   stopped: 'Stopped', obstacle_stop: 'Obstacle stop', station_arrival: 'Station arrival',
   command_stop: 'Command or onboard-button stop', actual_speed_m_h: 'Actual speed (m/h)',
   current_station: 'Current station', target_station: 'Target station', fault_code: 'Fault code',
   max_stations: 'Maximum stations', mode: 'Mode', customer_sensors: 'Customer sensor inputs (hex)',
   position_units: 'Position (device units)', paused: 'Paused by host', leading_end: 'Leading end',
-  obstacle_input: 'Obstacle input (hex)', laser_blocked: 'Laser eye blocked',
-  roller_center_blocked: 'Roller centre beam blocked', roller_left_blocked: 'Roller left beam blocked',
-  roller_right_blocked: 'Roller right beam blocked', lift_state: 'Lift endpoint',
+  obstacle_input: 'Obstacle input (raw hex)', laser_blocked: 'Laser eye blocked',
+  roller_center_blocked: 'Roller centre beam blocked (only if a roller is fitted)',
+  roller_left_blocked: 'Roller left beam blocked (only if a roller is fitted)',
+  roller_right_blocked: 'Roller right beam blocked (only if a roller is fitted)', lift_state: 'Lift endpoint',
   attachment_active: 'Attachment active', roller_speed: 'Roller speed (device value)', checksum: 'Checksum (hex)',
 };
 const statusValues = {
@@ -161,7 +162,7 @@ function render() {
   const last = record.at(-1);
   if (renderedLog !== last) {
     $('log').textContent = record.slice(-30).reverse().map(entry =>
-      `${entry.timestamp}  ${entry.direction}  ${entry.hex}\n  ${JSON.stringify(entry.decode)}`).join('\n');
+      `${entry.timestamp}  ${entry.direction}  ${entry.hex}\n  ${entry.decode.description ?? JSON.stringify(entry.decode)}`).join('\n');
     renderedLog = last;
   }
 }

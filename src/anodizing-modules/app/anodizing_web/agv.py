@@ -20,6 +20,7 @@ HEADER = b'\xa5\x5a'
 DEFAULT_PREFIX = b'\x00\x01\x04'
 REPLY_TIMEOUT = .5
 STALE_AFTER = 5
+UNIDENTIFIED_INTERVAL = 11.22
 SENT = 'sent (protocol has no ACK)'
 # XBOT RS485 protocol pp. 1, 4–5.
 COMMANDS = {
@@ -93,11 +94,16 @@ def command_frame(name, value, prefix):
     return Frame(payload[0], payload[1:], prefix)
 
 
+def reply_prefix(request_prefix):
+    return b'\x00\xff' + request_prefix[2:]
+
+
 class Splitter:
-    """Keep at most one partial frame and recognize the configured radio prefix."""
+    """Keep at most one partial frame and recognize request and reply radio prefixes."""
 
     def __init__(self, prefix):
         self.prefix = prefix
+        self.prefixed_headers = (prefix + HEADER, reply_prefix(prefix) + HEADER)
         self.buffer = b''
 
     def feed(self, chunk):
@@ -105,10 +111,11 @@ class Splitter:
         frames = []
         while self.buffer:
             start = self.buffer.find(HEADER)
-            prefixed = self.buffer.find(self.prefix + HEADER)
             if start < 0:
                 self.buffer = self.buffer[-4:]
                 break
+            prefixed = min((index for header in self.prefixed_headers
+                            if (index := self.buffer.find(header)) >= 0), default=-1)
             if 0 <= prefixed <= start:
                 self.buffer = self.buffer[prefixed:]
                 offset = 3
@@ -125,7 +132,7 @@ class Splitter:
             if length < 5 or (command == 0x25 and length > 31):
                 next_header = self.buffer.find(HEADER, offset + 2)
                 end = next_header if next_header >= 0 else len(self.buffer)
-                if next_header >= 3 and self.buffer[next_header - 3:next_header] == self.prefix:
+                if next_header >= 3 and self.buffer.startswith(self.prefixed_headers, next_header - 3):
                     end -= 3
                 frames.append((self.buffer[:end], 'Invalid frame length (LEN is out of range).'))
                 self.buffer = self.buffer[end:]
@@ -142,7 +149,7 @@ class Splitter:
                 next_header = raw.find(HEADER, offset + 2)
                 if next_header >= 0:
                     end = next_header
-                    if next_header >= 3 and raw[next_header - 3:next_header] == self.prefix:
+                    if next_header >= 3 and raw.startswith(self.prefixed_headers, next_header - 3):
                         end -= 3
             frames.append((raw, error))
             self.buffer = self.buffer[end:]
@@ -163,8 +170,12 @@ FLAGS = {'stopped', 'obstacle_stop', 'station_arrival', 'command_stop', 'paused'
 
 
 def decode(frame):
-    if frame.command == 0x21 and len(frame.data) == 3 and frame.data[0] == 0x7D:
-        return {'read_speed_m_h': int.from_bytes(frame.data[1:], 'little')}
+    if frame.command == 0x21:
+        # The two-byte reply was observed on AGV600 2026-11-19.
+        if len(frame.data) == 2 or (len(frame.data) == 3 and frame.data[0] == 0x7D):
+            return {'read_speed_m_h': int.from_bytes(frame.data[-2:], 'little')}
+    if frame.command == 0x01 and not frame.data:
+        return {'command': '01', 'data': '', 'description': 'unidentified frame 01 (not in the XBOT protocol)'}
     if frame.command != 0x25:
         return {'command': f'{frame.command:02X}', 'data': hex_bytes(frame.data)}
     inner = frame.encode()[len(frame.prefix):]
@@ -188,8 +199,10 @@ def decode(frame):
 class Simulator:
     def __init__(self, prefix):
         self.prefix = prefix
+        self.reply_prefix = reply_prefix(prefix)
         self.silent = False
         self.buffer = b''
+        self.next_unidentified = monotonic() + UNIDENTIFIED_INTERVAL
         self.speed = 1500
         self.stopped = True
         self.target = 1
@@ -199,6 +212,10 @@ class Simulator:
 
     @property
     def in_waiting(self):
+        now = monotonic()
+        if not self.silent and now >= self.next_unidentified:
+            self.buffer += Frame(0x01, b'').encode()
+            self.next_unidentified = now + UNIDENTIFIED_INTERVAL
         return len(self.buffer)
 
     def read(self, size):
@@ -228,10 +245,10 @@ class Simulator:
                     + bytes((self.stopped, 0, 0, self.command_stop))
                     + (b'\0\0' if self.stopped else speed)
                     + bytes((1, self.target, 0, 8, 2, 0))
-                    + bytes(4) + bytes((self.paused, self.leading_end, 0, 0, 0, 0)))
-            self.buffer += Frame(0x25, data).encode()
+                    + bytes(4) + bytes((self.paused, self.leading_end, 0xCC, 0)))
+            self.buffer += Frame(0x25, data, self.reply_prefix).encode()
         elif not self.silent and frame.command == 0x21:
-            self.buffer += Frame(0x21, b'\x7d' + self.speed.to_bytes(2, 'little'), self.prefix).encode()
+            self.buffer += Frame(0x21, self.speed.to_bytes(2, 'little'), self.reply_prefix).encode()
         return len(raw)
 
     def close(self):
@@ -315,12 +332,14 @@ class Connection:
             if error:
                 self._record('RX', raw, {'error': error})
                 continue
-            offset = 3 if raw.startswith(self.splitter.prefix + HEADER) else 0
+            offset = 3 if raw.startswith(self.splitter.prefixed_headers) else 0
             frame = parse_frame(raw, offset=offset)
             decoded = decode(frame)
             if frame.command == 0x25 and decoded.get('vehicle_id') != self.splitter.prefix[1]:
                 self._record('RX', raw, {'error': 'Missing or unexpected vehicle ID.', 'report': decoded})
                 continue
+            if frame.prefix:
+                decoded['reply_prefix'] = hex_bytes(frame.prefix)
             self._record('RX', raw, decoded)
             self._expire()
             if frame.command == 0x25:

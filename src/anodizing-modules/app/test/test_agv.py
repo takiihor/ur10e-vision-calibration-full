@@ -24,6 +24,60 @@ def test_vendor_commands_round_trip(name, value, hex_frame):
     assert agv.parse_frame(wire).encode() == wire
 
 
+@pytest.fixture
+def captured_frames():
+    capture = Path(__file__).with_name('fixtures') / 'agv600-protocol-vectors.txt'
+    return tuple(bytes.fromhex(line) for line in capture.read_text().splitlines())
+
+
+@pytest.fixture
+def captured_reads(captured_frames):
+    status, speed, unidentified = captured_frames
+    # Split the synthetic stream inside the radio prefix and frame header.
+    return status + speed[:1], speed[1:] + unidentified[:1], unidentified[1:]
+
+
+def test_splitter_preserves_captured_reply_prefixes_across_reads(captured_frames, captured_reads):
+    splitter = agv.Splitter(PREFIX)
+    for chunk, frame in zip(captured_reads, captured_frames, strict=True):
+        assert splitter.feed(chunk) == [(frame, None)]
+
+
+def test_splitter_recovers_the_reply_prefix_after_bad_length_and_checksum(captured_frames):
+    status, speed, unidentified = captured_frames
+    corrupt_length = status[:5] + b'\xff' + status[6:]
+    # The incorrect length consumes the beginning of the next frame.
+    corrupt_checksum = speed[:5] + b'\x0d' + speed[6:]
+    frames = agv.Splitter(PREFIX).feed(corrupt_length + status + corrupt_checksum + speed + unidentified)
+    assert len(frames) == 5
+    assert frames[0][0] == corrupt_length and 'length' in frames[0][1]
+    assert frames[2][1] and 'checksum' in frames[2][1]
+    assert frames[1::2] == [(status, None), (speed, None)]
+    assert frames[4] == (unidentified, None)
+
+
+def test_splitter_uses_the_configured_reply_channel(captured_frames):
+    _, speed, _ = captured_frames
+    reply = b'\x00\xff\x07' + speed[3:]
+    assert agv.Splitter(bytes.fromhex('00 02 07')).feed(reply) == [(reply, None)]
+
+
+def test_captured_status_omits_unavailable_attachment_fields(captured_frames):
+    wire, _, _ = captured_frames
+    status = agv.decode(agv.parse_frame(wire))
+    assert status['length'] == 29
+    assert status['vehicle_id'] == 1 and status['battery_percent'] == 75
+    assert status['set_speed_m_h'] == 1500
+    assert status['obstacle_input'] == 0xCC
+    assert not {'attachment_active', 'roller_speed'} & status.keys()
+    assert status['checksum'] == '43'
+
+
+def test_captured_short_speed_reply_decodes_as_1500_m_per_hour(captured_frames):
+    _, wire, _ = captured_frames
+    assert agv.decode(agv.parse_frame(wire)) == {'read_speed_m_h': 1500}
+
+
 def test_vendor_status_decodes_every_offset():
     assert agv.decode(agv.parse_frame(REPORT)) == {
         'header': 'A5 5A', 'length': 31, 'command': '25', 'vehicle_id': 1, 'battery_percent': 25,
