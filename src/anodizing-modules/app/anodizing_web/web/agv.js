@@ -2,9 +2,11 @@
 
 const $ = id => document.getElementById('agv-' + id);
 const token = document.querySelector('meta[name="module-token"]').content;
+const settingsKey = 'ano-agv-connection';
 const urgent = new Set(['stop', 'pause']);
 const rows = new Map();
 let state = {connection_id: 0, sequence: -1, results: {}};
+let savedSettings;
 let capability, busy = false, fetching = false, nextPoll = 0, nextRefresh = 0;
 let record = [], logGap = false, renderedLog = null, renderedStatus = null;
 
@@ -92,10 +94,22 @@ function buildRows(commands) {
 
 function showPorts(ports) {
   const select = $('port');
-  const selected = state.connected ? state.settings.port : select.value;
+  let selected = state.connected ? state.settings.port : select.value;
+  const listed = device => ports.some(port => port.device === device);
+  if (!state.connected && !listed(selected)) {
+    selected = '';
+    if ($('mode').value === 'serial') {
+      const savedDevice = savedSettings?.port?.device;
+      if (listed(savedDevice)) selected = savedDevice;
+      else {
+        const described = ports.filter(({description}) => !/^\s*(?:n\/a)?\s*$/i.test(description ?? ''));
+        if (described.length === 1) selected = described[0].device;
+      }
+    }
+  }
   const options = ports.map(({device, description}) =>
     new Option(description && description !== 'n/a' ? device + ' · ' + description : device, device));
-  if (state.connected && selected && !ports.some(port => port.device === selected)) {
+  if (state.connected && selected && !listed(selected)) {
     options.unshift(new Option(selected, selected));
   }
   select.replaceChildren(new Option('Select a port', ''), ...options);
@@ -178,7 +192,7 @@ function apply(next) {
     logGap = false;
     $('auto').checked = false;
     for (const row of rows.values()) row.observed.checked = false;
-    if (next.settings) {
+    if (next.connected) {
       $('mode').value = next.settings.mode;
       $('address').value = next.settings.address;
       $('channel').value = next.settings.channel;
@@ -219,6 +233,16 @@ async function post(body, {priority = false, background = false} = {}) {
   render();
   try {
     const result = await api({connection_id: state.connection_id, ...body});
+    if (body.action === 'connect' && result.connected) {
+      const {mode, port, address, channel} = result.settings;
+      const description = capability.ports.find(({device}) => device === port)?.description ?? '';
+      savedSettings = {mode, port: port ? {device: port, description} : null, address, channel};
+      try {
+        localStorage.setItem(settingsKey, JSON.stringify(savedSettings));
+      } catch {
+        // Keep the successful connection usable when storage is blocked.
+      }
+    }
     apply(result);
     if (!background) message(result.connected ? 'Connected · ' +
       (result.settings.mode === 'simulator' ? 'Simulator' : result.settings.port) : 'Disconnected.');
@@ -263,7 +287,11 @@ async function tick() {
   }
 }
 
-for (const id of ['mode', 'port', 'address', 'channel']) $(id).addEventListener('input', render);
+$('mode').addEventListener('input', () => {
+  if (capability) showPorts(capability.ports);
+  render();
+});
+for (const id of ['port', 'address', 'channel']) $(id).addEventListener('input', render);
 $('connect').addEventListener('click', () => post({action: 'connect', mode: $('mode').value,
   port: $('port').value, address: $('address').value, channel: $('channel').value}));
 $('disconnect').addEventListener('click', () => post({action: 'disconnect'}));
@@ -287,5 +315,14 @@ $('download').addEventListener('click', () => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 
+try {
+  savedSettings = JSON.parse(localStorage.getItem(settingsKey));
+} catch {
+  // Start with the page defaults when storage is blocked or invalid.
+}
+if (['simulator', 'serial'].includes(savedSettings?.mode)) $('mode').value = savedSettings.mode;
+for (const id of ['address', 'channel']) {
+  if (typeof savedSettings?.[id] === 'string') $(id).value = savedSettings[id];
+}
 void tick();
 setInterval(tick, 200);
