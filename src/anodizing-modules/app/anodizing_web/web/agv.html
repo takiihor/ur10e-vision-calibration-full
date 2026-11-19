@@ -16,7 +16,11 @@
 <div class="agv-safety">
   <div class="agv-safety-row">
     <div class="agv-urgent">
-      <div><button class="danger" id="agv-stop" disabled>Stop (software)</button><div id="agv-stop-why">Connect first.</div><div id="agv-stop-outcome"></div></div>
+      <div>
+        <button class="danger" id="agv-stop" aria-keyshortcuts="Escape" disabled>Stop (software)</button>
+        <div>Esc also sends Stop</div>
+        <div id="agv-stop-why">Connect first.</div><div id="agv-stop-outcome"></div>
+      </div>
       <div><button class="secondary" id="agv-pause" disabled>Pause</button><div id="agv-pause-why">Connect first.</div><div id="agv-pause-outcome"></div></div>
     </div>
     <div class="agv-head-status">

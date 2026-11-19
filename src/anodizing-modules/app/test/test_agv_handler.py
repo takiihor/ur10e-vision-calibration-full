@@ -66,6 +66,14 @@ def send(request, command, connection_id=None, **fields):
     return request(dict(action='send', command=command, connection_id=connection_id, **fields))
 
 
+def test_set_speed_argument_defaults_to_slowest_speed(session):
+    _, request = session
+    status, state = request()
+    assert status == 200
+    argument = next(command['argument'] for command in state['commands'] if command['name'] == 'set_speed')
+    assert argument['default'] == argument['min'] == 500
+
+
 def test_motion_requires_arming_for_the_current_connection(session):
     _, request = session
     first = open_simulator(request)

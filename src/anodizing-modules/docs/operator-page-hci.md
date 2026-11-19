@@ -26,7 +26,7 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 - **Feedback.** Show "Stop sent 16:12:03.295", then "AGV reports stopped".
 - **It is not an e-stop.** Label it "Stop (software)", and keep the line "Not an emergency stop. Use the AGV's e-stop." next to it. Never style it red-on-yellow, which ISO 13850 reserves for emergency stops.
 - **Size.** Make Stop and Pause the largest controls on the page: at least 64 px tall, with space around them.
-- **Shortcut.** Esc may send Stop, because stopping is always the safe direction. No other keyboard shortcuts move the machine.
+- **Shortcut.** Press Esc anywhere on the page to send one software Stop while connected. The Stop outcome shows `(Esc)` next to the send time. While disconnected, pressing Esc shows “Connect first” in the status line. Esc is the only command shortcut.
 
 ## 3. Movement is deliberate
 - **One press, one command.** No sequences, no auto-repeat, no "run test".
@@ -35,7 +35,7 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
   - Armed resets on reconnect and is never restored from storage.
   - While Armed is on, the page shows it plainly, for example by tinting the movement column.
 - **Disabled controls say why.** For example "Tick Armed to enable movement", "Connect first" or "A robot job is running". A greyed-out button with no reason is a bug.
-- **Validate input before sending.** Check ranges (speed 500–4000 m/h, stations 1–N) and explain any limit next to the field.
+- **Validate input before sending.** Set speed defaults to 500 m/h, the slowest setting. Check ranges (speed 500–4000 m/h, stations 1–N) and explain any limit next to the field.
 
 ## 4. Feedback timing
 | After a press | The page must show |

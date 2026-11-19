@@ -44,7 +44,7 @@ COMMANDS = {
     'query_status': ('Query status', '26 FF'),
 }
 ARGUMENTS = {
-    'set_speed': {'min': 500, 'max': 4000, 'default': 1257, 'label': 'Speed (m/h)'},  # XBOT manual p. 2.
+    'set_speed': {'min': 500, 'max': 4000, 'default': 500, 'label': 'Speed (m/h)'},  # XBOT manual p. 2.
     'call_station': {'min': 1, 'max': 255, 'default': 1, 'label': 'Station number'},
 }
 URGENT = {'stop', 'pause'}

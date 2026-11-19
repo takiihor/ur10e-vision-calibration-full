@@ -14,12 +14,16 @@ let storageReads = 0, storageWrites = 0;
 
 async function load(ports) {
   const fields = new Map();
+  const window = element();
   function element(initialId) {
     const listeners = {};
     const field = {
       value: '', checked: false, dataset: {}, classList: {toggle() {}},
       addEventListener(type, fn) { listeners[type] = fn; },
-      emit(type) { return listeners[type]({currentTarget: this}); },
+      emit(type, event = {}) {
+        if (listeners[type]) return listeners[type]({currentTarget: this, ...event});
+        if (this !== window) return window.emit(type, {target: this, ...event});
+      },
       append() {}, setAttribute() {}, removeAttribute() {},
       replaceChildren(...options) { this.options = options; if (!options.some(option => option.value === this.value)) this.value = ''; },
       set id(id) { this.elementId = id; fields.set(id, this); },
@@ -39,7 +43,7 @@ async function load(ports) {
   let sequence = 0;
   vm.runInNewContext(source, {
     document: {getElementById: field, querySelector: () => ({content: 'fixture'}), createElement: () => element()},
-    window: {addEventListener() {}},
+    window,
     Option: class { constructor(text, value) { Object.assign(this, {text, value}); } },
     performance: {now: () => 0}, setInterval() {},
     localStorage: {
@@ -57,11 +61,14 @@ async function load(ports) {
     fetch: async (route, options) => {
       assert.equal(route, '/api/agv');
       const body = options.body && JSON.parse(options.body);
-      if (body) requests.push(body.action);
+      if (body) requests.push(body);
       const response = {connection_id: 1, sequence: ++sequence, connected: false, armed: false, log: [], results: {}};
       if (!body) Object.assign(response, {serial_available: true, ports, commands: [],
         settings: {mode: 'simulator', address: '00 99', channel: '08', port: null}});
       else if (scenario === 'rejected') return {ok: false, json: async () => ({error: 'Fixture rejection'})};
+      else if (body.action === 'send') Object.assign(response, {connected: true, connection_id: 2,
+        settings: {mode: 'simulator', address: '00 01', channel: '04', port: null},
+        results: {stop: {tx_id: sequence, state: 'sent', sent_at: '2026-11-19T12:34:56.789Z'}}});
       else Object.assign(response, {connected: true, connection_id: 2,
         settings: {mode: body.mode, port: body.mode === 'serial' ? body.port : null,
           address: body.address.toUpperCase(), channel: body.channel.toUpperCase()}});
@@ -96,7 +103,7 @@ async function run() {
     assert.equal(restored('armed').checked, false);
     assert.equal(restored('auto').checked, false);
     assert.equal(restored('link').textContent, 'Disconnected');
-    assert.deepEqual(requests, ['connect']);
+    assert.deepEqual(requests.map(body => body.action), ['connect']);
 
     const fallback = await load([onboard, other]);
     assert.equal(fallback('port').value, other.device);
@@ -110,6 +117,28 @@ async function run() {
     await get('connect').emit('click');
     assert.equal(storageWrites, 0);
     assert.equal(get('disconnect').disabled, true);
+  } else if (scenario === 'escape-stop') {
+    const press = (key, repeat = false) => get('mark-text').emit('keydown', {key, repeat, preventDefault() {}});
+    await press('Escape');
+    assert.deepEqual(requests, []);
+    assert.equal(get('outcome').textContent, 'Connect first.');
+
+    await get('connect').emit('click');
+    assert.equal(get('armed').checked, false);
+    await press('s');
+    await press('Escape', true);
+    assert.equal(requests.length, 1);
+
+    const stop = press('Escape');
+    assert.equal(get('outcome').textContent, 'Sending…');
+    await stop;
+    assert.match(get('outcome').textContent, /^Stop sent \d\d:\d\d:\d\d\.789 \(Esc\)/);
+    assert.equal(get('stop-outcome').textContent, get('outcome').textContent);
+
+    await get('stop').emit('click');
+    const stopRequest = {action: 'send', command: 'stop', connection_id: 2, value: null, background: false};
+    assert.deepEqual(requests.slice(1), [stopRequest, stopRequest]);
+    assert.match(get('outcome').textContent, /^Stop sent \d\d:\d\d:\d\d\.789 · /);
   } else {
     assert.equal(get('port').value, '');
     selectSerial(get);

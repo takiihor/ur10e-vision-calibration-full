@@ -315,13 +315,13 @@ function renderStatus() {
   display('raw', state.status_hex ?? '');
 }
 
-function resultText(name, result) {
+function resultText(name, result, viaEsc) {
   if (!result) return null;
   const {state: stage, elapsed_s: elapsed, ack_elapsed_s: ack, value, remaining_s: remaining} = result;
   const acknowledged = ack == null ? '' : `AGV acknowledged (${seconds(ack)} s)`;
   const confirmation = stage === 'confirmed by status';
   const sent = localTime(result.sent_at);
-  const label = name === 'pause' ? 'Pause' : 'Stop';
+  const urgentSent = `${name === 'pause' ? 'Pause' : 'Stop'} sent ${sent}${viaEsc ? ' (Esc)' : ''}`;
   let text;
   if (stage.startsWith('reply: ')) {
     const reply = stage.slice(7);
@@ -331,12 +331,12 @@ function resultText(name, result) {
   if (stage === 'waiting for reply') return {text: `Waiting for the AGV to reply… ${seconds(remaining)} s`, tone: 'waiting'};
   if (stage === 'no reply') return {text: `No reply in 1.5 s. Check the radio. ${portRetry}`, tone: 'failed'};
   if (stage === 'arrived') text = `Arrived at station ${value} (${seconds(elapsed)} s)`;
-  else if (confirmation) text = urgent.has(name) ? `${label} sent ${sent} · AGV reports stopped` : 'Confirmed: AGV status shows the change';
+  else if (confirmation) text = urgent.has(name) ? `${urgentSent} · AGV reports stopped` : 'Confirmed: AGV status shows the change';
   else if (stage === 'not confirmed') text = 'Not confirmed after 5 s: check the AGV.';
   else if (stage === 'not checked') text = 'Not checked: no confirmation before another action. Check the AGV.';
   else if (stage === 'travelling') text = `Going to station ${value}…${$('auto').checked ? '' : ' Select Query status to check arrival.'}`;
   else {
-    const sentText = urgent.has(name) ? `${label} sent ${sent}` :
+    const sentText = urgent.has(name) ? urgentSent :
       name === 'call_station' ? `Going to station ${value}…` : `Sent at ${sent}`;
     const waiting = !$('auto').checked && (ack != null || !remaining)
       ? 'waiting for a status (auto-poll is off). Select Query status.'
@@ -350,7 +350,7 @@ function resultText(name, result) {
 function renderOutcome(id) {
   const element = controls.get(id)?.outcome;
   const outcome = outcomes.get(id);
-  const feedback = resultText(outcome?.name, outcome?.result) ?? outcome?.direct;
+  const feedback = resultText(outcome?.name, outcome?.result, outcome?.viaEsc) ?? outcome?.direct;
   if (element) {
     if (element.textContent !== (feedback?.text ?? '')) element.textContent = feedback?.text ?? '';
     element.dataset.state = feedback?.tone ?? '';
@@ -547,7 +547,7 @@ function requestError(error) {
   return 'Refused: check the connection and settings, then query status.';
 }
 
-async function post(body, {id, priority = false, background = false} = {}) {
+async function post(body, {id, priority = false, background = false, viaEsc = false} = {}) {
   if (!background && busy && !priority) return;
   if (!background && !priority) busy = true;
   let pending;
@@ -574,7 +574,7 @@ async function post(body, {id, priority = false, background = false} = {}) {
         const current = state.results[body.command];
         const fromResponse = result.results[body.command];
         const newest = connectionKeyFor(state) === resultConnection && current?.tx_id === fromResponse.tx_id ? current : fromResponse;
-        outcomes.set(id, {name: body.command, result: newest, connection: resultConnection});
+        outcomes.set(id, {name: body.command, result: newest, connection: resultConnection, viaEsc});
       } else {
         const connected = result.settings?.mode === 'simulator' ? 'Simulator' : 'Serial AGV';
         const text = {connect: 'Connected · ' + connected, disconnect: 'Disconnected.',
@@ -595,10 +595,10 @@ async function post(body, {id, priority = false, background = false} = {}) {
   }
 }
 
-function sendCommand(command, id, preset) {
+function sendCommand(command, id, preset, viaEsc = false) {
   if (command === 'query_status') nextPoll = performance.now() + 1000;
   return post({action: 'send', command, value: commandValue(command, preset), background: !id},
-    {id, priority: urgent.has(command), background: !id});
+    {id, priority: urgent.has(command), background: !id, viaEsc});
 }
 
 async function tick() {
@@ -679,6 +679,15 @@ for (const id of ['connect', 'disconnect', 'armed', ...urgent]) {
     $(id).addEventListener('click', () => sendCommand(id, id));
   }
 }
+window.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  event.preventDefault();
+  if (event.repeat) return;
+  if (state.connected) return sendCommand('stop', 'stop', undefined, true);
+  lastPressed = 'stop';
+  outcomes.set('stop', {direct: {text: commandReason('stop'), tone: 'waiting'}});
+  renderOutcome('stop');
+}, {capture: true});
 buildChecklist();
 
 $('link-settings').addEventListener('toggle', render);
