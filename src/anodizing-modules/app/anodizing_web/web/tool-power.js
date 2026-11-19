@@ -3,16 +3,16 @@
   const buttons=[...document.querySelectorAll('[data-tool-power]')];
   const sendKey='ano-send-tool-power', jobKey='ano-job-tool-power';
   const feedbackKey='ano-tool-power-feedback';
-  let posting=false, feedback=localStorage.getItem(feedbackKey)||'', pending=JSON.parse(localStorage.getItem(sendKey)||'null');
-  let requestId=pending?.request_id || localStorage.getItem(jobKey);
-  function clearPending(){pending=null;localStorage.removeItem(sendKey);}
+  let posting=false, feedback=storage.getItem(feedbackKey)||'', pending=JSON.parse(storage.getItem(sendKey)||'null');
+  let requestId=pending?.request_id || storage.getItem(jobKey);
+  function clearPending(){pending=null;storage.removeItem(sendKey);}
   function showFailure(error){
-    localStorage.setItem(feedbackKey,feedback);
+    storage.setItem(feedbackKey,feedback);
     $('tool-power-status').textContent=[feedback,requestId?'Request ID: '+requestId+'.':'',error.message].filter(Boolean).join(' ');
   }
   buttons.forEach(button=>button.disabled=true);
   function show(state) {
-    localStorage.setItem(feedbackKey,feedback);
+    storage.setItem(feedbackKey,feedback);
     const last=state.last_known;
     $('tool-power-status').textContent=last
       ? `Controller tool-port voltage: ${last.controller_tool_output_voltage ?? 'unknown'}${last.controller_tool_output_voltage===null?'':' V'} · ${last.robot_host} · ${last.project} · ${last.observed_at?new Date(last.observed_at*1000).toLocaleString():'no confirmed readback'} (last recorded). ${state.detail}`
@@ -36,11 +36,11 @@
       $('tool-power-status').textContent='Previous request '+pending.request_id+' outcome unknown. Restore the previous action/project/item selection and retry it first.';return;
     }
     pending ||= {body,request_id:crypto.randomUUID()};
-    requestId=pending.request_id;localStorage.setItem(sendKey,JSON.stringify(pending));
-    feedback='';localStorage.removeItem(feedbackKey);posting=true;buttons.forEach(b=>b.disabled=true);$('tool-power-check').disabled=true;
+    requestId=pending.request_id;storage.setItem(sendKey,JSON.stringify(pending));
+    feedback='';storage.removeItem(feedbackKey);posting=true;buttons.forEach(b=>b.disabled=true);$('tool-power-check').disabled=true;
     try {
       let job=await api('/api/tool-power',{...pending.body,request_id:pending.request_id});
-      requestId=job.id;localStorage.setItem(jobKey,requestId);clearPending();
+      requestId=job.id;storage.setItem(jobKey,requestId);clearPending();
       while(['running','waiting'].includes(job.state)){
         await new Promise(resolve=>setTimeout(resolve,300));
         job=await api('/api/jobs/'+encodeURIComponent(job.id));

@@ -1,9 +1,9 @@
 /* Explicit MCU clicks. Reopening the page only reads saved job evidence. */
 (() => {
   const buttons=[...document.querySelectorAll('[data-mcu]')], sendKey='ano-send-mcu', jobKey='ano-job-mcu';
-  let pending=JSON.parse(localStorage.getItem(sendKey)||'null'), requestId=pending?.request_id||localStorage.getItem(jobKey);
+  let pending=JSON.parse(storage.getItem(sendKey)||'null'), requestId=pending?.request_id||storage.getItem(jobKey);
   let posting=false, state, feedback='';
-  function clearPending(){pending=null;localStorage.removeItem(sendKey);}
+  function clearPending(){pending=null;storage.removeItem(sendKey);}
   function show(value){
     state=value;
     const last=state.last_known;
@@ -33,9 +33,9 @@
           if(!state.available)throw new Error(state.detail||'MCU commands are unavailable.');
           pending={request_id:crypto.randomUUID(),body:{project:field('project'),command:button.dataset.mcu,parent:state.parent}};
         }
-        requestId=pending.request_id;localStorage.setItem(sendKey,JSON.stringify(pending));
+        requestId=pending.request_id;storage.setItem(sendKey,JSON.stringify(pending));
         let job=await api('/api/mcu',{...pending.body,request_id:pending.request_id});
-        localStorage.setItem(jobKey,job.id);clearPending();
+        storage.setItem(jobKey,job.id);clearPending();
         while(['running','waiting'].includes(job.state)){
           await new Promise(resolve=>setTimeout(resolve,300));
           job=await api('/api/jobs/'+encodeURIComponent(job.id));
