@@ -629,7 +629,7 @@ function exportRecord() {
   const results = Object.fromEntries(Object.entries(state.results).filter(([, result]) =>
     journal.commands[`${connection}/${result.tx_id}`]));
   return {exported_at: isoNow(), started_at: session.started_at, connection: state.settings,
-    transports: Object.values(journal.transports), auto_poll: $('auto').checked, armed: state.armed,
+    transports: Object.entries(journal.transports).map(([connection, settings]) => ({connection, ...settings})), auto_poll: $('auto').checked, armed: state.armed,
     simulator_silent: state.silent, results, settings: session.settings,
     checklist: Object.fromEntries(checklist.map(([title], index) => [index + 1,
       {title, result: 'Not tested', notes: '', ...session.checklist[index + 1]}])),
@@ -639,6 +639,8 @@ function exportRecord() {
 function markdown(record) {
   const escape = value => String(value ?? '').replace(/[\r\n]+/g, ' ').replace(/[\\|`*_<>\[\]]/g, '\\$&');
   const transportName = mode => mode === 'simulator' ? 'Simulator' : mode === 'serial' ? 'Serial AGV' : 'No connection';
+  const transportByConnection = new Map(record.transports.map(item => [item.connection, transportName(item.mode)]));
+  const labelTransport = entry => transportByConnection.get(entry.connection) ?? 'No connection';
   const tests = Object.entries(record.checklist);
   const lines = ['| Test | Result |', '| --- | --- |', ...tests.map(([number, test]) => `| ${number}. ${test.title} | ${test.result} |`),
     '', '# AGV commissioning report', '', `Transport — ${record.transports.length ? [...new Set(record.transports.map(item => transportName(item.mode)))].join(', ') : 'No connection'}`,
@@ -654,11 +656,11 @@ function markdown(record) {
       const station = status.max_stations === 0 ? 'stop counter' : 'station';
       lines.push(`Reported status — ${status.stopped === true ? 'stopped' : status.stopped === false ? 'running' : 'unknown'}, ${station} ${status.current_station}, target ${status.target_station}, ${speedText(status.actual_speed_m_h)}, battery ${status.battery_percent}%, ${faultText(status)}. Status age ${seconds(proof.status_age_s)} s${proof.stale ? ' (stale)' : ''}.`);
     }
-    for (const command of proof.commands) lines.push(`- ${command.timestamp} · ${commands.get(command.name)?.label ?? command.name} · ${resultText(command.name, command).text}`);
-    for (const event of proof.events) lines.push(`- ${event.timestamp} · ${escape(event.text)}`);
+    for (const command of proof.commands) lines.push(`- ${command.timestamp} · ${labelTransport(command)} · ${commands.get(command.name)?.label ?? command.name} · ${resultText(command.name, command).text}`);
+    for (const event of proof.events) lines.push(`- ${event.timestamp} · ${labelTransport(event)} · ${escape(event.text)}`);
   }
   if (record.events.length) lines.push('', '## Session events', '',
-    ...record.events.map(event => `- ${event.timestamp} · ${escape(event.text)}`));
+    ...record.events.map(event => `- ${event.timestamp} · ${labelTransport(event)} · ${escape(event.text)}`));
   if (record.log_gap) lines.push('', 'Some raw log entries are missing. See the JSON record for available entries.');
   return lines.join('\n') + '\n';
 }
