@@ -1,11 +1,16 @@
+const storage = {
+  getItem(key) { try { return localStorage.getItem(key); } catch { return null; } },
+  setItem(key, value) { try { localStorage.setItem(key, value); } catch {} },
+  removeItem(key) { try { localStorage.removeItem(key); } catch {} },
+};
 'use strict';
 const token=document.querySelector('meta[name="module-token"]').content;
 const moduleName=document.body.dataset.module;
 const $=id=>document.getElementById(id);
 let imageJob=null, imageUrl=null, autoEnabled=false, activeJob=null;
-let current=moduleName?localStorage.getItem('ano-job-'+moduleName):null;
+let current=moduleName?storage.getItem('ano-job-'+moduleName):null;
 let calibrationHandoff=null;
-let pendingSend=moduleName?JSON.parse(localStorage.getItem('ano-send-'+moduleName)||'null'):null, submitting=false;
+let pendingSend=moduleName?JSON.parse(storage.getItem('ano-send-'+moduleName)||'null'):null, submitting=false;
 function updateStarts(){
   document.querySelectorAll('[data-action]').forEach(button=>button.disabled=submitting||!!pendingSend||!!activeJob||(button.hasAttribute('data-auto')&&!autoEnabled));
   if($('retry'))$('retry').disabled=submitting;
@@ -45,16 +50,16 @@ async function send(){
   submitting=true;updateStarts();
   try{
     const job=await api('/api/'+moduleName,pendingSend);
-    activeJob=job.id;current=job.id;localStorage.setItem('ano-job-'+moduleName,current);
-    pendingSend=null;localStorage.removeItem('ano-send-'+moduleName);$('retry').hidden=true;
+    activeJob=job.id;current=job.id;storage.setItem('ano-job-'+moduleName,current);
+    pendingSend=null;storage.removeItem('ano-send-'+moduleName);$('retry').hidden=true;
     notice('Request accepted. The Interface PC owns this job.');await refresh();
-  }catch(error){if(error.status){pendingSend=null;localStorage.removeItem('ano-send-'+moduleName);$('retry').hidden=true;notice(error.message,true);}else{notice(error.message+' Retry the same request if the connection failed.',true);$('retry').hidden=false;}}
+  }catch(error){if(error.status){pendingSend=null;storage.removeItem('ano-send-'+moduleName);$('retry').hidden=true;notice(error.message,true);}else{notice(error.message+' Retry the same request if the connection failed.',true);$('retry').hidden=false;}}
   finally{submitting=false;updateStarts();}
 }
 async function start(action){
   if(pendingSend){notice('Retry the pending request before starting another.',true);return;}
   if(activeJob)return;
-  try{if(moduleName==='calibration'&&['manual','verify-capture','plan','collect','replay'].includes(action)&&![...document.querySelectorAll('.ready')].every(c=>c.checked))throw Error('Complete the setup checks before collecting views.');pendingSend={...values(action),request_id:crypto.randomUUID()};localStorage.setItem('ano-send-'+moduleName,JSON.stringify(pendingSend));await send();}
+  try{if(moduleName==='calibration'&&['manual','verify-capture','plan','collect','replay'].includes(action)&&![...document.querySelectorAll('.ready')].every(c=>c.checked))throw Error('Complete the setup checks before collecting views.');pendingSend={...values(action),request_id:crypto.randomUUID()};storage.setItem('ano-send-'+moduleName,JSON.stringify(pendingSend));await send();}
   catch(error){notice(error.message,true);}
 }
 async function answer(id,value){
@@ -95,7 +100,7 @@ function render(job){
     for(const [event,id] of [[result,'calibration'],[intrinsic,'intrinsics']]) {
       if(!event?.path||(id==='calibration'&&job.state!=='done'))continue;
       const key='ano-applied-'+id, identity=job.id+':'+event.path;
-      if(localStorage.getItem(key)!==identity){$(id).value=event.path;localStorage.setItem(key,identity);saveCalibrationForm();if(id==='calibration')previewCalibration();}
+      if(storage.getItem(key)!==identity){$(id).value=event.path;storage.setItem(key,identity);saveCalibrationForm();if(id==='calibration')previewCalibration();}
     }
     const completed=job.state==='done'&&job.module==='calibration'?job.result:null;
     calibrationHandoff=completed?.path&&completed.result?.type==='eye_in_hand'&&['good','acceptable'].includes(completed.result.verdict)?completed:null;
@@ -165,7 +170,7 @@ async function refresh(){
 }
 const calibrationFields=['session','manifest','board','serial','robot_ip','camera_provider','camera_fps','camera_exposure_us','camera_gain_db','intrinsics','calibration','verification','collision_scene','views','tilt_deg','roll_deg'];
 function saveCalibrationForm(){
-  if(moduleName==='calibration')localStorage.setItem('ano-calibration-form',JSON.stringify(Object.fromEntries(calibrationFields.map(id=>[id,$(id).value]))));
+  if(moduleName==='calibration')storage.setItem('ano-calibration-form',JSON.stringify(Object.fromEntries(calibrationFields.map(id=>[id,$(id).value]))));
 }
 function syncBaslerFields(){
   const basler=field('camera_provider')==='basler';
@@ -173,7 +178,7 @@ function syncBaslerFields(){
   $('basler-gain-field').hidden=!basler;
 }
 if(moduleName==='calibration'){
-  const saved=JSON.parse(localStorage.getItem('ano-calibration-form')||'{}');
+  const saved=JSON.parse(storage.getItem('ano-calibration-form')||'{}');
   for(const id of calibrationFields){if(typeof saved[id]==='string')$(id).value=saved[id];$(id).addEventListener('input',saveCalibrationForm);}
   syncBaslerFields();
 
@@ -182,7 +187,7 @@ if(moduleName==='calibration'){
   document.addEventListener('calibration-scene-scope',event=>{if(event.detail?.selection!==field('collision_scene'))return;$('plan-scene-scope').textContent=event.detail.scope==='supervised_self'?'Selected scene: arm and attached tools only. External objects are not checked.':'Selected scene: cell scope. Check external objects and cell coverage.';});
   document.addEventListener('calibration-scene-saved',event=>{if(typeof event.detail!=='string'||!event.detail.startsWith('/'))return;$('collision_scene').value=event.detail;saveCalibrationForm();});
   $('calibration').addEventListener('input',()=>{$('continue-teaching').disabled=!calibrationHandoff||field('calibration')!==calibrationHandoff.path;previewCalibration();});
-  $('continue-teaching').addEventListener('click',()=>{if(!calibrationHandoff||field('calibration')!==calibrationHandoff.path)return;const r=calibrationHandoff.result;localStorage.setItem('ano-handoff-teaching',JSON.stringify({calibration:calibrationHandoff.path,tcp:r.camera_in_tcp?.tcp_offset,robot_ip:r.robot?.host==='simulated'?'':(r.robot?.host||''),serial:r.camera?.device?.serial_number||'',camera_provider:r.camera?.provider||'realsense',camera_fps:r.camera?.stream?.fps,camera_exposure_time_us:r.camera?.exposure_time_us,simulation:!!(r.simulation_truth||r.camera?.simulated||r.robot?.host==='simulated')}));location.href='/teaching';});
+  $('continue-teaching').addEventListener('click',()=>{if(!calibrationHandoff||field('calibration')!==calibrationHandoff.path)return;const r=calibrationHandoff.result;storage.setItem('ano-handoff-teaching',JSON.stringify({calibration:calibrationHandoff.path,tcp:r.camera_in_tcp?.tcp_offset,robot_ip:r.robot?.host==='simulated'?'':(r.robot?.host||''),serial:r.camera?.device?.serial_number||'',camera_provider:r.camera?.provider||'realsense',camera_fps:r.camera?.stream?.fps,camera_exposure_time_us:r.camera?.exposure_time_us,simulation:!!(r.simulation_truth||r.camera?.simulated||r.robot?.host==='simulated')}));location.href='/teaching';});
   let toolViewNeedsFit=true;
   document.querySelectorAll('[data-step]').forEach(button=>button.onclick=()=>{
     document.querySelectorAll('[data-page]').forEach(page=>page.hidden=page.dataset.page!==button.dataset.step);
@@ -192,8 +197,8 @@ if(moduleName==='calibration'){
   document.querySelector('[data-step="0"]').click();
 }
 if(moduleName==='pick-place'){
-  const fields=['project','calibration','manifest'], saved=JSON.parse(localStorage.getItem('ano-pick-place-form')||'{}'), handoff=JSON.parse(localStorage.getItem('ano-handoff-pick-place')||'null');
-  localStorage.removeItem('ano-handoff-pick-place');
+  const fields=['project','calibration','manifest'], saved=JSON.parse(storage.getItem('ano-pick-place-form')||'{}'), handoff=JSON.parse(storage.getItem('ano-handoff-pick-place')||'null');
+  storage.removeItem('ano-handoff-pick-place');
   // Legacy simulation requests and results have no operator controls on this page.
   pendingSend=null;current=null;
   for(const id of fields){
@@ -201,7 +206,7 @@ if(moduleName==='pick-place'){
     if(handoff&&typeof handoff[id]==='string')$(id).value=handoff[id];
     $(id).addEventListener('input',()=>{
       $('pick-provenance').textContent='Inputs changed. Review the saved project, calibration and marker provenance.';
-      localStorage.setItem('ano-pick-place-form',JSON.stringify(Object.fromEntries(fields.map(key=>[key,$(key).value]))));
+      storage.setItem('ano-pick-place-form',JSON.stringify(Object.fromEntries(fields.map(key=>[key,$(key).value]))));
     });
   }
   $('pick-provenance').textContent=handoff?.simulation?'Selected inputs were simulated; choose physically taught data for real movement.':'Review the selected teaching project, calibration and marker provenance.';
@@ -211,6 +216,6 @@ if(moduleName&&moduleName!=='pick-place'){
   const retry=document.createElement('button');retry.id='retry';retry.textContent='Retry the same request';retry.hidden=!pendingSend;
   $('current-operation').querySelector('.operation-body').prepend(retry);retry.onclick=send;updateStarts();
   document.querySelectorAll('[data-action]').forEach(button=>button.onclick=()=>start(button.dataset.action));
-  $('load').onclick=()=>{current=field('job_id');localStorage.setItem('ano-job-'+moduleName,current);refresh();};
+  $('load').onclick=()=>{current=field('job_id');storage.setItem('ano-job-'+moduleName,current);refresh();};
 }
 refresh();setInterval(refresh,1500);

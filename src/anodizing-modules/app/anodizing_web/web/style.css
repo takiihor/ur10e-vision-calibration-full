@@ -146,3 +146,33 @@ body[data-module="agv"] main { max-width: 1440px; }
   .agv-readouts, .agv-found-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .agv-warning { font-size: 12px; }
 }
+
+[data-module="pick-place"] #current-operation .operation-stop button { min-height: 64px; }
+[data-module="pick-place"] #agv-travel-settings button,
+[data-module="pick-place"] #repeat-review,
+[data-module="pick-place"] #repeat-start,
+[data-module="pick-place"] input[id^="repeat-"][type="number"] { min-height: 44px; }
+[data-module="pick-place"] [hidden] { display: none; }
+[data-module="pick-place"] #pick-agv-alert,
+[data-module="pick-place"] #pick-agv-job-alarm,
+[data-module="pick-place"] #pick-agv-link[data-state="failed"] { color: #a82720; font-weight: 700; }
+[data-module="pick-place"] :focus-visible { outline: 3px solid #1d4ed8; outline-offset: 2px; }
+
+[data-module="pick-place"] #current-operation .operation-stop {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+[data-module="pick-place"] #current-operation .operation-stop button { width: 100%; }
+@media (max-width: 1050px) {
+  body[data-module="pick-place"] .operation-column {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    max-height: 48vh;
+  }
+}
+[data-module="pick-place"] #manual-job-status[data-state="running"] { color: #1d4ed8; }
+[data-module="pick-place"] #manual-job-status[data-state="done"] { color: #166534; }
+[data-module="pick-place"] #manual-job-status:is([data-state="failed"], [data-state="interrupted"]) {
+  color: #a82720;
+}

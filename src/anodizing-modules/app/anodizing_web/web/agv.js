@@ -250,6 +250,7 @@ function disabled(id, reason) {
 function commandReason(name, preset) {
   if (!state.connected) return 'Connect first.';
   if (urgent.has(name)) return '';
+  if (state.recipe_active && !commands.get(name)?.motion) return 'The recipe is checking AGV status. Follow Current operation on Pick/place.';
   if (commands.get(name)?.motion) {
     if (state.motion_block) return state.motion_block;
     if (!state.armed) return 'Tick Armed to enable movement.';
@@ -381,7 +382,7 @@ function render() {
       : !Number.isInteger(stationCount) || stationCount < 0 || stationCount > 255 || $('stations-config').value === ''
         ? 'Enter a simulator station count from 0 to 255.' : '');
   disabled('connect', connectReason);
-  disabled('disconnect', !state.connected ? 'Connect first.' : busy ? 'Wait for the current request.' : '');
+  disabled('disconnect', !state.connected ? 'Connect first.' : state.recipe_active ? 'Stop the active recipe before disconnecting.' : busy ? 'Wait for the current request.' : '');
   disabled('armed', !state.connected ? 'Connect first.' : busy ? 'Wait for the current request.' : state.motion_block || '');
   disabled('auto', !state.connected ? 'Connect first.' : '');
   disabled('silence', busy ? 'Wait for the current request.' : '');
@@ -389,6 +390,9 @@ function render() {
   $('movement').dataset.armed = String(!!state.armed);
   $('silence-label').hidden = !state.connected || state.settings.mode !== 'simulator';
   $('silence').checked = state.silent || false;
+  display('interlock', state.robot_interlock === false ? 'No robot interlock: AGV-only test bench.'
+    : state.robot_interlock ? 'Robot travel pose required for motion. Save or check the pose on Pick/place.'
+    : 'Checking robot interlock…');
   display('connection-note', reportError || ($('link-settings').open ? connectionLocked || connectReason : ''));
 
   for (const [id, control] of controls) {
@@ -603,7 +607,7 @@ function sendCommand(command, id, preset, viaEsc = false) {
 
 async function tick() {
   const now = performance.now();
-  if (!busy && !polling && state.connected && $('auto').checked && now >= nextPoll) {
+  if (!busy && !polling && !state.recipe_active && state.connected && $('auto').checked && now >= nextPoll) {
     polling = true;
     try { await sendCommand('query_status'); }
     finally { polling = false; }

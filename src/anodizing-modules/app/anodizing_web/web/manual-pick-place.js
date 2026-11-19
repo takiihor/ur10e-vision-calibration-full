@@ -2,6 +2,9 @@
 (() => {
   const el=id=>document.getElementById(id), token=document.querySelector('meta[name="module-token"]').content;
   let capability=null, ownerStatus=null, posting=false, generation=0, recipe=null;
+  let travel=null, savingPose=false, lastUrgent=null;
+  const stationFields=['repeat-station-a','repeat-station-b','repeat-agv-timeout','repeat-agv-speed-cap'];
+  const display=(id,value)=>{if(el(id).textContent!==value)el(id).textContent=value;};
   const message=text=>{el('manual-message').textContent=text;};
   const fields=['project','calibration','manifest','manual-pick-tag','manual-place-tag','manual-setup','manual-scene',
     'manual-joint-min','manual-joint-max','manual-joint-source','manual-workspace-min','manual-workspace-max',
@@ -46,11 +49,28 @@
   }
   function render() {
     const blocked=ownerReason();
-    el('repeat-review').disabled=!!blocked||!capability?.hardware_available;
-    el('repeat-review').title=blocked||capability?.detail||'';
+    const invalid=stationFields.find(id=>!el(id).checkValidity());
+    const reviewWhy=blocked||(!capability?.hardware_available?capability?.detail||'Checking service access.':'')||
+      (invalid?'Enter station numbers from 1 to 255, timeout from 1 to 600 s and a cap from 500 to 1500 m/h.':'');
+    const drive=travel?.allow_agv_in_recipe;
+    const crosses=recipe&&recipe.stations.A!==recipe.stations.B;
+    const startWhy=reviewWhy||(!recipe?'Review the current recipe.':
+      crosses&&!drive?'Check-only mode needs both endpoints at the same station.':
+      !el('repeat-approved').checked?'Approve the bounded automatic test.':
+      crosses&&!el('repeat-agv-confirmed').checked?'Confirm the AGV app mode, clear line and e-stop coverage.':'');
+    el('repeat-review').disabled=!!reviewWhy;
+    el('repeat-review').title=reviewWhy;
     el('repeat-approved').disabled=!recipe||!!blocked;
-    el('repeat-start').disabled=!!blocked||!recipe||!el('repeat-approved').checked;
-    el('repeat-start').title=blocked||(!recipe?'Review the current recipe.':!el('repeat-approved').checked?'Approve the bounded automatic test.':'');
+    el('repeat-agv-approval').hidden=!drive;
+    el('repeat-agv-confirmed').disabled=!recipe||!!blocked||!drive;
+    el('repeat-start').disabled=!!startWhy;
+    el('repeat-start').title=startWhy;
+    display('repeat-action-reason',reviewWhy||startWhy);
+    const poseWhy=blocked||(savingPose?'Reading robot joints…':!travel?.robot_configured?
+      'Robot access is disabled.':!el('travel-pose-confirmed').checked?'Confirm the folded pose to save it.':'');
+    el('travel-pose-save').disabled=!!poseWhy;
+    el('travel-pose-save').title=poseWhy;
+    display('travel-pose-reason',poseWhy);
     el('manual-prepare').disabled=!!blocked;el('manual-prepare').title=blocked;
     for(const action of ['PICK','PLACE']){const why=reason(action);el('manual-'+action).disabled=!!why;el('manual-'+action).title=why;}
     el('manual-capability').textContent=['PICK','PLACE'].map(action=>action+': '+(reason(action)||'Ready; confirm the exact fresh plan after admission.')).join(' ');
@@ -59,14 +79,18 @@
     const response=await fetch(path,{method:body?'POST':'GET',headers:{'X-Module-Token':token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
     const value=await response.json();if(!response.ok)throw new Error(value.error||'Request failed.');return value;
   }
-  function invalidateRecipe(){recipe=null;el('repeat-approved').checked=false;el('repeat-summary').textContent='Settings changed. Review the recipe before Start.';}
+  function invalidateRecipe(){
+    recipe=null;el('repeat-approved').checked=false;el('repeat-agv-confirmed').checked=false;
+    display('repeat-approval-stations','');
+    display('repeat-summary','Settings changed. Review the recipe before Start.');
+  }
   document.addEventListener('test-profile-applied',()=>{el('manual-setup').checked=false;invalidateRecipe();render();});
   document.addEventListener('manual-owner-status',event=>{ownerStatus=event.detail;render();});
   request('/api/manual-pick-place').then(value=>{capability=value;render();}).catch(error=>{capability={detail:error.message};render();});
-  el('manual-scene').value=localStorage.getItem('ano-manual-scene')||'';
+  try{el('manual-scene').value=localStorage.getItem('ano-manual-scene')||'';}catch{}
   for(const id of fields)el(id).addEventListener('input',()=>{
     generation++;invalidateRecipe();
-    if(id==='manual-scene')localStorage.setItem('ano-manual-scene',el(id).value);
+    if(id==='manual-scene'){try{localStorage.setItem('ano-manual-scene',el(id).value);}catch{}}
     if(id!=='manual-setup')el('manual-setup').checked=false;
     render();
   });
@@ -93,14 +117,19 @@
     const body=data(action);
     return {...body,place_project:el('repeat-place-project').value.trim(),
       transfers:Number(el('repeat-transfers').value),settle_s:Number(el('repeat-settle').value),
+      station_a:el('repeat-station-a').valueAsNumber, station_b:el('repeat-station-b').value===''?null:el('repeat-station-b').valueAsNumber,
+      agv_timeout_s:el('repeat-agv-timeout').valueAsNumber, agv_speed_cap_m_h:el('repeat-agv-speed-cap').valueAsNumber,
       initial_item_state:'operator_confirmed_released',reuse_taught_offset:true,
       operator_path_approved:true,tcp_confirmed:true,held_envelope_confirmed:true};
   }
-  for(const id of ['repeat-place-project','repeat-transfers','repeat-settle'])el(id).addEventListener('input',()=>{generation++;invalidateRecipe();render();});
+  for(const id of ['repeat-place-project','repeat-transfers','repeat-settle',...stationFields])el(id).addEventListener('input',()=>{generation++;invalidateRecipe();render();});
   el('repeat-approved').addEventListener('change',render);
+  el('repeat-agv-confirmed').addEventListener('change',render);
+  el('travel-pose-confirmed').addEventListener('change',render);
   el('repeat-review').addEventListener('click',async()=>{
-    if(ownerReason())return;
+    if(el('repeat-review').disabled)return;
     const review=++generation;invalidateRecipe();posting=true;render();
+    display('repeat-message','Sending recipe for review…');
     try {
       const body=repeatBody('review_repeat');
       let job=await request('/api/manual-pick-place',{request_id:crypto.randomUUID(),...body});
@@ -108,20 +137,108 @@
       if(review!==generation)return;
       if(job.state!=='done')throw new Error(job.error||job.state);
       recipe=job.result;
-      const same=recipe.A===recipe.B,end=same?'A (same tank)':recipe.end;
-      el('repeat-summary').textContent=`${recipe.transfers} commanded transfer(s). A: ${recipe.A}. B: ${recipe.B}. Final commanded rod endpoint: ${end} (unverified). Saved approach: A ${recipe.approach_mm.A} mm; B ${recipe.approach_mm.B} mm. Lift/retract: 100 mm. Close 1; open 3; settling ${recipe.settle_s} s. Each fresh path is checked. No per-operation approval pauses.`;
+      const same=recipe.A===recipe.B&&recipe.stations.A===recipe.stations.B,end=same?'A (same tank)':recipe.end;
+      display('repeat-approval-stations',`I approve A at AGV station ${recipe.stations.A} and B at AGV station ${recipe.stations.B}.`);
+      display('repeat-agv-approval-text',recipe.agv_approval);
+      el('repeat-summary').textContent=`${recipe.transfers} commanded transfer(s). A: ${recipe.A} (AGV station ${recipe.stations.A}). B: ${recipe.B} (AGV station ${recipe.stations.B}). Final commanded rod endpoint: ${end} (unverified). Saved approach: A ${recipe.approach_mm.A} mm; B ${recipe.approach_mm.B} mm. Lift/retract: 100 mm. Close 1; open 3; settling ${recipe.settle_s} s. AGV timeout ${recipe.agv_timeout_s} s, set-speed cap ${recipe.agv_speed_cap_m_h} m/h (${recipe.agv_speed_cap_m_h/1000} km/h). Each fresh path is checked. No per-operation approval pauses.`;
       el('repeat-message').textContent='Recipe reviewed. Check the physical setup, then approve this bounded test.';
     }catch(error){el('repeat-message').textContent=error.message+' No automatic retry.';}
     finally{posting=false;render();}
   });
   el('repeat-start').addEventListener('click',async()=>{
-    if(ownerReason()||!recipe||!el('repeat-approved').checked)return;
-    const body={...repeatBody('REPEAT'),automatic_test_approved:true,recipe_sha256:recipe.recipe_sha256};
+    if(el('repeat-start').disabled)return;
+    const body={...repeatBody('REPEAT'),automatic_test_approved:true,recipe_sha256:recipe.recipe_sha256,
+      agv_manual_confirmed:el('repeat-agv-confirmed').checked};
+    display('repeat-message','Sending automatic test…');
     posting=true;invalidateRecipe();render();
     try{await window.startManualJob('/api/manual-pick-place',body);el('repeat-message').textContent='IPC automatic test accepted. Follow Current operation and use Stop to end the test.';}
     catch(error){el('repeat-message').textContent=error.message;}
     finally{posting=false;render();}
   });
+  el('repeat-review').setAttribute('aria-describedby','repeat-action-reason repeat-message');
+  el('repeat-start').setAttribute('aria-describedby','repeat-action-reason repeat-message');
+  el('travel-pose-save').setAttribute('aria-describedby','travel-pose-reason travel-pose-outcome');
+
+  function renderAgv(agv){
+    const age=agv?.status_age_s, stale=agv?.connected&&(age>=3||agv.stale);
+    const report=age!=null?`last status ${age.toFixed(1)} s ago`:'awaiting a status report';
+    const machine=agv?.status, observed=machine?` · station ${machine.current_station} · ${machine.stopped&&machine.actual_speed_m_h===0?'stopped':'moving'}`:'';
+    display('pick-agv-link',agv?.connected?`AGV ${stale?'link stale':'connected'} · ${agv.mode} · ${report}${observed}`:
+      'AGV disconnected. Connect on the AGV page.');
+    el('pick-agv-link').dataset.state=stale?'failed':'';
+    display('pick-agv-alert',stale?'AGV may still be moving. Use its e-stop. Check the radio.':
+      machine?.fault_code?`AGV fault ${machine.fault_code} · ${machine.fault_description}. Check the AGV.`:
+      machine?.obstacle_stop?'AGV obstacle stop. Check the line before continuing.':'');
+    for(const command of ['stop','pause'])el('pick-agv-'+command).disabled=!agv?.connected;
+    if(!lastUrgent)return;
+    const result=agv?.results?.[lastUrgent.command];
+    if(result?.sent_at===lastUrgent.sent){
+      if(result.state==='confirmed by status') urgentFeedback(lastUrgent.command,lastUrgent.text+
+        (lastUrgent.command==='stop'?' · AGV reports stopped.':' · AGV reports paused and stopped.'));
+      if(result.state==='not confirmed')urgentFeedback(lastUrgent.command,lastUrgent.text+' · Stop state unconfirmed. Use the AGV e-stop if needed.');
+    }
+  }
+  async function refreshTravel(){
+    try{
+      travel=await request('/api/agv-travel-pose');
+      const pose=travel.pose;
+      display('repeat-agv-mode',travel.allow_agv_in_recipe?'Approved recipes can call AGV stations.':
+        'AGV check-only mode. Both endpoints must use the same station, with the AGV stopped there.');
+      display('travel-pose-value',pose?`Saved ${new Date(pose.saved_at).toLocaleString()} · joints (°): ${pose.joints_rad.map(v=>(v*180/Math.PI).toFixed(1)).join(', ')}`:
+        'No AGV travel pose saved.');
+      display('travel-pose-live',travel.detail);
+      renderAgv(travel.agv);
+    }catch{
+      display('travel-pose-live','Travel pose unavailable. Check the service connection.');
+    }finally{
+      render();
+      setTimeout(refreshTravel,750);
+    }
+  }
+  el('travel-pose-save').addEventListener('click',async()=>{
+    if(el('travel-pose-save').disabled)return;
+    savingPose=true;render();
+    display('travel-pose-outcome','Reading robot joints…');
+    try{
+      const pose=await request('/api/agv-travel-pose',{project:el('project').value.trim(),confirmed:true});
+      generation++;invalidateRecipe();
+      el('travel-pose-confirmed').checked=false;
+      display('travel-pose-outcome',`Travel pose saved at ${new Date(pose.saved_at).toLocaleTimeString()}.`);
+    }catch(error){display('travel-pose-outcome',error.message);}
+    finally{savingPose=false;render();}
+  });
+
+  function urgentFeedback(command,text){
+    display('pick-agv-'+command+'-outcome',text);
+    display('pick-agv-outcome',text);
+  }
+  async function sendUrgent(command,esc=false){
+    if(!travel?.agv?.connected){urgentFeedback(command,'Connect first on the AGV page.');return;}
+    urgentFeedback(command,'Sending…');
+    lastUrgent=null;
+    try{
+      const state=await request('/api/agv',{action:'send',command});
+      const sent=state.results[command].sent_at;
+      const label=command==='stop'?'Stop':'Pause';
+      const text=`${label} sent ${new Date(sent).toLocaleTimeString('en-GB',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit',fractionalSecondDigits:3})}.${esc?' (Esc)':''}`;
+      lastUrgent={command,sent,text};
+      urgentFeedback(command,text);
+      if(!state.recipe_active)request('/api/agv',{action:'send',command:'query_status',background:true}).catch(()=>{});
+    }catch{urgentFeedback(command,'AGV command could not be confirmed. Use its e-stop.');}
+  }
+  for(const command of ['stop','pause'])
+    el('pick-agv-'+command).addEventListener('click',()=>sendUrgent(command));
+  document.addEventListener('keydown',event=>{
+    if(event.key==='Escape'&&!event.repeat){event.preventDefault();sendUrgent('stop',true);}
+  });
+  document.addEventListener('manual-job-update',event=>{
+    const job=event.detail;
+    if(!job.manual?.repeat)return;
+    if(job.state==='done')display('repeat-message','Automatic test completed. Review the transfer record in Current operation.');
+    if(job.state==='failed'||job.state==='interrupted')display('repeat-message',
+      'Automatic test ended. '+(job.error||'Check Current operation before starting a new run.'));
+  });
+  void refreshTravel();
   el('manual-setup').checked=false;
   el('manual-item-state').value='';render();
 })();

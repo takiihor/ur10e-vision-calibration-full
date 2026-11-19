@@ -10,12 +10,13 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 
   | Word | Meaning |
   |---|---|
-  | **Sent** | The page wrote the command. The XBOT protocol has no ACK. |
+  | **Sent** | The service wrote the command. |
+  | **Acknowledged** | The AGV sent the short XBOT reply. A later status confirms the machine state. |
   | **Replied** | The AGV answered a read. |
   | **Confirmed** | A later AGV status shows the expected change. |
   | **Observed** | The operator ticked that they saw it. |
 
-- **The link's age is always visible.** Past the stale limit, show it as an alarm (see 6), not as small grey text.
+- **The link's age is always visible.** Raise a stale-link alarm after 3 s in a recipe or 5 s on the AGV commissioning page (see 6).
 
 ## 2. Stop and Pause
 - **Placement.** Stop and Pause stay in one fixed position at the top and are always visible. Scroll, reflow or an open panel never moves them.
@@ -29,7 +30,7 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 - **Shortcut.** Press Esc anywhere on the page to send one software Stop while connected. The Stop outcome shows `(Esc)` next to the send time. While disconnected, pressing Esc shows “Connect first” in the status line. Esc is the only command shortcut.
 
 ## 3. Movement is deliberate
-- **One press, one command.** No sequences, no auto-repeat, no "run test".
+- **One press, one command on AGV commissioning.** A supervised Pick/place recipe can sequence station calls only after its review and explicit approval.
 - **Arming.**
   - Movement needs a visible Armed control.
   - Armed resets on reconnect and is never restored from storage.
