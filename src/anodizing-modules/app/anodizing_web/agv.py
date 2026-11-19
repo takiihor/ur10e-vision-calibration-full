@@ -18,7 +18,8 @@ except ImportError:
 
 HEADER = b'\xa5\x5a'
 DEFAULT_PREFIX = b'\x00\x01\x04'
-REPLY_TIMEOUT = .5
+REPLY_TIMEOUT = 1.5
+WRITE_TIMEOUT = .5
 STALE_AFTER = 5
 UNIDENTIFIED_INTERVAL = 11.22
 SENT = 'sent (protocol has no ACK)'
@@ -308,6 +309,7 @@ class Connection:
         self.status = self.status_at = self.status_hex = None
         self.results = {}
         self.pending = {}
+        self.recent_tx = {}
         # shortcut: Keep the latest 200 server events; add durable capture if tests need unattended logging.
         self.log = deque(maxlen=200)
         self.log_id = 0
@@ -331,6 +333,10 @@ class Connection:
         for raw, error in self.splitter.feed(chunk):
             if error:
                 self._record('RX', raw, {'error': error})
+                continue
+            sent_at = self.recent_tx.get(raw)
+            if sent_at is not None and monotonic() - sent_at <= 4 * REPLY_TIMEOUT:
+                self._record('RX', raw, {'description': 'echo of our transmission'})
                 continue
             offset = 3 if raw.startswith(self.splitter.prefixed_headers) else 0
             frame = parse_frame(raw, offset=offset)
@@ -410,7 +416,7 @@ class Connection:
                 raise ValueError('Select a listed serial port.')
             # XBOT RS485 protocol p. 1. The IPC/adapter must handle RS485 direction switching.
             transport = serial.Serial(port=port, baudrate=9600, bytesize=8, parity='N',
-                                      stopbits=1, timeout=0, write_timeout=REPLY_TIMEOUT, exclusive=True)
+                                      stopbits=1, timeout=0, write_timeout=WRITE_TIMEOUT, exclusive=True)
         else:
             raise ValueError('Select Simulator or Serial port.')
         self.transport = transport
@@ -422,6 +428,7 @@ class Connection:
         self.armed = False
         self.results.clear()
         self.pending.clear()
+        self.recent_tx.clear()
         self.log.clear()
         self.log_id = 0
 
@@ -463,6 +470,9 @@ class Connection:
         raw = frame.encode()
         if self.transport.write(raw) != len(raw):
             raise OSError('Incomplete write. The command may have reached the AGV.')
+        sent_at = monotonic()
+        self.recent_tx = {wire: at for wire, at in self.recent_tx.items() if sent_at - at <= 4 * REPLY_TIMEOUT}
+        self.recent_tx[raw] = sent_at
         detail = {'command': name, 'label': COMMANDS[name][0]}
         if value is not None:
             detail['value'] = value
@@ -478,10 +488,10 @@ class Connection:
                     self.results[pending]['state'] = 'not confirmed'
                     del self.pending[pending]
         self.results[name] = result
-        self.pending[name] = (expected_status(name, value), before, monotonic())
+        self.pending[name] = (expected_status(name, value), before, sent_at)
         reply = READS.get(name)
         if reply is not None:
-            deadline = monotonic() + REPLY_TIMEOUT
+            deadline = sent_at + REPLY_TIMEOUT
             while reply not in self._receive() and monotonic() < deadline:
                 sleep(.01)
 
