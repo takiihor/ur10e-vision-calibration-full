@@ -1,0 +1,122 @@
+# Operator page HCI guide (machines that move)
+
+For pages that command hardware: the AGV test page now, and the robot pages too. The user is an operator standing on the floor. Their eyes are on the machine, not the screen; they glance at the page from a metre or two away, maybe wearing gloves, and they may not be a programmer. Every rule below serves one question: **at a glance, does the operator know what the machine is doing, what the page just did, and what to do next?**
+
+Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-110 (interaction principles), ISO 13850 / IEC 60204-1 (stop and emergency-stop controls), WCAG 2.2 AA, and Nielsen's response-time limits.
+
+## 1. The machine is the truth
+- **Show what the machine last reported, and how old that report is.** Never show a commanded state as the actual state.
+- Keep four words distinct and use them consistently:
+
+  | Word | Meaning |
+  |---|---|
+  | **Sent** | The page wrote the command. The XBOT protocol has no ACK. |
+  | **Replied** | The AGV answered a read. |
+  | **Confirmed** | A later AGV status shows the expected change. |
+  | **Observed** | The operator ticked that they saw it. |
+
+- **The link's age is always visible.** Past the stale limit, show it as an alarm (see 6), not as small grey text.
+
+## 2. Stop and Pause
+- **Placement.** Stop and Pause stay in one fixed position at the top and are always visible. Scroll, reflow or an open panel never moves them.
+- **Availability.**
+  - They are enabled whenever a link is open.
+  - They never ask for confirmation.
+  - They never wait behind another request.
+- **Feedback.** Show "Stop sent 16:12:03.295", then "AGV reports stopped".
+- **It is not an e-stop.** Label it "Stop (software)", and keep the line "Not an emergency stop. Use the AGV's e-stop." next to it. Never style it red-on-yellow, which ISO 13850 reserves for emergency stops.
+- **Size.** Make Stop and Pause the largest controls on the page: at least 64 px tall, with space around them.
+- **Shortcut.** Esc may send Stop, because stopping is always the safe direction. No other keyboard shortcuts move the machine.
+
+## 3. Movement is deliberate
+- **One press, one command.** No sequences, no auto-repeat, no "run test".
+- **Arming.**
+  - Movement needs a visible Armed control.
+  - Armed resets on reconnect and is never restored from storage.
+  - While Armed is on, the page shows it plainly, for example by tinting the movement column.
+- **Disabled controls say why.** For example "Tick Armed to enable movement", "Connect first" or "A robot job is running". A greyed-out button with no reason is a bug.
+- **Validate input before sending.** Check ranges (speed 500–4000 m/h, stations 1–N) and explain any limit next to the field.
+
+## 4. Feedback timing
+| After a press | The page must show |
+|---|---|
+| ≤ 0.1 s | That the press registered: "Sending…" and a pressed state. |
+| Any wait > 1 s | Progress, with a countdown to the deadline: "Waiting for the AGV… 4 s". |
+| At the end | Exactly one outcome, in words: replied, confirmed, not confirmed, no reply, or refused. |
+
+**Each outcome appears in two places:** next to the control the operator pressed, and once in a single status line at the top. Never only in the log.
+
+## 5. Plain language
+- **Messages follow one pattern:** what happened, then why if it is known, then what to do next. For example: "No reply in 1.5 s. The radio may be unplugged. Reseat the USB plug, reload, Connect."
+- **No hex, no exception text, no Python names in primary messages.** Those belong in the log and the record.
+- **Use units everywhere:** m/h with km/h alongside, %, s, station numbers.
+- **Name modes and faults.** For example "Mode 2: station calling" and "Fault 61: off track (manual p. 15)".
+- **Language.** English labels. Keep the vendor's Chinese term in brackets where the operator has to find it in the XBOT app, e.g. "485 timed reports [定时发送485]".
+- **Local time.** Times appear in local time (HH:MM:SS, with milliseconds for events). The record keeps ISO timestamps.
+
+## 6. Calm when normal, loud when abnormal
+- **Normal state is calm.** Use neutral panels (the app's white panels and grey borders), and save colour for meaning.
+- **Use the app's existing state colours** (`style.css` `data-state`):
+
+  | Colour | Meaning |
+  |---|---|
+  | Blue | In progress |
+  | Amber | Waiting or attention |
+  | Green | Confirmed OK |
+  | Red | Failure, fault, or link lost |
+
+- **Never use colour alone.** Every state also has a word, and an icon where it helps. Contrast follows WCAG 2.2 AA: text 4.5:1, controls 3:1.
+- **Alarms are only conditions that need the operator to act:**
+  - the link is stale or lost;
+  - a fault code is not 0;
+  - an obstacle stop;
+  - a transport error.
+  
+  Each alarm states the action to take. It stays visible until the condition clears, and the record logs both its start and its clear time.
+- **An alarm sound is optional, off by default, and set per session.**
+
+## 7. Glanceable layout
+- **Top bar (sticky):**
+  - the connection banner: Disconnected / Connected · last reply n s ago / **Link stale** / Error;
+  - Stop and Pause.
+- **Main column:**
+  - big state readouts first: moving or stopped, current station → target, speed, battery, fault;
+  - then the stations;
+  - then the guided checklist.
+- **Right column:** the app's sticky operation column, holding Armed and the movement commands, as on the other pages.
+- **Readability.** The primary state is readable from about 2 m, at about 28 px or more for moving/stopped and station. Show no more than about 7 primary readouts; everything else goes in "Details".
+- **The raw log** sits at the bottom, collapsed by default, for experts and for the record.
+
+## 8. Errors and recovery
+- **Prevent first, explain second.** Disable impossible actions and validate input. Ask for confirmation only for actions that destroy data, such as "New test session"; never for Stop or Pause.
+- **Every error names its fix.** For example:
+  - permission denied: refresh serial permissions for the service user on the IPC;
+  - port missing: reseat the plug, reload;
+  - link lost mid-move: the AGV may still be moving, use its e-stop.
+- **Reload-safe.** The test session (checklist, notes, settings as found) saves as you go and survives a reload. Storage failures must not break the page.
+
+## 9. Accessibility and input
+- **WCAG 2.2 AA.** Keyboard operable, visible focus, labels on every control.
+- **Status changes go in an `aria-live` region:** polite for outcomes, assertive for alarms.
+- **Targets.** At least 44 px for normal controls (gloves), and larger for Stop and Pause.
+
+## 10. Records an operator and a manager can use
+- The record includes:
+  - the session (operator, site, AGV, radio, app settings as found);
+  - each test (result, notes, evidence);
+  - events;
+  - the full TX/RX log.
+- **Two exports:** a readable report (summary table first) and the full JSON.
+- **Simulator evidence is never presented as hardware evidence.** The record states the transport used.
+
+## Review checklist (part of "done" for any operator page)
+- [ ] Stop and Pause never move, are never disabled while a link is open, never need confirmation, and are never queued.
+- [ ] Every press shows "Sending…" within 0.1 s and ends in exactly one worded outcome, beside the control and in the status line.
+- [ ] Sent, replied, confirmed and observed are never conflated.
+- [ ] The link's age is always visible; stale shows as a red alarm with an action.
+- [ ] Every disabled control says why.
+- [ ] No primary message contains hex or exception text; every error names the next step.
+- [ ] No state is shown by colour alone; the contrast checks pass.
+- [ ] Armed is visible, resets on reconnect, and is never restored.
+- [ ] A reload keeps the test session; blocked storage doesn't break the page.
+- [ ] The readable report opens with the test summary table and names the transport (simulator or serial).

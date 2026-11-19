@@ -14,25 +14,32 @@ let storageReads = 0, storageWrites = 0;
 
 async function load(ports) {
   const fields = new Map();
-  function field(id) {
-    if (!fields.has(id)) {
-      const listeners = {};
-      fields.set(id, {
-        value: '', checked: false, classList: {toggle() {}},
-        addEventListener(type, fn) { listeners[type] = fn; },
-        emit(type) { return listeners[type]({currentTarget: this}); },
-        replaceChildren(...options) { this.options = options; if (!options.some(option => option.value === this.value)) this.value = ''; },
-      });
-    }
-    return fields.get(id);
+  function element(initialId) {
+    const listeners = {};
+    const field = {
+      value: '', checked: false, dataset: {}, classList: {toggle() {}},
+      addEventListener(type, fn) { listeners[type] = fn; },
+      emit(type) { return listeners[type]({currentTarget: this}); },
+      append() {}, setAttribute() {}, removeAttribute() {},
+      replaceChildren(...options) { this.options = options; if (!options.some(option => option.value === this.value)) this.value = ''; },
+      set id(id) { this.elementId = id; fields.set(id, this); },
+      get id() { return this.elementId; },
+    };
+    if (initialId) field.id = initialId;
+    return field;
   }
-  const get = id => field(id === 'message' ? id : 'agv-' + id);
+  function field(id) {
+    return fields.get(id) ?? element(id);
+  }
+  const get = id => field('agv-' + id);
   get('mode').value = 'simulator';
   get('address').value = '00 01';
   get('channel').value = '04';
+  get('stations-config').value = '3';
   let sequence = 0;
   vm.runInNewContext(source, {
-    document: {getElementById: field, querySelector: () => ({content: 'fixture'})},
+    document: {getElementById: field, querySelector: () => ({content: 'fixture'}), createElement: () => element()},
+    window: {addEventListener() {}},
     Option: class { constructor(text, value) { Object.assign(this, {text, value}); } },
     performance: {now: () => 0}, setInterval() {},
     localStorage: {
@@ -95,10 +102,10 @@ async function run() {
     assert.equal(fallback('port').value, other.device);
   } else if (scenario === 'blocked') {
     await get('connect').emit('click');
-    assert.equal(storageReads, 1);
+    assert.equal(storageReads, 3);
     assert.equal(storageWrites, 1);
     assert.equal(get('disconnect').disabled, false);
-    assert.match(get('message').textContent, /Connected · Simulator/);
+    assert.match(get('outcome').textContent, /Connected · Simulator/);
   } else if (scenario === 'rejected') {
     await get('connect').emit('click');
     assert.equal(storageWrites, 0);
