@@ -32,13 +32,14 @@
     if(save.disabled)return;
     saving=true;render();
     const outcome=el('travel-pose-outcome');
-    outcome.textContent='Reading robot joints…';
+    const show=(text,error=false)=>{outcome.textContent=text;message(text,error);};
+    show('Reading robot joints…');
     try{
       const pose=await moduleRequest('/api/agv-travel-pose',{project:el('project').value.trim(),confirmed:true});
       confirm.checked=false;
-      outcome.textContent='Travel pose saved at '+new Date(pose.saved_at).toLocaleTimeString()+'.';
+      show('Travel pose saved at '+new Date(pose.saved_at).toLocaleTimeString()+'.');
       await refresh();
-    }catch(error){outcome.textContent=error.message;}
+    }catch(error){show(error.message,true);}
     finally{saving=false;render();}
   });
   void refresh();
