@@ -166,3 +166,36 @@ def test_unknown_stop_flag_stays_raw_instead_of_indicating_stopped():
     status = agv.decode(agv.Frame(0x25, bytes(data)))
     assert status['stopped'] == 2
     assert status['attachment_active'] is True
+
+
+@pytest.mark.parametrize(('actual', 'command_stop', 'paused'), [
+    (-750, False, False), (0, True, False), (0, False, True),
+])
+def test_synthetic_status_encodes_reverse_and_stop_flags(actual, command_stop, paused):
+    data = bytearray(REPORT[4:-1])
+    data[4] = actual == 0
+    data[7] = command_stop
+    data[8:10] = actual.to_bytes(2, 'little', signed=True)
+    data[20] = paused
+    wire = agv.Frame(0x25, data, PREFIX).encode()
+    status = agv.decode(agv.parse_frame(wire))
+    assert status['actual_speed_m_h'] == actual
+    assert status['command_stop'] is command_stop
+    assert status['paused'] is paused
+
+
+def test_synthetic_ack_is_not_status_and_records_elapsed_time(monkeypatch):
+    now = 0
+    monkeypatch.setattr(agv, 'monotonic', lambda: now)
+    connection = agv.Connection(None)
+    transport = agv.Simulator(PREFIX)
+    connection.transport = transport
+    connection.splitter = agv.Splitter(PREFIX)
+    connection._send('set_speed', 800)
+    now = 1
+    connection._receive()
+    ack = connection.log[-1]['decode']
+    assert ack['acknowledgement'] is True and ack['vehicle_id'] == 1
+    assert 'stopped' not in ack and connection.status is None
+    assert ack['acknowledged_command'] == 'set_speed'
+    assert ack['ack_elapsed_s'] == pytest.approx(1)

@@ -80,7 +80,7 @@ def test_motion_requires_arming_for_the_current_connection(session):
 
 
 @pytest.mark.parametrize(('field', 'value', 'error'), [
-    ('active', 'robot-job-1', 'owns the service'),
+    ('active', 'robot-job-1', 'robot job is running'),
     ('closing', True, 'closing'),
     ('storage_error', 'write failed', 'storage'),
     ('execution_uncertain', True, 'uncertain'),
@@ -209,17 +209,16 @@ def test_simulator_reports_motion_speed_target_pause_and_stop(session):
     connection_id = open_simulator(request)
     send(request, 'query_status')
     request(dict(action='arm', armed=True, connection_id=connection_id))
-    assert send(request, 'set_speed', connection_id, value=1257)[1]['results']['set_speed']['state'] == 'sent (protocol has no ACK)'
+    assert send(request, 'set_speed', connection_id, value=1257)[1]['results']['set_speed']['state'] == agv.SENT
     state = send(request, 'query_status')[1]
     assert state['status']['set_speed_m_h'] == 1257
     assert state['results']['set_speed']['state'] == 'confirmed by status'
     assert send(request, 'read_speed')[1]['log'][-1]['decode'] == {
         'read_speed_m_h': 1257, 'reply_prefix': '00 FF 04',
     }
-    state = send(request, 'call_station', connection_id, value=255)[1]
-    assert 'maximum' in state['results']['call_station']['warning']
+    assert send(request, 'call_station', connection_id, value=2)[0] == 200
     state = send(request, 'query_status')[1]
-    assert state['status']['target_station'] == 255
+    assert state['status']['target_station'] == 2
     assert state['status']['actual_speed_m_h'] == 1257
     for command, stopped, paused in [('pause', True, True), ('resume', False, False), ('stop', True, False)]:
         send(request, command, connection_id)
@@ -228,7 +227,7 @@ def test_simulator_reports_motion_speed_target_pause_and_stop(session):
         assert state['results'][command]['state'] == 'confirmed by status'
 
 
-def test_silent_simulator_marks_link_stale_and_times_out_confirmation(session, monkeypatch):
+def test_silent_simulator_marks_link_stale_without_inventing_a_confirmation(session, monkeypatch):
     clock = SimpleNamespace(now=10.0)
     monkeypatch.setattr(agv, 'monotonic', lambda: clock.now)
     _, request = session
@@ -241,7 +240,7 @@ def test_silent_simulator_marks_link_stale_and_times_out_confirmation(session, m
     status, state = request()
     assert status == 200 and state['connected'] and state['stale']
     assert state['status_age_s'] == pytest.approx(5.01)
-    assert state['results']['pause']['state'] == 'not confirmed'
+    assert state['results']['pause']['state'] == 'waiting for status'
 
 
 def test_unchanged_status_does_not_confirm_repeat_of_completed_command(session, monkeypatch):
@@ -262,6 +261,9 @@ def test_command_confirmation_expires_during_silent_read(session, agv_clock):
     connection_id = open_simulator(request)
     send(request, 'query_status')
     send(request, 'pause')
+    send(request, 'query_status')
+    send(request, 'pause')
+    send(request, 'query_status')
     request(dict(action='silence', silent=True, connection_id=connection_id))
     agv_clock.now += agv.STALE_AFTER - 1
 
@@ -462,3 +464,167 @@ def test_query_waits_for_reply_or_full_timeout_before_next_request(session, monk
     state = send(request, 'query_status', connection_id)[1]
     assert agv_clock.now == 12.10
     assert state['results']['query_status']['state'] == 'no reply'
+
+
+def test_station_arrival_uses_a_later_stop_and_measures_travel(session, agv_clock):
+    _, request = session
+    connection_id = open_simulator(request)
+    assert send(request, 'query_status')[1]['status']['max_stations'] == 3
+    assert send(request, 'call_station', connection_id, value=2)[0] == 400
+    assert send(request, 'set_speed', connection_id, value=500)[0] == 400
+    request(dict(action='arm', armed=True, connection_id=connection_id))
+    assert send(request, 'call_station', connection_id, value=4)[0] == 400
+    status, state = send(request, 'call_station', connection_id, value=2)
+    assert status == 200
+    assert state['results']['call_station']['state'] == agv.SENT
+    agv_clock.now += 1
+    state = send(request, 'query_status')[1]
+    assert not state['status']['stopped']
+    assert state['status']['current_station'] == 1 and state['status']['target_station'] == 2
+    assert state['results']['call_station']['ack_elapsed_s'] == pytest.approx(1)
+    agv_clock.now += 4
+    state = send(request, 'query_status')[1]
+    assert state['status']['current_station'] == 2 and state['status']['stopped']
+    assert state['results']['call_station']['state'] == 'arrived'
+    assert state['results']['call_station']['elapsed_s'] == pytest.approx(5)
+    assert {'stopped', 'current_station', 'target_station'} <= {event['field'] for event in state['events']}
+
+
+def test_stop_counter_cannot_confirm_a_station_call(session, agv_clock):
+    _, request = session
+    _, connected = request({'action': 'connect', 'mode': 'simulator', 'stations': 0})
+    connection_id = connected['connection_id']
+    assert send(request, 'query_status')[1]['status']['max_stations'] == 0
+    request(dict(action='arm', armed=True, connection_id=connection_id))
+    assert send(request, 'call_station', connection_id, value=1)[0] == 200
+    agv_clock.now += 6
+    result = send(request, 'query_status')[1]['results']['call_station']
+    assert result['state'] == 'not confirmed'
+    assert 'maximum' in result['warning']
+
+
+def test_ack_does_not_replace_status_and_manual_check_can_be_late(session, agv_clock):
+    _, request = session
+    connection_id = open_simulator(request)
+    initial = send(request, 'query_status')[1]
+    send(request, 'pause', auto_poll=False)
+    agv_clock.now += 1
+    state = request()[1]
+    assert state['status'] == initial['status']
+    assert state['status_age_s'] == 1
+    assert state['results']['pause']['ack_elapsed_s'] == pytest.approx(1)
+    agv_clock.now += 5
+    state = request()[1]
+    assert state['stale'] and state['results']['pause']['state'] == 'waiting for status'
+    state = send(request, 'query_status')[1]
+    assert state['results']['pause']['state'] == 'confirmed by status'
+    assert [(e['after'], e['before']) for e in state['events'] if e['field'] == 'link_stale'] == [
+        (True, False), (False, True),
+    ]
+
+
+def test_later_motion_supersedes_unchecked_stop(session, agv_clock):
+    _, request = session
+    connection_id = open_simulator(request)
+    send(request, 'stop')
+    send(request, 'pause')
+    assert request()[1]['results']['stop']['state'] == 'not checked'
+
+
+def test_status_events_record_both_edges_and_manual_fault_page(session, monkeypatch):
+    fields = {'stopped': True, 'obstacle_stop': False, 'command_stop': False, 'paused': False,
+              'current_station': 1, 'target_station': 1, 'fault_code': 0}
+
+    class StatusLink(agv.Simulator):
+        def write(self, raw):
+            data = bytearray(24)
+            data[0], data[13], data[14] = 1, 3, 2
+            for offset, (field, _) in agv.STATUS_FIELDS.items():
+                if field in fields:
+                    data[offset - 4] = fields[field]
+            self.buffer += agv.Frame(0x25, data).encode()
+            return len(raw)
+
+    monkeypatch.setattr(agv, 'Simulator', StatusLink)
+    _, request = session
+    connection_id = open_simulator(request)
+    send(request, 'query_status', connection_id)
+    original = fields.copy()
+    fields.update(stopped=False, obstacle_stop=True, command_stop=True, paused=True,
+                  current_station=2, target_station=3, fault_code=61)
+    state = send(request, 'query_status', connection_id)[1]
+    assert state['status']['fault_description'] == 'Off track'
+    assert state['status']['fault_page'] == 16
+    assert {(e['field'], e['after']) for e in state['events']} == set(fields.items())
+    fields.update(original)
+    state = send(request, 'query_status', connection_id)[1]
+    assert {(e['field'], e['after']) for e in state['events'][-len(fields):]} == set(original.items())
+
+
+@pytest.mark.parametrize(('number', 'message'), [(13, 'Log out and back in'), (16, 'Reseat the USB plug')])
+def test_serial_open_errors_give_a_next_step(session, monkeypatch, number, message):
+    def fail_open(**kwargs):
+        raise OSError(number, 'driver diagnostic')
+    monkeypatch.setattr(agv, 'serial_ports', lambda: [{'device': '/dev/fake', 'description': 'Test'}])
+    monkeypatch.setattr(agv, 'serial', SimpleNamespace(Serial=fail_open))
+    _, request = session
+    code, denied = request(dict(action='connect', mode='serial', port='/dev/fake'))
+    assert code == 400 and message in denied['error']
+    assert 'driver diagnostic' not in denied['error']
+    assert request()[1]['log'][-1]['decode']['error'].endswith('driver diagnostic')
+
+
+def test_wrong_ack_id_is_rejected_and_transport_failure_has_an_alarm(session, monkeypatch):
+    class BrokenLink(agv.Simulator):
+        def write(self, raw):
+            self.buffer += agv.Frame(0x25, b'\x02').encode()
+            return len(raw)
+
+        def read(self, size):
+            if self.silent:
+                raise OSError('driver diagnostic')
+            return super().read(size)
+
+    monkeypatch.setattr(agv, 'Simulator', BrokenLink)
+    _, request = session
+    connection_id = open_simulator(request)
+    send(request, 'stop', connection_id)
+    snapshot = request()[1]
+    assert snapshot['status'] is None
+    assert 'vehicle ID' in snapshot['log'][-1]['decode']['error']
+    assert 'ack_elapsed_s' not in snapshot['results']['stop']
+    request(dict(action='silence', silent=True, connection_id=connection_id))
+    snapshot = request()[1]
+    assert not snapshot['connected']
+    assert snapshot['error'] == agv.LINK_LOST
+    assert snapshot['events'][-1]['field'] == 'transport_error'
+
+
+def test_stop_before_first_status_confirms_the_reported_stop(session):
+    _, request = session
+    connection_id = open_simulator(request)
+    send(request, 'stop', connection_id)
+    state = send(request, 'query_status', connection_id)[1]
+    assert state['status']['stopped'] is True
+    assert state['results']['stop']['state'] == 'confirmed by status'
+
+
+def test_disconnecting_while_stale_does_not_report_that_radio_recovered(session, agv_clock):
+    _, request = session
+    connection_id = open_simulator(request)
+    agv_clock.now += agv.STALE_AFTER
+    assert request()[1]['stale']
+    state = request({'action': 'disconnect', 'connection_id': connection_id})[1]
+    assert state['events'][-1]['field'] == 'link_stale'
+    assert state['events'][-1]['disconnected'] is True
+
+
+def test_repeating_a_press_marks_the_previous_unchecked_press(session):
+    _, request = session
+    connection_id = open_simulator(request)
+    _, first = send(request, 'pause', connection_id)
+    _, second = send(request, 'pause', connection_id)
+    name, replaced = second['replaced'][-1]
+    assert name == 'pause' and replaced['state'] == 'not checked'
+    assert replaced['tx_id'] == first['results']['pause']['tx_id']
+    assert second['results']['pause']['tx_id'] != replaced['tx_id']
