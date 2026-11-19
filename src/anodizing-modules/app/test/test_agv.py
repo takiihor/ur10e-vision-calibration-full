@@ -103,3 +103,12 @@ def test_all_nonempty_sscom_presets():
                 agv.parse_frame(wire)
         else:
             assert agv.parse_frame(wire).encode() == wire, preset
+
+
+def test_unknown_stop_flag_stays_raw_instead_of_indicating_stopped():
+    data = bytearray(REPORT[4:-1])
+    data[4] = 2
+    data[24] = 2
+    status = agv.decode(agv.Frame(0x25, bytes(data)))
+    assert status['stopped'] == 2
+    assert status['attachment_active'] is True

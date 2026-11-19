@@ -159,7 +159,7 @@ STATUS_FIELDS = {
     24: ('paused', 1), 25: ('leading_end', 1), 26: ('obstacle_input', 1),
     27: ('lift_state', 1), 28: ('attachment_active', 1), 29: ('roller_speed', 1),
 }
-FLAGS = {'stopped', 'obstacle_stop', 'station_arrival', 'command_stop', 'paused', 'attachment_active'}
+FLAGS = {'stopped', 'obstacle_stop', 'station_arrival', 'command_stop', 'paused'}
 
 
 def decode(frame):
@@ -172,7 +172,9 @@ def decode(frame):
     for offset, (key, size) in STATUS_FIELDS.items():
         if offset + size <= len(inner) - 1:
             value = int.from_bytes(inner[offset:offset + size], 'little')
-            values[key] = bool(value) if key in FLAGS else value
+            if (key in FLAGS and value in (0, 1)) or key == 'attachment_active':
+                value = bool(value)
+            values[key] = value
     eye = values.get('obstacle_input')
     if eye in (0, 1):
         values['laser_blocked'] = bool(eye)

@@ -65,6 +65,13 @@ function buildRows(commands) {
       input.addEventListener('input', render);
       title.append(input);
     }
+    const note = name === 'call_station' ? document.createElement('small') : null;
+    if (note) {
+      note.id = 'agv-station-limit';
+      note.className = 'error';
+      input.setAttribute('aria-describedby', note.id);
+      title.append(note);
+    }
     const frame = document.createElement('code');
     const send = document.createElement('button');
     send.className = 'secondary';
@@ -78,7 +85,7 @@ function buildRows(commands) {
     row.append(title);
     for (const element of [frame, send, result, observed]) row.insertCell().append(element);
     $('commands').append(row);
-    rows.set(name, {command, input, frame, send, result, observed});
+    rows.set(name, {command, input, note, frame, send, result, observed});
   }
 }
 
@@ -123,6 +130,10 @@ function render() {
   for (const [name, row] of rows) {
     const value = commandValue(row);
     row.frame.textContent = preview(row, radioPrefix, value);
+    if (row.note) {
+      const maximum = state.status?.max_stations;
+      row.note.textContent = maximum != null && value > maximum ? `Last reported maximum is ${maximum}.` : '';
+    }
     row.send.disabled = !state.connected || (!urgent.has(name) && (busy || value === undefined ||
       (row.command.motion && (!state.armed || !!state.motion_block))));
     const outcome = state.results[name];
@@ -263,6 +274,7 @@ for (const name of urgent) $(name).addEventListener('click', () => sendCommand(n
 $('download').addEventListener('click', () => {
   const testRecord = {
     exported_at: new Date().toISOString(), connection: state.settings, auto_poll: $('auto').checked,
+    armed: state.armed, simulator_silent: state.silent,
     observed_ok: Object.fromEntries([...rows].map(([name, row]) => [name, row.observed.checked])),
     results: state.results, log_gap: logGap, log: record,
   };
