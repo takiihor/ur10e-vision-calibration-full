@@ -61,8 +61,8 @@
     el('repeat-review').disabled=!!reviewWhy;
     el('repeat-review').title=reviewWhy;
     el('repeat-approved').disabled=!recipe||!!blocked;
-    el('repeat-agv-approval').hidden=!drive;
-    el('repeat-agv-confirmed').disabled=!recipe||!!blocked||!drive;
+    el('repeat-agv-approval').hidden=!drive||!crosses;
+    el('repeat-agv-confirmed').disabled=!recipe||!!blocked||!drive||!crosses;
     el('repeat-start').disabled=!!startWhy;
     el('repeat-start').title=startWhy;
     display('repeat-action-reason',reviewWhy||startWhy);

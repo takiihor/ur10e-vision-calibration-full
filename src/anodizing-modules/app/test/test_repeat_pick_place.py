@@ -247,6 +247,13 @@ class RepeatTests(unittest.TestCase):
         self.assertEqual(self.calls,[])
         self.assertEqual(self.robot.moves,[])
 
+    def test_same_station_never_calls_agv_even_with_drive_approval(self):
+        self.configure_travel()
+        self.recipe.stations={'A':3,'B':3}
+        self.assert_agv_abort('Both endpoints use station 3',stop=False,alarm=False)
+        self.assertEqual(self.calls,[])
+        self.assertEqual(self.robot.moves,[])
+
     def test_recipe_refuses_simulator_at_real_execution_boundary(self):
         from anodizing_web.recipe_agv import require_serial
         with self.assertRaisesRegex(ValueError,'serial AGV'):

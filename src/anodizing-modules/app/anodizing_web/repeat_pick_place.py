@@ -224,7 +224,9 @@ class RepeatExecution(ManualExecution):
                         if self.owner.allow_agv_in_recipe:
                             raise ValueError('Confirm the Manual mode and e-stop setup in recipe approval before changing stations.')
                         raise ValueError('AGV check-only mode requires A and B at the same station and the AGV stopped there.')
-                    if visit.station != stations['A'] or stations['A'] != stations['B']:
+                    if stations['A'] == stations['B'] and visit.station != stations['A']:
+                        raise ValueError(f"Both endpoints use station {stations['A']}. Park the AGV there before starting.")
+                    if stations['A'] != stations['B']:
                         pose = self.recipe.travel_pose
                         if not pose or pose['robot_ip'] != self.context.settings['robot_ip']:
                             raise ValueError('Save and review the AGV travel pose for this robot before moving between stations.')
