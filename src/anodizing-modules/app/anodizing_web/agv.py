@@ -378,6 +378,8 @@ class Connection:
         self.recipe_active = False
         self.recipe_statuses = deque(maxlen=64)
         self.recipe_urgent = False
+        self.motion_poll_at = 0
+        self.status_iso = None
         self.urgent_generation = 0
         self.lock = Lock()
         self.send_lock = Lock()
@@ -453,6 +455,7 @@ class Connection:
             if field in decoded and before is not None and decoded[field] != before:
                 self._event(field, before, decoded[field])
         self.status, self.status_hex, self.status_at = decoded, hex_bytes(raw), monotonic()
+        self.status_iso = timestamp()
         if self.recipe_active:
             self.recipe_statuses.append((decoded, self.status_at))
         self._check_stale(self.status_at)
@@ -545,6 +548,34 @@ class Connection:
                     'status': self.status, 'results': {name: dict(self.results[name])
                                                        for name in URGENT if name in self.results}}
 
+    def motion_feedback(self, *, poll=False):
+        # A robot page may request status without taking over an AGV page read.
+        acquired = poll and self.send_lock.acquire(blocking=False)
+        try:
+            with self.lock:
+                if self.transport is None:
+                    return {}
+                now = monotonic()
+                try:
+                    self._receive()
+                    self._expire()
+                    if acquired and not self.recipe_active:
+                        if self.reading is not None and now-self.read_sent_at >= REPLY_TIMEOUT:
+                            self._finish_read('no reply')
+                        if (self.reading is None and not self.awaiting_ack and now >= self.motion_poll_at
+                                and (self.status_at is None or now-self.status_at >= RECIPE_POLL_S)):
+                            self.motion_poll_at = self._send('query_status', None, background=True) + RECIPE_POLL_S
+                            self._receive()
+                except OSError as exc:
+                    self._transport_error(exc)
+                    return {}
+                return dict(status=self.status, status_time=self.status_iso, mode=self.settings['mode'],
+                            connection_id=self.id, status_age_s=None if self.status_at is None else monotonic()-self.status_at,
+                            movement_pending=any(name not in URGENT and name != 'set_speed' for name in self.pending))
+        finally:
+            if acquired:
+                self.send_lock.release()
+
     def capability(self):
         try:
             ports = serial_ports()
@@ -601,7 +632,8 @@ class Connection:
         self.connected_at = monotonic()
         self.connected_iso = timestamp()
         self.settings = dict(mode=mode, port=port, address=hex_bytes(prefix[:2]), channel=hex_bytes(prefix[2:]))
-        self.status = self.status_at = self.status_hex = self.error = None
+        self.status = self.status_at = self.status_hex = self.status_iso = self.error = None
+        self.motion_poll_at = 0
         self.armed = False
         self.results.clear()
         self.pending.clear()
@@ -788,12 +820,14 @@ class Connection:
         return self._wait_for_reply(transport, sent_at + REPLY_TIMEOUT)
 
     @contextmanager
-    def recipe_link(self):
+    def recipe_link(self, connection_id=None):
         # Finish an earlier ordinary read before claiming the link. Urgent writes
         # continue to use only the short transport lock.
         with self.send_lock, self.lock:
             if self.transport is None or self.recipe_active:
                 raise ValueError('Connect the AGV on the AGV page before starting the recipe.')
+            if connection_id is not None:
+                self._check_connection(connection_id)
             self.recipe_active = True
             self.armed = False
             self.recipe_urgent = False

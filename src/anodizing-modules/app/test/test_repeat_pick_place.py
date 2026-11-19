@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import test_manual_execution as manual_tests
 from anodizing_web import agv
+from test_agv_robot_motion import connect_parked
 
 
 class RepeatTests(unittest.TestCase):
@@ -38,11 +39,8 @@ class RepeatTests(unittest.TestCase):
                 ctx.provenance['project'] = str(self.root/name)
                 ctx.settings['calibration'] = 'fixture-calibration'
                 self.contexts[name,operation] = ctx
-        mock.patch('anodizing_web.recipe_agv.require_serial').start()
         self.link = self.server.agv
-        self.link.submit({'action':'connect'})
-        self.vehicle = self.link.transport
-        self.vehicle.station = self.vehicle.target = 2
+        self.vehicle = connect_parked(self.link)
         self.vehicle.speed = 500
         self.recipe = SimpleNamespace(contexts=self.contexts, transfers=transfers, settle_s=0,
             stations={'A':2,'B':2}, agv_timeout_s=120, agv_speed_cap_m_h=1000,
@@ -69,7 +67,7 @@ class RepeatTests(unittest.TestCase):
             worker._tick()
             return {'command':command,'status':'replied','rx_text':{'0':'FSR1:0/FSR2:0','1':'Tight','3':'Open'}[command]}
         mock.patch('anodizing_web.mcu.run_automatic',side_effect=command).start()
-        self.public_body.update(action='REPEAT',project='A',place_project='B',transfers=transfers,
+        self.public_body.update(action='REPEAT',agv_off=False,project='A',place_project='B',transfers=transfers,
             automatic_test_approved=True,settle_s=0)
         return owner
 
@@ -89,6 +87,18 @@ class RepeatTests(unittest.TestCase):
         self.assertIsNone(owner.active)
         self.assertEqual([m[0] for m in self.robot.moves],['moveJ','moveJ','moveL','moveL']*4)
         self.assertEqual(len(list(owner.directory.glob('*.withdrawal.manual-path.json'))),4)
+
+    def test_off_recipe_runs_without_a_station_or_agv_commands(self):
+        self.setup_repeat(transfers=1)
+        self.link.close()
+        self.recipe.stations={'A':None,'B':None}
+        self.public_body['agv_off']=True
+        job=self.run_repeat()
+        self.assertEqual(job['state'],'done',job['error'])
+        self.assertEqual(job['agv_motion'],'off')
+        record=job['manual']['repeat']['records'][0]
+        self.assertEqual(record['agv_legs'],[])
+        self.assertIsNone(record['agv_transport'])
 
     def configure_travel(self, *, drive=True):
         owner=self.setup_repeat()
@@ -453,6 +463,17 @@ class RecipeTests(unittest.TestCase):
         for invalid in (0,256,True,'3'):
             with self.subTest(invalid=invalid),self.assertRaisesRegex(ValueError,'station'):
                 self.load(dict(self.body,station_b=invalid))
+
+    def test_off_mode_binds_hash_allows_missing_stations_and_refuses_station_change(self):
+        parked = self.load()
+        off = self.load(dict(self.body, agv_off=True))
+        self.assertEqual(off.summary['agv_motion'], 'off')
+        self.assertNotEqual(parked.summary['recipe_sha256'], off.summary['recipe_sha256'])
+        no_stations = self.load(dict(self.body, agv_off=True, station_a=None))
+        self.assertEqual(no_stations.stations, {'A': None, 'B': None})
+        self.assertIsNone(no_stations.travel_pose)
+        with self.assertRaisesRegex(ValueError, 'same station'):
+            self.load(dict(self.body, agv_off=True, station_b=3))
 
     def test_counts_are_bounded_integers_and_incompatible_projects_refuse(self):
         for count in (0,101,True,1.5,'2',None):

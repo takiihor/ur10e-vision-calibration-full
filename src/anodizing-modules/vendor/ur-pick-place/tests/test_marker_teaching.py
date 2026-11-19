@@ -214,6 +214,19 @@ class MarkerTeachingTests(unittest.TestCase):
         self.assertEqual((self.project.directory / 'target.json').read_bytes(), exported)
         self.assertEqual(set(self.runtime.calls), {'receive', 'camera'})
 
+    def test_agv_station_is_optional_and_survives_reopen_and_teaching(self):
+        path = self.project.directory / 'project.json'
+        self.assertNotIn('agv', read_json(path))
+        self.assertIsNone(TeachingProject(self.settings, runtime=self.runtime).agv)
+        for source in ('agv_status', 'operator'):
+            record = dict(station=2, source=source, status_time='2026-11-19T12:00:00Z', transport='serial')
+            self.project.capture(agv=record)
+            reopened = TeachingProject(self.settings, runtime=self.runtime)
+            reopened.save_pick(marker_unchanged=True)
+            self.assertEqual(reopened.summary()['agv'], record)
+            self.assertEqual(read_json(path)['agv'], record)
+            self.assertEqual(read_json(path)['schema_version'], 1)
+
     def test_capture_again_invalidates_taught_offset(self):
         self.capture_and_teach()
         self.project.capture()

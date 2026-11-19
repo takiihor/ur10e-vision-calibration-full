@@ -1,4 +1,5 @@
 """One process owns accepted jobs and operator replies, independent of HTTP clients."""
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -40,6 +41,8 @@ class JobOwner:
         self.robot_configured = (robot_read_access or allow_auto_calibration
                                  or allow_teacher_motion or allow_manual_pick_place)
         self.agv = None
+        self.agv_visit = None
+        self.agv_start_lock = threading.Lock()
         self.execution_uncertain = False
         self.robot_model = robot_model
         self.current_alignment = None  # Runtime-only; restart never restores permission to descend.
@@ -133,14 +136,26 @@ class JobOwner:
                 raise ValueError('Start the service with --allow-teacher-motion after review.')
             if teacher_move and not self.robot_model:
                 raise ValueError('Teacher movement requires the selected factory robot model.')
-            if manual_move or teacher_move or (module == 'calibration' and payload.get('action') in ('plan', 'collect', 'replay')):
-                if not (manual_move or teacher_move) and not self.allow_auto_calibration:
-                    raise ValueError('Automatic calibration is disabled on this service.')
+            auto_motion = module == 'calibration' and payload.get('action') in ('collect', 'replay')
+            auto_plan = module == 'calibration' and payload.get('action') == 'plan'
+            if (auto_motion or auto_plan) and not self.allow_auto_calibration:
+                raise ValueError('Automatic calibration is disabled on this service.')
+            if manual_move or teacher_move or auto_motion:
+                from .recipe_agv import admit, StationVisit
+                mode, connection_id = admit(self.agv, payload)
+                visit = StationVisit(self.agv, lambda: self._stop_for_agv(request_id),
+                                     strict_station=payload.get('action') == 'REPEAT',
+                                     connection_id=connection_id) if mode == 'parked' else None
+            else:
+                mode, visit = None, None
+            if manual_move or teacher_move or auto_motion or auto_plan:
                 from .auto_scene import prepare
                 scene = prepare(self.root, request_id, payload.get('collision_scene'), self.robot_model) if self.robot_model else prepare(self.root, request_id, payload.get('collision_scene'))
             job = {'id': request_id, 'module': module, 'fingerprint': fingerprint,
                    'state': 'running', 'created': time.time(), 'events': [], 'pending': None,
                    'result': None, 'error': None}
+            if mode:
+                job['agv_motion'] = mode
             if scene:
                 job['auto_scene'] = scene
                 job['auto_action'] = payload['action']
@@ -157,12 +172,36 @@ class JobOwner:
                 self.current_alignment = None
             self.jobs[request_id] = job
             self.active = request_id
+            self.agv_visit = visit
             threading.Thread(target=self._run, args=(job, function), daemon=True).start()
             return dict(job)
 
+    def check_agv(self):
+        visit = self.agv_visit
+        if visit and visit.error:
+            raise ValueError(visit.error)
+
+    def _stop_for_agv(self, job_id):
+        # Stop must bypass owner persistence, even if a job record is being written.
+        with self.agv_start_lock:
+            if self.motion_job == job_id and self.runner:
+                self.runner.stop()
+            elif self.teacher_job == job_id and self.teacher_service:
+                self.teacher_service.stop()
+
     def _run(self, job, function):
+        visit = self.agv_visit
         try:
-            result = function(job['id'])
+            with visit.watch() if visit else nullcontext():
+                if visit:
+                    visit.ready.wait()
+                    self.check_agv()
+                elif job.get('agv_motion') == 'off':
+                    from .recipe_agv import admit
+                    admit(self.agv, {'agv_off': True})
+                result = function(job['id'])
+                self.check_agv()
+            self.check_agv()
             with self.lock:
                 job.update(state='done', result=result, pending=None)
                 if job.get('auto_action') == 'validate_move':
@@ -174,6 +213,19 @@ class JobOwner:
         except Exception as exc:
             with self.lock:
                 job.update(state='failed', error=str(exc), pending=None)
+                if visit and visit.error:
+                    from .recipe_agv import ALARM
+                    manual = job.get('manual')
+                    repeat = (manual or {}).get('repeat')
+                    reason = (repeat or {}).get('abort_reason') or visit.error
+                    job['error'] = f'{reason} {ALARM}'
+                    job['agv_interruption'] = dict(reason=reason, alarm=ALARM, agv_stop_sent=visit.stop_sent,
+                                                   stop_error=visit.stop_error)
+                    if manual:
+                        manual.update(stage='interrupted', prompt=None, item_state='unknown',
+                                      agv_alarm=ALARM, agv_stop_sent=visit.stop_sent)
+                        if repeat:
+                            repeat.setdefault('abort_reason', reason)
         finally:
             with self.lock:
                 job['finished'] = time.time()
@@ -183,6 +235,7 @@ class JobOwner:
                     self.storage_error = str(exc)
                 self.runner = None
                 self.motion_job = None
+                self.agv_visit = None
                 self.active = None
 
     def event(self, job_id, event):
@@ -208,6 +261,7 @@ class JobOwner:
             if kind == 'manual' and job.get('auto_action') and value != 'q':
                 raise ValueError('Automatic calibration cannot accept manual capture replies.')
             if kind == 'motion' and value is True:
+                self.check_agv()
                 if not self.allow_auto_calibration or job['module'] != 'calibration' or self.motion_job != job_id or not job.get('auto_scene'):
                     raise ValueError('Robot motion is disabled for this job.')
                 from .auto_scene import check

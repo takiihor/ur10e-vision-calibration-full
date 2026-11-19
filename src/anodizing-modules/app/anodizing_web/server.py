@@ -203,6 +203,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, travel_pose.state(self.server.owner))
         if path == '/api/agv':
             return self.reply(200, self.server.agv.capability())
+        if path == '/api/agv-robot-motion':
+            from .recipe_agv import motion_state
+            return self.reply(200, dict(motion_state(self.server.agv, poll=True), active=self.server.owner.active))
         if path == '/api/mcu':
             return self.reply(200, mcu.capability(self.server.owner))
         if path == '/api/robot-control':
@@ -256,7 +259,7 @@ class Handler(BaseHTTPRequestHandler):
                     project = check_tree(self.server.root, inside(self.server.root, query['project'][0]))
                     saved = json.loads(inside(self.server.root, str(project / 'project.json')).read_text())
                     settings = teaching.checked_settings(self.server.root, dict(saved['settings'], project=str(project)))
-                    return self.reply(200, settings)
+                    return self.reply(200, dict(settings, agv=saved.get('agv')))
                 if set(query) != {'job', 'name'} or any(len(v) != 1 for v in query.values()):
                     raise ValueError('Select one result.')
                 job = self.server.owner.get(query['job'][0])
@@ -373,6 +376,8 @@ class Handler(BaseHTTPRequestHandler):
                  '/teaching': ('teaching.html', 'text/html; charset=utf-8'),
                  '/pick-place': ('pick-place.html', 'text/html; charset=utf-8'),
                  '/agv': ('agv.html', 'text/html; charset=utf-8'),
+                 '/agv-motion.js': ('agv-motion.js', 'text/javascript; charset=utf-8'),
+                 '/teaching-travel-pose.js': ('teaching-travel-pose.js', 'text/javascript; charset=utf-8'),
                  '/agv.js': ('agv.js', 'text/javascript; charset=utf-8'),
                  '/manual-job.js': ('manual-job.js', 'text/javascript; charset=utf-8'),
                  '/tool-power.js': ('tool-power.js', 'text/javascript; charset=utf-8'),

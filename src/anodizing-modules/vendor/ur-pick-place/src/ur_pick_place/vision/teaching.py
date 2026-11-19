@@ -173,6 +173,7 @@ class TeachingProject:
         self.validation = None
         history = self.directory / 'validation_history.json'
         self.validation_history = read_json(history) if history.exists() else []
+        self.agv = None
         path = self.directory / 'project.json'
         if path.exists():
             saved = read_json(path)
@@ -186,6 +187,7 @@ class TeachingProject:
                 raise ValueError('This folder belongs to different settings or changed input files. '
                                  'Choose a new project folder to teach again.')
             self.flow = saved['flow']
+            self.agv = saved.get('agv')
             if self.flow['captured']:
                 self.observation = Observation.from_json(read_json(self.directory / 'observation.json'))
                 if self.observation.calibration_sha256 != self.calibration.sha256 or not same_target(self.observation.target, self.target):
@@ -202,8 +204,11 @@ class TeachingProject:
         config = asdict(self.config)
         config.pop('base_dir')
         atomic_json(self.directory / 'vision.json', config)
-        atomic_json(self.directory / 'project.json', {'schema_version': 1, 'type': 'marker_pick_project',
-                    'software_version': VERSION, 'settings': self.settings, 'inputs': self.inputs, 'flow': self.flow})
+        record = {'schema_version': 1, 'type': 'marker_pick_project',
+                  'software_version': VERSION, 'settings': self.settings, 'inputs': self.inputs, 'flow': self.flow}
+        if self.agv is not None:
+            record['agv'] = self.agv
+        atomic_json(self.directory / 'project.json', record)
 
     def check_inputs(self):
         if digest(self.settings['calibration']) != self.inputs['calibration']:
@@ -263,12 +268,12 @@ class TeachingProject:
             archive.mkdir(exist_ok=True)
             grasp.replace(archive / (str(time.time_ns()) + '-grasp_pick.json'))
 
-    def capture(self):
+    def capture(self, *, agv=None):
         self._invalidate_export()
         self._archive_grasp()
         # Re-capturing replaces the teaching reference and invalidates its taught offset.
         self.flow = {'captured': False, 'taught': False, 'exported': False}
-        self.observation = self.taught = self.exported = None
+        self.observation = self.taught = self.exported = self.agv = None
         self._persist()
         observation = self._look(reference=True)
         self.check_inputs()
@@ -276,6 +281,7 @@ class TeachingProject:
         self.config.pick.observe_joints = list(observation.robot['joints_rad'])
         atomic_json(self.directory / 'observation.json', observation.to_json())
         self.flow['captured'] = True
+        self.agv = agv
         self._persist()
         return observation.summary()
 
@@ -387,7 +393,7 @@ class TeachingProject:
         return {'project': str(self.directory), 'settings': self.settings, 'flow': self.flow,
                 'calibration': dict(self.calibration.summary(), camera_serial=self.calibration.camera_serial), 'target': self.target.label,
                 'observation': None if self.observation is None else self.observation.summary(),
-                'taught': self.taught, 'exported': self.exported,
+                'taught': self.taught, 'exported': self.exported, 'agv': self.agv,
                 'validation': self.validation, 'validation_history': self.validation_history,
                 'observe_joints': self.config.pick.observe_joints,
                 'files': ['project.json', 'vision.json', 'observation.json', 'grasp_pick.json',

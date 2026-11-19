@@ -175,6 +175,18 @@ def _identity(settings):
     return {k:v for k,v in settings.items() if k not in ('project', 'tcp_confirmed')}
 
 
+def agv_capture(connection, station):
+    from .recipe_agv import motion_state
+    state = motion_state(connection)
+    reported = state['teaching_station']
+    if reported is not None:
+        station = reported
+    elif type(station) is not int or not 1 <= station <= 255:
+        raise ValueError('AGV not reporting: enter the station this tank is at (1 to 255).')
+    return dict(station=station, source='agv_status' if reported is not None else 'operator',
+                status_time=state['status_time'], transport=state['transport'])
+
+
 def run(owner, root, body, job_id, allow_teaching):
     action = body.get('action')
     if action == 'simulate':
@@ -243,8 +255,12 @@ def run(owner, root, body, job_id, allow_teaching):
             if scene.model['nominal']:
                 raise ValueError('Teacher movement requires the factory robot model.')
             speed = number(body.get('joint_speed_deg_s'), 'Joint test speed (degrees/s)', low=1, high=6)
+            def check_binding():
+                owner.check_agv()
+                check(root, binding)
+
             motion_class = partial(TeacherReturnMotion if action == 'return_observation' else TeacherJointMotion,
-                collision=scene, check_binding=lambda:check(root,binding),
+                collision=scene, check_binding=check_binding,
                 evidence=owner.directory/(job_id+'.teacher-path.json'))
             if action == 'return_observation':
                 service.return_motion_class = motion_class
@@ -254,15 +270,19 @@ def run(owner, root, body, job_id, allow_teaching):
             service.joint_validation = True
             if body.get('workspace_min_m') is None or body.get('workspace_max_m') is None:
                 raise ValueError('Enter reviewed workspace bounds; no workspace defaults are applied.')
-            if action == 'return_observation':
-                service.return_observation(dict(body, joint_speed_deg_s=speed))
-            else:
-                service.move_validation(dict(body, speed_mm_s=10, joint_speed_deg_s=speed))
+            with owner.agv_start_lock:
+                owner.check_agv()
+                if action == 'return_observation':
+                    service.return_observation(dict(body, joint_speed_deg_s=speed))
+                else:
+                    service.move_validation(dict(body, speed_mm_s=10, joint_speed_deg_s=speed))
         else:
             if action == 'teach' and body.get('marker_unchanged') is not True:
                 raise ValueError('Confirm that the marker and object stayed fixed.')
+            options = {'marker_unchanged': body.get('marker_unchanged')}
+            capture = {'agv': agv_capture(owner.agv, body.get('agv_station'))} if action == 'capture' else {}
             started = True
-            service.submit(action, {'marker_unchanged': body.get('marker_unchanged')})
+            service.submit(action, options, **capture)
         last_status = None
         while True:
             state = service.state()

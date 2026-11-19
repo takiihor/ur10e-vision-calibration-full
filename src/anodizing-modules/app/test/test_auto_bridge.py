@@ -52,7 +52,7 @@ class AutoBridgeTests(unittest.TestCase):
         self.scene = self.root/'scene.json'
         self.scene.write_bytes(EXAMPLE.read_bytes())
         (self.root/'board.json').write_text('{}')
-        self.body = {'action':'collect','session':'new-session','manifest':'board.json',
+        self.body = {'action':'collect','agv_off':True,'session':'new-session','manifest':'board.json',
                      'board':'calibration_stage2','robot_ip':'fake','serial':'fake',
                      'collision_scene':'scene.json','views':14,'tilt_deg':25,'roll_deg':30}
         Runner.instances.clear()

@@ -1,4 +1,4 @@
-"""AGV station hold and travel watchdog for one finite repeat recipe."""
+"""Stationary AGV admission, hold and supervised recipe travel."""
 from contextlib import contextmanager
 import threading
 import time
@@ -11,6 +11,42 @@ ACK_S = 3
 OBSTACLE_S = 30
 WATCH_S = .1
 POSE_FRESH_S = .75
+UNKNOWN = 'AGV state unknown: connect the AGV on the AGV page, or confirm it is switched off'
+REPORTING = 'The AGV is reporting, so it is not switched off. Use AGV parked.'
+
+
+def motion_state(connection, *, poll=False):
+    link = connection.motion_feedback(poll=poll) if connection else {}
+    status = link.get('status')
+    age = link.get('status_age_s')
+    reporting = status is not None and age is not None and age < agv.RECIPE_STALE_S
+    parked = (reporting and link['mode'] == 'serial' and stopped(status)
+              and status.get('fault_code') == 0 and not link['movement_pending'])
+    station = status.get('current_station') if reporting else None
+    if parked:
+        position = f' · station {station}' if station else ''
+        detail = f'AGV parked{position} · {age:.1f} s ago'
+    elif reporting:
+        detail = f'AGV state unknown · last report {age:.1f} s ago. Check that the serial AGV is parked without a fault.'
+    elif age is not None:
+        detail = f'{UNKNOWN} · last report {age:.1f} s ago'
+    else:
+        detail = UNKNOWN
+    return dict(parked=parked, reporting=reporting, detail=detail, station=station,
+                connection_id=link.get('connection_id'), status_age_s=age,
+                status_time=link.get('status_time'), transport=link.get('mode'),
+                teaching_station=station if parked and station and learned(status, station) else None)
+
+
+def admit(connection, body):
+    state = motion_state(connection)
+    if body.get('agv_off') is True:
+        if state['reporting']:
+            raise ValueError(REPORTING)
+        return 'off', None
+    if not state['parked']:
+        raise ValueError(state['detail'])
+    return 'parked', state['connection_id']
 
 
 def stopped(status):
@@ -28,13 +64,13 @@ def check_speed(status, speed_cap):
         raise ValueError(f'AGV set speed is unavailable or above the recipe cap of {speed_cap} m/h. Check Set speed on the AGV page.')
 
 
-def check_status(status, stamp):
+def check_status(status, stamp, *, require_unpaused=True):
     if stamp is None or time.monotonic()-stamp >= agv.RECIPE_STALE_S:
         raise ValueError('AGV status is stale. Check the radio and reconnect on the AGV page.')
     if status.get('fault_code') != 0:
         fault = status.get('fault_code')
         raise ValueError(f'AGV fault {fault}: {status.get("fault_description", "unknown fault")}. Check the AGV.')
-    if status.get('paused') is not False:
+    if require_unpaused and status.get('paused') is not False:
         raise ValueError('AGV pause state is active or unavailable. Check the AGV before starting a new run.')
 
 
@@ -43,9 +79,13 @@ def learned(status, station):
 
 
 class StationVisit:
-    def __init__(self, connection, robot_stop):
+    def __init__(self, connection, robot_stop, *, strict_station=True, connection_id=None):
         self.connection = connection
         self.robot_stop = robot_stop
+        self.strict_station = strict_station
+        self.connection_id = connection_id
+        self.stop_error = None
+        self.cancelled = threading.Event()
         self.lock = threading.Lock()
         self.finished = threading.Event()
         self.ready = threading.Event()
@@ -58,13 +98,12 @@ class StationVisit:
         self.arrivals = 0
 
     @contextmanager
-    def watch(self, cancelled):
+    def watch(self):
         if self.connection is None:
             raise ValueError('Connect the AGV on the AGV page before starting the recipe.')
-        with self.connection.recipe_link() as transport:
+        with self.connection.recipe_link(self.connection_id) as transport:
             require_serial(transport)
             self.transport = transport
-            self.cancelled = cancelled
             self.started = time.monotonic()
             thread = threading.Thread(target=self._watch, name='recipe-agv-watch')
             thread.start()
@@ -81,17 +120,26 @@ class StationVisit:
                     self._sample()
                 except Exception as exc:
                     self.error = str(exc)
-                    # A lost hold or an unverified station can still mean motion.
-                    self.robot_stop()
-                    self._stop()
+            if self.error:
+                # Neither Stop depends on the outcome of the other.
+                try:
+                    try:
+                        self.robot_stop()
+                    finally:
+                        with self.lock:
+                            if self.alarm is None:
+                                self._stop()
+                except Exception as stop_error:
+                    self.stop_error = str(stop_error)
+                finally:
                     self.ready.set()
-                    return
+                return
             self.finished.wait(WATCH_S)
 
     def _sample(self):
         status, stamp, updates, ack_s = self.connection.recipe_feedback()
         now = time.monotonic()
-        if self.station is None and self.sent is None and not updates:
+        if stamp is None and not self.ready.is_set() and not updates:
             if now-self.started < agv.RECIPE_STALE_S:
                 return
             raise ValueError('AGV status is stale. Check the radio and reconnect on the AGV page.')
@@ -104,11 +152,11 @@ class StationVisit:
         self.ready.set()
 
     def _check_hold(self, status, stamp):
-        check_status(status, stamp)
+        check_status(status, stamp, require_unpaused=self.strict_station)
         actual = status.get('current_station', 0)
         if not stopped(status) or (self.station is not None and actual != self.station):
             raise ValueError('AGV moved during robot work or was already moving. Check the AGV before a new run.')
-        if not learned(status, actual):
+        if self.strict_station and not learned(status, actual):
             raise ValueError('AGV station is unconfirmed. Check route learning and station-call mode on the AGV page.')
         return actual
 

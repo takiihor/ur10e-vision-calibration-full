@@ -12,7 +12,7 @@ from .manual_execution import ManualExecution, load_context
 from .manual_pick_place import ManualPhases
 from .paths import inside, check_tree
 from . import travel_pose
-from .recipe_agv import ALARM, APPROVAL, StationVisit, WATCH_S
+from .recipe_agv import ALARM, APPROVAL, WATCH_S
 
 
 def load_recipe(root, body, *, require_approval=True):
@@ -22,17 +22,24 @@ def load_recipe(root, body, *, require_approval=True):
     if require_approval and (body.get('automatic_test_approved') is not True or body.get('initial_item_state') != 'operator_confirmed_released'):
         raise ValueError('Approve this bounded automatic test with the rod at A and no held item.')
     settle = number(body.get('settle_s',1), 'Unverified settling time (seconds)', low=0, high=5)
-    stations = {'A':body.get('station_a'), 'B':body.get('station_b')}
-    if stations['B'] is None:
-        stations['B'] = stations['A']
+    off = body.get('agv_off') is True
+    station_a = body.get('station_a')
+    station_b = body.get('station_b')
+    if off and station_a is None:
+        station_a = station_b
+    stations = {'A': station_a, 'B': station_a if station_b is None else station_b}
     for endpoint, station in stations.items():
+        if off and station is None:
+            continue
         if type(station) is not int or not 1 <= station <= 255:
             raise ValueError(f'Enter AGV station {endpoint} as an integer from 1 to 255.')
+    if off and stations['A'] != stations['B']:
+        raise ValueError('AGV switched off requires both endpoints at the same station.')
     timeout = number(body.get('agv_timeout_s',120), 'AGV travel timeout (seconds)', low=1, high=600)
     speed_cap = body.get('agv_speed_cap_m_h',1000)
     if type(speed_cap) is not int or not 500 <= speed_cap <= 1500:
         raise ValueError('Enter an AGV set-speed cap from 500 to 1500 m/h.')
-    pose = travel_pose.load(root)
+    pose = None if off else travel_pose.load(root)
     projects = {'A':body.get('project'), 'B':body.get('place_project') or body.get('project')}
     contexts = {}
     for endpoint, name in projects.items():
@@ -60,8 +67,8 @@ def load_recipe(root, body, *, require_approval=True):
         context.check_inputs = check_inputs
     selected = {key:value for key,value in body.items() if key not in (
         'request_id','action','automatic_test_approved','recipe_sha256','agv_manual_confirmed',
-        'station_a','station_b','agv_timeout_s','agv_speed_cap_m_h')}
-    selected.update(stations=stations, agv_timeout_s=timeout, agv_speed_cap_m_h=speed_cap, travel_pose=pose)
+        'station_a','station_b','agv_timeout_s','agv_speed_cap_m_h','agv_off')}
+    selected.update(agv_motion='off' if off else 'parked', stations=stations, agv_timeout_s=timeout, agv_speed_cap_m_h=speed_cap, travel_pose=pose)
     inputs = {path:digest for context in contexts.values() for path,digest in context.hashes.items()}
     scene = inside(root,body.get('collision_scene'))
     inputs[str(scene)] = hashlib.sha256(scene.read_bytes()).hexdigest()
@@ -71,7 +78,7 @@ def load_recipe(root, body, *, require_approval=True):
     summary = dict(recipe_sha256=recipe_sha256,inputs=inputs,transfers=count,A=str(first.provenance['project']), B=str(contexts['B','PICK'].provenance['project']),
         end='A' if count%2==0 else 'B', settle_s=settle,
         approach_mm={endpoint:contexts[endpoint,'PICK'].approach_mm for endpoint in ('A','B')},
-        stations=stations, agv_timeout_s=timeout, agv_speed_cap_m_h=speed_cap,
+        agv_motion=selected['agv_motion'], stations=stations, agv_timeout_s=timeout, agv_speed_cap_m_h=speed_cap,
         travel_pose_saved_at=pose['saved_at'] if pose else None, agv_approval=APPROVAL,
         withdrawal_mm=100, grip='1 — Tight close', release='3 — Open',
         outcome='Commanded transfers only. MCU replies do not verify a held or released rod.')
@@ -83,12 +90,14 @@ class RepeatExecution(ManualExecution):
     def __init__(self,*args,recipe,owner,parent_job_id,**kwargs):
         self.recipe, self.owner, self.parent_job_id = recipe, owner, parent_job_id
         self.step = 'preflight'
-        self.drive_agv = owner.allow_agv_in_recipe and recipe.agv_approved
-        self.station_visit = StationVisit(owner.agv, self.stop)
+        self.station_visit = owner.agv_visit
+        self.drive_agv = bool(self.station_visit and owner.allow_agv_in_recipe and recipe.agv_approved)
         self.transfers = []
         self.agv_legs = []
         self.completed_transfers = 0
         super().__init__(*args,**kwargs)
+        if self.station_visit:
+            self.station_visit.cancelled = self.cancelled
         self.joint_bounds_rad = self.context.joint_bounds_rad
         self.joint_bounds_source = self.context.joint_bounds_source
         self.run_evidence = self.base_evidence
@@ -152,7 +161,7 @@ class RepeatExecution(ManualExecution):
         return super()._dispatch_joint(q,target,after,generation,identity)
 
     def _tick(self):
-        if self.station_visit.error:
+        if self.station_visit and self.station_visit.error:
             raise ValueError(self.station_visit.error)
         super()._tick()
 
@@ -213,45 +222,39 @@ class RepeatExecution(ManualExecution):
     def _manual_sequence(self, generation):
         visit = self.station_visit
         try:
-            with visit.watch(self.cancelled):
-                try:
-                    self._publish(stage='checking_agv', agv_transport=visit.transport)
-                    while not visit.ready.wait(WATCH_S):
-                        self._tick()
-                    self._tick()
-                    stations = self.recipe.stations
-                    if not self.drive_agv and (stations['A'] != stations['B'] or visit.station != stations['A']):
-                        if self.owner.allow_agv_in_recipe:
-                            raise ValueError('Confirm the Manual mode and e-stop setup in recipe approval before changing stations.')
-                        raise ValueError('AGV check-only mode requires A and B at the same station and the AGV stopped there.')
-                    if stations['A'] == stations['B'] and visit.station != stations['A']:
-                        raise ValueError(f"Both endpoints use station {stations['A']}. Park the AGV there before starting.")
-                    if stations['A'] != stations['B']:
-                        pose = self.recipe.travel_pose
-                        if not pose or pose['robot_ip'] != self.context.settings['robot_ip']:
-                            raise ValueError('Save and review the AGV travel pose for this robot before moving between stations.')
-                        if any(not lo <= q <= hi for q,(lo,hi) in zip(pose['joints_rad'],self.joint_bounds_rad)):
-                            raise ValueError('Saved travel pose exceeds the reviewed operating joint bounds.')
-                        visit.check_route(stations.values(), self.recipe.agv_speed_cap_m_h)
-                    self._repeat_transfers(generation)
-                    self._tick()
-                except BaseException:
-                    try:
-                        # During a lost station hold, issue the native Stop
-                        # before waiting for the AGV watchdog or persisting.
-                        self._stop_motion()
-                    finally:
-                        visit.abort()
-                    raise
-            if visit.error:
-                raise ValueError(visit.error)
+            if visit:
+                self._publish(stage='checking_agv', agv_transport=visit.transport)
+                self._tick()
+                stations = self.recipe.stations
+                if not self.drive_agv and (stations['A'] != stations['B'] or visit.station != stations['A']):
+                    if self.owner.allow_agv_in_recipe:
+                        raise ValueError('Confirm the Manual mode and e-stop setup in recipe approval before changing stations.')
+                    raise ValueError('AGV check-only mode requires A and B at the same station and the AGV stopped there.')
+                if stations['A'] == stations['B'] and visit.station != stations['A']:
+                    raise ValueError(f"Both endpoints use station {stations['A']}. Park the AGV there before starting.")
+                if stations['A'] != stations['B']:
+                    pose = self.recipe.travel_pose
+                    if not pose or pose['robot_ip'] != self.context.settings['robot_ip']:
+                        raise ValueError('Save and review the AGV travel pose for this robot before moving between stations.')
+                    if any(not lo <= q <= hi for q,(lo,hi) in zip(pose['joints_rad'],self.joint_bounds_rad)):
+                        raise ValueError('Saved travel pose exceeds the reviewed operating joint bounds.')
+                    visit.check_route(stations.values(), self.recipe.agv_speed_cap_m_h)
+            self._repeat_transfers(generation)
+            self._tick()
             self._publish(stage='done',prompt=None,item_state='open_acknowledged_unverified',operation='REPEAT')
         except BaseException as exc:
-            reason = visit.error or str(exc)
+            reason = (visit.error if visit else None) or str(exc)
+            try:
+                # Native Stop precedes AGV abort and result persistence.
+                self._stop_motion()
+            finally:
+                if visit:
+                    visit.abort()
             repeat = dict(self.manual['repeat'], abort_reason=reason, records=self.transfers,
-                          unfinished_agv_legs=self.agv_legs + ([dict(visit.leg)] if visit.leg else []))
-            self.agv_interruption = dict(repeat=repeat, agv_alarm=visit.alarm, agv_stop_sent=visit.stop_sent)
-            raise ValueError(f'{reason} {ALARM}' if visit.alarm else reason) from exc
+                          unfinished_agv_legs=self.agv_legs + ([dict(visit.leg)] if visit and visit.leg else []))
+            self.agv_interruption = dict(repeat=repeat, agv_alarm=visit.alarm if visit else None,
+                                         agv_stop_sent=visit.stop_sent if visit else None)
+            raise ValueError(f'{reason} {ALARM}' if visit and visit.alarm else reason) from exc
 
     def _repeat_transfers(self, generation):
         for index in range(self.recipe.transfers):
@@ -273,7 +276,8 @@ class RepeatExecution(ManualExecution):
                     repeat=dict(self.manual['repeat'],completed_transfers=self.completed_transfers,
                         transfer=index+1,source=source,destination=destination,endpoint=endpoint,step=self.step))
                 station = self.recipe.stations[endpoint]
-                self._visit(station, generation)
+                if self.station_visit:
+                    self._visit(station, generation)
                 self._publish(agv_robot_station=station)
                 if index == 0 and operation == 'PICK':
                     self.step = 'preflight'
@@ -289,7 +293,7 @@ class RepeatExecution(ManualExecution):
             self.completed_transfers += 1
             self.transfers.append(dict(transfer=index+1, source=source, destination=destination,
                 source_station=self.recipe.stations[source], destination_station=self.recipe.stations[destination],
-                agv_transport=self.station_visit.transport, agv_legs=self.agv_legs))
+                agv_transport=self.station_visit.transport if self.station_visit else None, agv_legs=self.agv_legs))
             self.agv_legs = []
             self._publish(repeat=dict(self.manual['repeat'],completed_transfers=self.completed_transfers,
                 commanded_rod_endpoint=destination, records=self.transfers))

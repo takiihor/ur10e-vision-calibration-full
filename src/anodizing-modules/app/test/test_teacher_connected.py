@@ -107,7 +107,7 @@ class TeacherProgressTests(unittest.TestCase):
             release.wait(4)
             return original(*args)
         self.robot.getInverseKinematics=pending
-        status,raw=self.request('POST','/api/teaching',{'request_id':'native-stage-test','action':'validate_move','project':'project',
+        status,raw=self.request('POST','/api/teaching',{'request_id':'native-stage-test','action':'validate_move','project':'project','agv_off':True,
             'capture_id':self.record['id'],'path_confirmed':True,'joint_speed_deg_s':3,'collision_scene':'selected-scene.json',
             'workspace_min_m':[-.9,-.9,.02],'workspace_max_m':[.9,.9,1.2]})
         self.assertEqual(status,202,raw)

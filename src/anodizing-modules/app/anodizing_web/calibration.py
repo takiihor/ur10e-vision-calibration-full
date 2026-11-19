@@ -145,11 +145,14 @@ def run(owner, root, body, job_id, allow_camera, allow_manual=False):
         if automatic:
             from .auto_scene import check
             check(root, owner.jobs[job_id]['auto_scene'])
-        runner = JobRunner()
-        owner.runner = runner
-        runner.start(argv)
-        if action in ('collect', 'replay'):
-            owner.motion_job = job_id
+        with owner.agv_start_lock:
+            if action in ('collect', 'replay'):
+                owner.check_agv()
+            runner = JobRunner()
+            owner.runner = runner
+            runner.start(argv)
+            if action in ('collect', 'replay'):
+                owner.motion_job = job_id
     last_result = None
     exit_code = None
     try:

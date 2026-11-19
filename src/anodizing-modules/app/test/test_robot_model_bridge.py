@@ -35,7 +35,7 @@ class SelectedModelBridgeTests(unittest.TestCase):
         data['model_sha256'] = self.digest
         self.scene.write_text(json.dumps(data))
         (self.root / 'board.json').write_text('{}')
-        self.body = {'action':'collect','session':'new-session','manifest':'board.json',
+        self.body = {'action':'collect','agv_off':True,'session':'new-session','manifest':'board.json',
                      'board':'calibration_stage2','robot_ip':'fake','serial':'fake',
                      'collision_scene':'scene.json','views':14,'tilt_deg':25,'roll_deg':30}
         self.server = Server(0,self.root,allow_auto_calibration=True,robot_model='factory.json')

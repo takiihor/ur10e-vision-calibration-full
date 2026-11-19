@@ -217,9 +217,9 @@ class JointTeacherIntegrationTests(JointTeacherTests):
             patch=mock.patch(name,**kwargs);patch.start();self.addCleanup(patch.stop)
         return owner
 
-    def run_public_move(self):
+    def run_public_move(self, *, agv_off=True):
         import json
-        body={'request_id':'joint-test-request','action':'validate_move','project':'project',
+        body={'request_id':'joint-test-request','action':'validate_move','project':'project','agv_off':agv_off,
             'capture_id':self.record['id'],'path_confirmed':True,'joint_speed_deg_s':3,
             'collision_scene':'selected-scene.json','workspace_min_m':[-.9,-.9,.02],'workspace_max_m':[.9,.9,1.2]}
         status,raw=self.request('POST','/api/teaching',body)
@@ -293,7 +293,7 @@ class JointTeacherIntegrationTests(JointTeacherTests):
             release.wait(5)
             return original(*args)
         setattr(self.robot,name,blocked)
-        body={'request_id':'blocked-native-job','action':'validate_move','project':'project',
+        body={'request_id':'blocked-native-job','action':'validate_move','project':'project','agv_off':True,
             'capture_id':self.record['id'],'path_confirmed':True,'joint_speed_deg_s':3,
             'collision_scene':'selected-scene.json','workspace_min_m':[-.9,-.9,.02],'workspace_max_m':[.9,.9,1.2]}
         status,raw=self.request('POST','/api/teaching',body)

@@ -561,12 +561,12 @@ class ManualWorkerTests(unittest.TestCase):
         self.assertEqual([m[0] for m in self.robot.moves],['moveJ','moveL'])
 
 
-    def public_server(self):
+    def public_server(self, operation='PICK'):
         import json
         from unittest import mock
         from anodizing_web.server import Server
         from test_port import PortTests
-        self.prepare()
+        self.prepare(operation=operation)
         self.worker.close();self.robot.connected=True
         self.server=Server(0,self.root)
         self.server.allow_teaching=True
@@ -583,7 +583,7 @@ class ManualWorkerTests(unittest.TestCase):
                               ('anodizing_web.manual_execution.load_context',{'return_value':self.context}),
                               ('anodizing_web.manual_execution.native_backend',{'return_value':(self.robot,self.robot)})]:
             patch=mock.patch(target,**kwargs);patch.start();self.addCleanup(patch.stop)
-        self.public_body={'request_id':'manual-real-request','action':'PICK','project':'fixture-project',
+        self.public_body={'request_id':'manual-real-request','action':'PICK','project':'fixture-project','agv_off':True,
             'calibration':'fixture-calibration','pick_tag':'tank01','place_tag':'tank01',
             'reuse_taught_offset':True,'operator_path_approved':True,'tcp_confirmed':True,
             'held_envelope_confirmed':True,'initial_item_state':'operator_confirmed_released',

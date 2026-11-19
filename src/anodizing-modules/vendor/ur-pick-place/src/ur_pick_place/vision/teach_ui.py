@@ -272,7 +272,7 @@ class TeachingService:
             self.completed, self.error, self.failed = 'configure', '', None
             return self.state()
 
-    def submit(self, action, body):
+    def submit(self, action, body, *, agv=None):
         if action not in ('capture', 'teach', 'locate', 'capture_validation'):
             raise ValueError('Unknown teaching step')
         with self.lock:
@@ -293,10 +293,11 @@ class TeachingService:
             self.project._persist()
             self.busy, self.error, self.completed, self.failed = action, '', None, None
             settings = dict(self.project.settings, project=str(self.project.directory))
-            self.worker_thread = threading.Thread(target=self._run, args=(action, settings), daemon=True)
+            self.worker_thread = threading.Thread(target=self._run, args=(action, settings, agv),
+                                                  daemon=True)
             self.worker_thread.start()
 
-    def _run(self, action, settings):
+    def _run(self, action, settings, agv=None):
         exported = self.project.exported if self.project and action == 'capture_validation' else None
         try:
             # SDK/network calls run in a bounded child process. Timeout or app exit
@@ -304,9 +305,12 @@ class TeachingService:
             with self.lock:
                 if self.closed:
                     return
+                command = [sys.executable, '-m', 'ur_pick_place.vision.teach_ui',
+                           '--worker', action, '--project', settings['project']]
+                if action == 'capture' and agv is not None:
+                    command.extend(['--agv-capture', json.dumps(agv)])
                 process = self.process = subprocess.Popen(
-                    [sys.executable, '-m', 'ur_pick_place.vision.teach_ui', '--worker', action, '--project', settings['project']],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
                 stdout, stderr = process.communicate(timeout=90)
             except subprocess.TimeoutExpired:
@@ -487,6 +491,7 @@ def main(argv=None):
     parser.add_argument('--no-browser', action='store_true')
     parser.add_argument('--project', type=Path, help='Open a previously saved teaching project')
     parser.add_argument('--worker', choices=('capture', 'teach', 'locate', 'capture_validation'), help=argparse.SUPPRESS)
+    parser.add_argument('--agv-capture', type=json.loads, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.worker:
         try:
@@ -494,6 +499,8 @@ def main(argv=None):
             project = TeachingProject(dict(saved['settings'], project=str(args.project)))
             if args.worker == 'teach':
                 project.save_pick(marker_unchanged=True)
+            elif args.worker == 'capture':
+                project.capture(agv=args.agv_capture)
             else:
                 getattr(project, args.worker)()
             return 0

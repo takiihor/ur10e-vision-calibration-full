@@ -479,6 +479,7 @@ def control(owner, body):
                 job['execution_uncertain'] = True
                 raise
         elif body.get('action') == 'confirm':
+            owner.check_agv()
             if owner.mcu_pending or owner.execution_uncertain or owner.storage_error:
                 raise ValueError('MCU work is pending or execution/storage is uncertain. Inspect the outcome before confirmation.')
             if not isinstance(owner.runner,ManualExecution):
@@ -602,6 +603,7 @@ def run(owner, root, body, job_id):
         tcp_accel_m_s2=.05, joint_speed_rad_s=math.radians(number(body.get('joint_speed_deg_s',3),'Joint speed (degrees/s)',low=1,high=6)),
         joint_accel_rad_s2=.1)
     def guard():
+        owner.check_agv()
         with worker_owner_lock():
             if (owner.closing or owner.active != job_id or owner.storage_error or owner.jobs[job_id].get('manual_cancelled')
                     or ((repeat or step) and owner.execution_uncertain)):
@@ -646,8 +648,10 @@ def run(owner, root, body, job_id):
             factory=step_backend if step else native_backend,operation='DESCEND' if descent else operation,context=context,emit=emit,
             **({'recipe':recipe,'owner':owner,'parent_job_id':job_id} if repeat else {}))
         with owner.lock:
-            owner.runner = worker
-            owner.motion_job = job_id
+            with owner.agv_start_lock:
+                owner.check_agv()
+                owner.runner = worker
+                owner.motion_job = job_id
             emit(worker.state()['manual'])
         def wait():
             while True:

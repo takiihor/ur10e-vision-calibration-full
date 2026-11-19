@@ -9,7 +9,7 @@ import test_manual_execution
 class RobotControlIndependent(unittest.TestCase):
     def test_step_requires_exact_plan_approval_before_one_dispatch(self):
         h=test_manual_execution.ManualWorkerTests();owner=h.public_server();self.addCleanup(h.doCleanups)
-        body={'request_id':'robot-step-once','action':'STEP','axis':'x','increment':5,
+        body={'request_id':'robot-step-once','action':'STEP','agv_off':True,'axis':'x','increment':5,
               'robot_ip':'fake','tcp':h.tcp,'tcp_confirmed':True,'operator_path_approved':True,
               'collision_scene':'reviewed-scene.json','workspace_min_m':[-.9,-.9,.01],
               'workspace_max_m':[.9,.9,1.2],'joint_bounds_rad':[[-6.28,6.28] for _ in range(6)],
@@ -64,7 +64,7 @@ class RobotControlIndependent(unittest.TestCase):
     def make_step_fixture(self, request_id):
         h=test_manual_execution.ManualWorkerTests();owner=h.public_server();self.addCleanup(h.doCleanups)
         patch=mock.patch('anodizing_web.robot_control.native_backend',return_value=(h.robot,h.robot));patch.start();self.addCleanup(patch.stop)
-        h.public_body={'request_id':request_id,'action':'STEP','axis':'x','increment':5,'robot_ip':'fake','tcp':h.tcp,
+        h.public_body={'request_id':request_id,'action':'STEP','agv_off':True,'axis':'x','increment':5,'robot_ip':'fake','tcp':h.tcp,
             'collision_scene':'reviewed-scene.json','workspace_min_m':[-.9,-.9,.01],'workspace_max_m':[.9,.9,1.2],
             'joint_bounds_rad':[[-6.28,6.28] for _ in range(6)],'joint_bounds_source':'fixture','joint_speed_deg_s':3}
         return h,owner

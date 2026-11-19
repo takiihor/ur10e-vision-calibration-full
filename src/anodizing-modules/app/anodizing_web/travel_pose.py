@@ -13,7 +13,7 @@ from .paths import check_tree, inside
 from .site_profile import section
 
 CONFIRMATION = 'Folded inside the AGV footprint, with and without a rod'
-MISSING = 'Save the AGV travel pose on Pick/place before AGV movement.'
+MISSING = 'Save the AGV travel pose on Teaching before AGV movement.'
 OUTSIDE = 'Robot is outside the saved AGV travel pose or moving. Fold the arm and wait for it to stop.'
 UNAVAILABLE = 'Live robot feedback is unavailable. Check the robot connection and try again.'
 
@@ -33,7 +33,7 @@ def load(root):
     if (not isinstance(pose, dict) or pose.get('confirmation') != CONFIRMATION
             or not isinstance(pose.get('saved_at'), str) or not pose['saved_at']
             or not isinstance(pose.get('robot_ip'), str) or not pose['robot_ip']):
-        raise ValueError('Save a new confirmed AGV travel pose on Pick/place.')
+        raise ValueError('Save a new confirmed AGV travel pose on Teaching.')
     vector(pose.get('joints_rad'), 6, 'AGV travel joints')
     return pose
 
