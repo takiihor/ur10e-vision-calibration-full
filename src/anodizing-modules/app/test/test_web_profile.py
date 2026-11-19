@@ -8,6 +8,17 @@ import unittest
 WEB = Path(__file__).parents[1] / 'anodizing_web' / 'web'
 
 
+def test_menu_order_and_travel_pose_location():
+    expected = ('/calibration', '/teaching', '/agv', '/pick-place')
+    for name in ('index', 'calibration', 'teaching', 'agv', 'pick-place'):
+        html = (WEB / (name + '.html')).read_text()
+        assert sorted(expected, key=lambda path: html.index(f'href="{path}"')) == list(expected)
+    assert 'Save current joints as AGV travel pose' in (WEB / 'teaching.html').read_text()
+    pick = (WEB / 'pick-place.html').read_text()
+    assert 'Save current joints as AGV travel pose' not in pick
+    assert 'Change on Teaching' in pick
+
+
 @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
 class WebProfileTests(unittest.TestCase):
     def run_js(self, script, filename, *args):
@@ -20,7 +31,7 @@ class WebProfileTests(unittest.TestCase):
 const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
 const fields = {camera_provider: 'basler', camera_exposure_us: '5000', camera_gain_db: '0'};
 const context = {document: {querySelector: () => ({content: 'fixture'}), body: {dataset: {module: 'calibration'}},
-  getElementById: id => ({value: fields[id] ?? ''})}, localStorage: {getItem: () => null}};
+  addEventListener() {}, getElementById: id => ({value: fields[id] ?? ''})}, localStorage: {getItem: () => null}};
 vm.createContext(context);
 const source = fs.readFileSync(process.argv[1], 'utf8');
 vm.runInContext(source.slice(0, source.indexOf('function notice(')), context);

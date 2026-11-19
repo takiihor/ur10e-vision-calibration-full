@@ -11,10 +11,22 @@ let imageJob=null, imageUrl=null, autoEnabled=false, activeJob=null;
 let current=moduleName?storage.getItem('ano-job-'+moduleName):null;
 let calibrationHandoff=null;
 let pendingSend=moduleName?JSON.parse(storage.getItem('ano-send-'+moduleName)||'null'):null, submitting=false;
+const calibrationMotion=action=>moduleName==='calibration'&&['collect','replay'].includes(action);
 function updateStarts(){
-  document.querySelectorAll('[data-action]').forEach(button=>button.disabled=submitting||!!pendingSend||!!activeJob||(button.hasAttribute('data-auto')&&!autoEnabled));
+  document.querySelectorAll('[data-action]').forEach(button=>{
+    const base=submitting||!!pendingSend||!!activeJob||(button.hasAttribute('data-auto')&&!autoEnabled);
+    const why=calibrationMotion(button.dataset.action)?(window.agvMotion?.reason('calibration')??
+      'Checking AGV state…'):'';
+    button.disabled=base||!!why;
+    if(calibrationMotion(button.dataset.action)){
+      const reason=why||(base?'Automatic calibration must be enabled and the service idle.':'');
+      button.title=reason;
+      if($('calibration-start-reason'))$('calibration-start-reason').textContent=reason;
+    }
+  });
   if($('retry'))$('retry').disabled=submitting;
 }
+document.addEventListener('agv-motion-status',updateStarts);
 async function api(path,body){
   const opts={headers:{'X-Module-Token':token}};
   if(body!==undefined){opts.method='POST';opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(body);}
@@ -50,6 +62,7 @@ async function send(){
   submitting=true;updateStarts();
   try{
     const job=await api('/api/'+moduleName,pendingSend);
+    if(calibrationMotion(pendingSend.action))window.agvMotion?.submitted('calibration',job);
     activeJob=job.id;current=job.id;storage.setItem('ano-job-'+moduleName,current);
     pendingSend=null;storage.removeItem('ano-send-'+moduleName);$('retry').hidden=true;
     notice('Request accepted. The Interface PC owns this job.');await refresh();
@@ -59,7 +72,14 @@ async function send(){
 async function start(action){
   if(pendingSend){notice('Retry the pending request before starting another.',true);return;}
   if(activeJob)return;
-  try{if(moduleName==='calibration'&&['manual','verify-capture','plan','collect','replay'].includes(action)&&![...document.querySelectorAll('.ready')].every(c=>c.checked))throw Error('Complete the setup checks before collecting views.');pendingSend={...values(action),request_id:crypto.randomUUID()};storage.setItem('ano-send-'+moduleName,JSON.stringify(pendingSend));await send();}
+  try{if(moduleName==='calibration'&&['manual','verify-capture','plan','collect','replay'].includes(action)&&![...document.querySelectorAll('.ready')].every(c=>c.checked))throw Error('Complete the setup checks before collecting views.');pendingSend={...values(action),request_id:crypto.randomUUID()};
+    if(calibrationMotion(action)){
+      const reason=window.agvMotion?.reason('calibration')??'Checking AGV state…';
+      if(reason){pendingSend=null;throw Error(reason);}
+      if(window.agvMotion.off('calibration'))pendingSend.agv_off=true;
+    }
+    if(!pendingSend.agv_off)storage.setItem('ano-send-'+moduleName,JSON.stringify(pendingSend));
+    await send();}
   catch(error){notice(error.message,true);}
 }
 async function answer(id,value){

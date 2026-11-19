@@ -17,6 +17,8 @@
   }
   function reason() {
     if(posting)return 'Submitting separate descent.';
+    const agvReason=window.agvMotion?.reason('descent')??'Checking AGV state…';
+    if(agvReason)return agvReason;
     if(!capability?.hardware_available)return capability?.detail||'Checking reviewed IPC Cartesian capability.';
     if(!connectionOK||dirty||state.requires_setup||state.busy)return 'Complete current setup and wait for a connected idle Teacher.';
     const v=state.project?.validation;
@@ -37,14 +39,15 @@
   }
   for(const id of ['descent-speed','descent-joint-min','descent-joint-max','descent-joint-source','validation-collision-scene','validation-workspace-min','validation-workspace-max'])el(id).addEventListener('input',()=>{el('descent-confirmed').checked=false;renderDescent();});
   el('descent-confirmed').addEventListener('change',renderDescent);
+  document.addEventListener('agv-motion-status',renderDescent);
   el('descent-start').addEventListener('click',async()=>{
     if(reason())return;
     const p=state.project,v=p.validation;
-    const body={action:'vertical_descent',project:p.project,calibration:p.settings.calibration,manifest:p.settings.target.board_manifest||'',
+    const body={action:'vertical_descent',agv_off:window.agvMotion.off('descent'),project:p.project,calibration:p.settings.calibration,manifest:p.settings.target.board_manifest||'',
       alignment_job_id:teacherJob,alignment_capture_id:v.id,marker_unchanged:el('descent-confirmed').checked,operator_vertical_approved:el('descent-confirmed').checked,operator_path_approved:el('descent-confirmed').checked,tcp_confirmed:el('descent-confirmed').checked,
       collision_scene:el('validation-collision-scene').value.trim(),speed_mm_s:Number(el('descent-speed').value),...inputs()};
     posting=true;el('descent-confirmed').checked=false;renderDescent();
-    try{await window.startManualJob('/api/teaching',body);}catch(error){el('descent-reason').textContent=error.message;}
+    try{window.agvMotion.submitted('descent',await window.startManualJob('/api/teaching',body));}catch(error){el('descent-reason').textContent=error.message;}
     finally{posting=false;renderDescent();}
   });
   moduleRequest('/api/manual-pick-place').then(value=>{capability=value;renderDescent();}).catch(error=>{capability={detail:error.message};renderDescent();});

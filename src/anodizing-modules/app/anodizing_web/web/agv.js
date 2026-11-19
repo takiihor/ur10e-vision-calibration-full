@@ -391,7 +391,7 @@ function render() {
   $('silence-label').hidden = !state.connected || state.settings.mode !== 'simulator';
   $('silence').checked = state.silent || false;
   display('interlock', state.robot_interlock === false ? 'No robot interlock: AGV-only test bench.'
-    : state.robot_interlock ? 'Robot travel pose required for motion. Save or check the pose on Pick/place.'
+    : state.robot_interlock ? 'Robot travel pose required for motion. Save the pose on Teaching.'
     : 'Checking robot interlock…');
   display('connection-note', reportError || ($('link-settings').open ? connectionLocked || connectReason : ''));
 

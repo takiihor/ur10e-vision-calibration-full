@@ -1,9 +1,16 @@
 'use strict';
+const teacherStorage = {
+  getItem(key) { try { return localStorage.getItem(key); } catch { return null; } },
+  setItem(key, value) { try { localStorage.setItem(key, value); } catch {} },
+  removeItem(key) { try { localStorage.removeItem(key); } catch {} }
+};
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="teach-token"]').content;
 let defaults, state = {version:'0.3.1',busy:null,error:'',completed:null,failed:null,project:null}, dirty = false, posting = false, previousResult = '', imageVersion = 0;
 let minPixelsPerModule = 5;
 let connectionOK = true, validationImageId = '';
+let teachingStation=null;
+const agvApproval={validate_move:'validation',return_observation:'observation-return'};
 let initialEdits = new Set();
 const steps = ['configure', 'capture', 'teach', 'locate', 'validate'];
 let activeStep = 0;
@@ -88,9 +95,9 @@ function settings() {
     target:kind==='charuco'?{kind,board_manifest:$('manifest').value,board:$('board').value}:
       {kind,dictionary:$('dictionary').value,marker_id:Number($('marker_id').value),marker_length_mm:Number($('marker_length_mm').value)}};
 }
-let teacherJob=localStorage.getItem('ano-job-teaching');
-let teacherPending=JSON.parse(localStorage.getItem('ano-send-teaching')||'null');
-let teacherState=JSON.parse(localStorage.getItem('ano-teacher-state')||'null');
+let teacherJob=teacherStorage.getItem('ano-job-teaching');
+let teacherPending=JSON.parse(teacherStorage.getItem('ano-send-teaching')||'null');
+let teacherState=JSON.parse(teacherStorage.getItem('ano-teacher-state')||'null');
 let captureURL=null, simulatedProject=null;
 function nativeState(value) {
   return value && typeof value==='object' && value.project && typeof value.project==='object'
@@ -98,7 +105,7 @@ function nativeState(value) {
 }
 function recoverOldJob() {
   teacherJob=null;teacherState=null;
-  localStorage.removeItem('ano-job-teaching');localStorage.removeItem('ano-teacher-state');
+  teacherStorage.removeItem('ano-job-teaching');teacherStorage.removeItem('ano-teacher-state');
   return {version:'0.3.1',busy:null,completed:null,failed:'configure',project:null,
     error:'The previous job is unavailable or simulated. Open a saved teaching project to continue.'};
 }
@@ -114,10 +121,11 @@ async function sendTeacher() {
   if(!teacherPending) return;
   try {
     const job=await moduleRequest('/api/teaching',teacherPending);
-    teacherJob=job.id;localStorage.setItem('ano-job-teaching',teacherJob);localStorage.setItem('ano-teacher-action',teacherPending.action);
-    teacherPending=null;localStorage.removeItem('ano-send-teaching');$('retry-teacher').hidden=true;
+    if(agvApproval[teacherPending.action])window.agvMotion?.submitted(agvApproval[teacherPending.action],job);
+    teacherJob=job.id;teacherStorage.setItem('ano-job-teaching',teacherJob);teacherStorage.setItem('ano-teacher-action',teacherPending.action);
+    teacherPending=null;teacherStorage.removeItem('ano-send-teaching');$('retry-teacher').hidden=true;
   } catch(error) {
-    if(error.status){teacherPending=null;localStorage.removeItem('ano-send-teaching');$('retry-teacher').hidden=true;}
+    if(error.status){teacherPending=null;teacherStorage.removeItem('ano-send-teaching');$('retry-teacher').hidden=true;}
     else $('retry-teacher').hidden=false;
     throw error;
   }
@@ -150,27 +158,27 @@ async function request(path,body) {
         if(teacherState?.requires_setup){dirty=true;return {...teacherState,job_state:job.state};}
         const prior=nativeState(teacherState)?teacherState.project:nativeState(job.result)?job.result.project:null;
         dirty=true;teacherPending=null;simulatedProject=null;
-        localStorage.removeItem('ano-send-teaching');$('retry-teacher').hidden=true;
+        teacherStorage.removeItem('ano-send-teaching');$('retry-teacher').hidden=true;
         for(const id of ['tcp_confirmed','marker_unchanged','validation-confirmed','observation-return-confirmed']) $(id).checked=false;
         $('capture-image').hidden=true;
         teacherState={version:'0.3.1',busy:null,completed:null,failed:'configure',motion:{},motion_available:false,
           requires_setup:true,project:prior?{project:prior.project,settings:prior.settings,flow:{}}:null,
           error:'Teacher session expired after restart. Open a saved teaching project or complete setup again.'};
-        localStorage.setItem('ano-teacher-state',JSON.stringify(teacherState));
+        teacherStorage.setItem('ano-teacher-state',JSON.stringify(teacherState));
         return {...teacherState,job_state:job.state};
       }
       if(error.status===404&&['failed','interrupted'].includes(job.state)) {
         const prior=nativeState(teacherState)?teacherState:{version:'0.3.1',project:null};
         return {...prior,busy:null,motion:{},motion_available:false,job_state:job.state,
-          error:job.error||'Teacher session interrupted. Open the project and capture again.',failed:localStorage.getItem('ano-teacher-action')||'configure'};
+          error:job.error||'Teacher session interrupted. Open the project and capture again.',failed:teacherStorage.getItem('ano-teacher-action')||'configure'};
       }
       throw error;
     }
     if(!nativeState(current))return recoverOldJob();
-    teacherState=current;localStorage.setItem('ano-teacher-state',JSON.stringify(current));
+    teacherState=current;teacherStorage.setItem('ano-teacher-state',JSON.stringify(current));
     return {...current,job_state:job.state,
       error:['failed','interrupted'].includes(job.state)?job.error||current.error||'Job interrupted.':current.error,
-      failed:['failed','interrupted'].includes(job.state)?localStorage.getItem('ano-teacher-action')||current.failed:current.failed};
+      failed:['failed','interrupted'].includes(job.state)?teacherStorage.getItem('ano-teacher-action')||current.failed:current.failed};
   }
   if(path==='/api/validation/heartbeat'||path==='/api/validation/stop')
     return moduleRequest('/api/teacher-control',{job_id:teacherJob,action:path.endsWith('/stop')?'stop':'heartbeat'});
@@ -179,7 +187,13 @@ async function request(path,body) {
   if(state.requires_setup&&action!=='configure') throw new Error('Teacher session expired. Open the project and complete setup again.');
   if(teacherPending) throw new Error('Retry the pending request first.');
   teacherPending={request_id:crypto.randomUUID(),action,...(action==='configure'?{settings:body}:{project:$('project').value,...body})};
-  localStorage.setItem('ano-send-teaching',JSON.stringify(teacherPending));
+  const scope=agvApproval[action];
+  if(scope){
+    const reason=window.agvMotion?.reason(scope)??'Checking AGV state…';
+    if(reason){teacherPending=null;throw Error(reason);}
+    if(window.agvMotion.off(scope))teacherPending.agv_off=true;
+  }
+  if(!teacherPending.agv_off)teacherStorage.setItem('ano-send-teaching',JSON.stringify(teacherPending));
   await sendTeacher();
   return {accepted:true};
 }
@@ -235,8 +249,8 @@ function renderValidation(p,busy) {
   $('validation-stop').hidden=!(['validate_move','return_observation'].includes(state.busy)||motion.moving||motion.pending);
   $('validation-stop').disabled=!connectionOK||!teacherJob;
   const commonReason=busy?'Wait for the current operation.':dirty||state.requires_setup||!p?'Complete setup first.':!connectionOK?'Reconnect Teacher.':!state.motion_available?(state.motion_unavailable_reason||'Checked movement is unavailable.'):!$('validation-collision-scene').value.trim()?'Select a reviewed collision scene.':'';
-  const returnReason=commonReason||(!p?.observation?'Capture the teaching reference in Step 2.':!$('observation-return-confirmed').checked?'Review and confirm the return joint path.':!$('observation-return-speed').checkValidity()?'Set return speed from 1 to 6 degrees/s.':'');
-  const validationReason=commonReason||(p?.settings.motion_model!=='planar'?'Only planar projects support this test.':!fresh?(v?.status==='captured'?'Validation capture expired or unsupported. Capture again.':'Capture a fresh validation marker.'):!$('validation-confirmed').checked?'Review and confirm the validation joint path.':!$('validation-speed').checkValidity()?'Set joint speed from 1 to 6 degrees/s.':'');
+  const returnReason=(window.agvMotion?.reason('observation-return')??'Checking AGV state…')||commonReason||(!p?.observation?'Capture the teaching reference in Step 2.':!$('observation-return-confirmed').checked?'Review and confirm the return joint path.':!$('observation-return-speed').checkValidity()?'Set return speed from 1 to 6 degrees/s.':'');
+  const validationReason=(window.agvMotion?.reason('validation')??'Checking AGV state…')||commonReason||(p?.settings.motion_model!=='planar'?'Only planar projects support this test.':!fresh?(v?.status==='captured'?'Validation capture expired or unsupported. Capture again.':'Capture a fresh validation marker.'):!$('validation-confirmed').checked?'Review and confirm the validation joint path.':!$('validation-speed').checkValidity()?'Set joint speed from 1 to 6 degrees/s.':'');
   $('observation-return-reason').textContent=returnReason;
   $('validation-move-reason').textContent=validationReason;
   const canReturn=!busy&&!dirty&&connectionOK&&!!p?.observation;
@@ -295,7 +309,16 @@ function render() {
   }
   $('configure').disabled=busy; $('open').disabled=busy;
   for(const input of $('setup').querySelectorAll('input,select')) input.disabled=busy;
-  $('capture').disabled=busy||dirty||!p;
+  const station=$('capture-agv-station');
+  const stationReady=teachingStation!==null||station.value!==''&&station.checkValidity();
+  $('capture-station-entry').hidden=teachingStation!==null;
+  const stationHint=teachingStation===null?'AGV not reporting: enter the station this tank is at.':
+    'AGV reports station '+teachingStation+'.';
+  const recorded=p?.agv;
+  const hint=stationHint+(recorded?' Saved capture: station '+recorded.station+
+    (recorded.source==='agv_status'?' (AGV status).':' (operator).'):'');
+  if($('capture-station-hint').textContent!==hint)$('capture-station-hint').textContent=hint;
+  $('capture').disabled=busy||dirty||!p||!stationReady;
   $('teach').disabled=busy||dirty||!f.captured||!$('marker_unchanged').checked;
   $('locate').disabled=busy||dirty||!f.taught;
   $('continue-pick-place').disabled=busy||dirty||(!f.taught&&!simulatedProject);
@@ -392,16 +415,18 @@ $('marker_unchanged').addEventListener('change',render);
 $('continue-pick-place').addEventListener('click',()=>{
   const p=state?.project,sim=simulatedProject?.settings;if(dirty||state?.busy||posting||(!p?.flow?.taught&&!sim))return;
   const settings=sim||p.settings,target=settings.target||{};
-  localStorage.setItem('ano-handoff-pick-place',JSON.stringify({project:sim?settings.project:p.project,calibration:settings.calibration,manifest:target.board_manifest||target.aruco_manifest||'',simulation:!!sim}));
+  teacherStorage.setItem('ano-handoff-pick-place',JSON.stringify({project:sim?settings.project:p.project,calibration:settings.calibration,manifest:target.board_manifest||target.aruco_manifest||'',simulation:!!sim}));
   location.href='/pick-place';
 });
-$('capture').addEventListener('click',()=>post('capture',{}));
+$('capture-agv-station').addEventListener('input',render);
+document.addEventListener('agv-motion-status',event=>{teachingStation=event.detail.teaching_station??null;render();});
+$('capture').addEventListener('click',()=>post('capture',{agv_station:$('capture-agv-station').valueAsNumber}));
 $('teach').addEventListener('click',()=>post('teach',{marker_unchanged:$('marker_unchanged').checked}));
 $('locate').addEventListener('click',()=>post('locate',{}));
 $('validation-capture').addEventListener('click',()=>{ $('validation-confirmed').checked=false; post('validation/capture',{}); });
 $('validation-confirmed').addEventListener('change',render);
 $('observation-return-confirmed').addEventListener('change',render);
-$('validation-collision-scene').addEventListener('input',()=>localStorage.setItem('ano-teacher-motion-form',JSON.stringify({'validation-collision-scene':$('validation-collision-scene').value})));
+$('validation-collision-scene').addEventListener('input',()=>teacherStorage.setItem('ano-teacher-motion-form',JSON.stringify({'validation-collision-scene':$('validation-collision-scene').value})));
 function workspace(id) {
   const text=$(id).value.trim(), values=text.split(/[\s,]+/).map(Number);
   if(!text||values.length!==3||!values.every(Number.isFinite)) throw new Error('Workspace needs three XYZ numbers in millimetres.');
@@ -448,7 +473,7 @@ $('capture-image').addEventListener('error',()=>{$('capture-image').hidden=true;
 for(const id of ['tcp_confirmed','marker_unchanged','validation-confirmed','observation-return-confirmed']) $(id).checked=false;
 (async()=>{
   try {
-    const savedMotion=JSON.parse(localStorage.getItem('ano-teacher-motion-form')||'{}');
+    const savedMotion=JSON.parse(teacherStorage.getItem('ano-teacher-motion-form')||'{}');
     if(typeof savedMotion['validation-collision-scene']==='string') $('validation-collision-scene').value=savedMotion['validation-collision-scene'];
     defaults=await request('/api/defaults');
     for(const [index,board] of (defaults.picking_boards||[]).entries()) {
@@ -462,8 +487,8 @@ for(const id of ['tcp_confirmed','marker_unchanged','validation-confirmed','obse
     const initial=state.project?{...state.project.settings,project:state.project.project}:defaults.settings;
     const prefill=(id,value,property)=>{if(!initialEdits.has(id))setField(id,value,property);};
     fill(initial,prefill);
-    const handoff=JSON.parse(localStorage.getItem('ano-handoff-teaching')||'null');
-    localStorage.removeItem('ano-handoff-teaching');
+    const handoff=JSON.parse(teacherStorage.getItem('ano-handoff-teaching')||'null');
+    teacherStorage.removeItem('ano-handoff-teaching');
     if(handoff&&typeof handoff.calibration==='string'&&!initialEdits.has('calibration')){
       $('calibration').value=handoff.calibration;$('calibration').dataset.handoff='true';
       prefill('camera_provider',handoff.camera_provider||'realsense');

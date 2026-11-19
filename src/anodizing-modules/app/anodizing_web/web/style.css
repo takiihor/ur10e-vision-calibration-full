@@ -176,3 +176,9 @@ body[data-module="agv"] main { max-width: 1440px; }
 [data-module="pick-place"] #manual-job-status:is([data-state="failed"], [data-state="interrupted"]) {
   color: #a82720;
 }
+
+.agv-off-confirmation, #travel-pose-save { min-height: 44px; }
+.agv-off-confirmation { align-items: center; }
+#agv-travel-settings { min-height: 0; }
+[data-agv-approval] p, aside [data-agv-summary], #calibration-start-reason { color: #1d3043; }
+[data-agv-approval] p[data-state="failed"], aside [data-agv-summary][data-state="failed"] { color: #a82720; }

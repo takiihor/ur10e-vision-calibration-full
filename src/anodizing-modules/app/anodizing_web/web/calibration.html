@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="module-token" content="__TOKEN__"><link rel="stylesheet" href="/teacher-style.css"><link rel="stylesheet" href="/style.css"><title>Calibration</title></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="module-token" content="__TOKEN__"><link rel="stylesheet" href="/teacher-style.css"><link rel="stylesheet" href="/style.css"><title>Calibration</title><script src="/agv-motion.js" defer></script></head>
 <body data-module="calibration">
 <header>
 <div class="brand">
 <div><h1>Calibration</h1><p>Interface PC service</p></div>
 </div>
-<nav><a href="/calibration">Calibration</a> · <a href="/teaching">Teaching</a> · <a href="/pick-place">Pick/place</a> · <a href="/agv">AGV</a></nav></header>
+<nav><a href="/calibration">Calibration</a> · <a href="/teaching">Teaching</a> · <a href="/agv">AGV</a> · <a href="/pick-place">Pick/place</a></nav></header>
 <main><p class="hint">Paths refer to the Interface PC data directory.</p><p id="message" role="status">Connecting…</p><p id="status">Connecting…</p>
 <div class="stepper" aria-label="Calibration steps"><button data-step="0">1 Setup</button><button data-step="1">2 Tool box</button><button data-step="2">3 Plan</button><button data-step="3">4 Capture</button><button data-step="4">5 Results</button><button data-step="5">6 Verify</button></div>
 <div class="workspace">
@@ -25,13 +25,13 @@
 </details>
 </section>
 <section data-page="3" hidden><h2>Capture</h2><p>Mount the measured board flat and fixed. Stop the robot before each view.</p><button class="primary" data-action="manual">Collect pendant-positioned views</button>
-<div class="actions"><button class="secondary" data-action="collect" data-auto disabled>Start automatic collection</button></div>
+<div class="actions"><button class="secondary" data-action="collect" aria-describedby="agv-motion-calibration calibration-start-reason" data-auto disabled>Start automatic collection</button></div>
 <p class="hint">Automatic collection requests approval in <a href="#current-operation">Current operation</a>. Disabled starts require IPC automatic capability and no active job. Views applies to automatic collection. Manual capture continues until Finish collection.</p></section>
 <section data-page="4" hidden><h2>Results</h2><p>Fit a recorded session or run a simulation.</p>
 <div class="actions"><button class="primary" data-action="calibrate">Fit both</button><button class="secondary" data-action="solve">Solve session</button><button class="secondary" data-action="intrinsics">Fit intrinsics</button><button class="secondary" data-action="simulate">Simulate calibration</button></div>
 <p class="hint">Simulation does not validate hardware.</p><button id="continue-teaching" type="button" class="secondary" disabled>Continue to Teaching</button><p id="calibration-handoff" class="hint">Complete a usable calibration first.</p></section>
 <section data-page="5" hidden><h2>Verify</h2><p>Collect a separate session with the board and camera fixed. See <a href="#current-operation">Current operation</a> for active-job status and replay approvals. Replay requires IPC automatic capability and no active job.</p><label>Calibration JSON<input id="calibration"></label><label>Fresh verification session<input id="verification"></label>
-<div class="actions"><button class="secondary" data-action="verify-capture">Collect fresh verification views</button><button class="secondary" data-action="replay" data-auto disabled>Replay views for verification</button><button class="primary" data-action="verify">Verify fresh session</button></div>
+<div class="actions"><button class="secondary" data-action="verify-capture">Collect fresh verification views</button><button class="secondary" data-action="replay" aria-describedby="agv-motion-calibration calibration-start-reason" data-auto disabled>Replay views for verification</button><button class="primary" data-action="verify">Verify fresh session</button></div>
 </section>
 </div>
 <aside class="operation-column">
@@ -40,6 +40,7 @@
 <div class="actions operation-stop"><button id="manual-stop" type="button" class="danger" disabled>Stop operation</button></div>
 </div>
 <div class="operation-body">__MANUAL_JOB_PANEL__<h3>Job status</h3><p id="job-attention" hidden></p><p id="summary">No job selected.</p><p id="job-elapsed">Elapsed job time: unavailable</p>
+<div data-agv-approval="calibration"></div><p id="calibration-start-reason" class="hint"></p>
 <div id="pending" class="operator-panel" role="region" aria-label="Job controls"></div>
 <h3>Last received messages</h3><p class="hint">Last 8 lines. Latest is last. Job state is reported above.</p><pre id="job-log">No messages received.</pre><h3>Board view</h3><img id="preview" alt="Board observation" hidden></div>
 </section>
