@@ -67,6 +67,13 @@ STATION_CALL_REQUIRED = ('Station call needs the station-call function, set in t
                          'In standard mode, use Forward/Reverse.')
 
 
+def station_limit(learned_legs):
+    # XBOT V2.0 manual lines 630–645 numbers the start as 1. Android 3.5.3
+    # DrawLine includes that start in its count + 1 points. Treat RS485 byte 17 the same way.
+    # RS485 protocol lines 142–149 encode the target in one byte.
+    return min(learned_legs + 1, ARGUMENTS['call_station']['max']) if learned_legs else 0
+
+
 def hex_bytes(raw):
     return raw.hex(' ').upper()
 
@@ -314,6 +321,8 @@ class Simulator:
             if ((self.mode != 2 and operation in (0x5B, 0x9D))
                     or (self.mode == 2 and operation == 0x87 and low == 4)):
                 return len(raw)
+            if operation == 0x9D and (high or self.stations < 2 or not 1 <= low <= self.stations):
+                return len(raw)
             if not self.silent:
                 self.acknowledgements.append(monotonic() + 1)
             if operation == 0x7D:
@@ -328,9 +337,10 @@ class Simulator:
                 self.leading_end = 255 if low < self.station else 1
                 self.target = low
                 self.stopped = self.paused = self.command_stop = self.arrival = False
-                self.arrives_at = monotonic() + 3 if 1 <= low <= self.stations else None
+                self.arrives_at = monotonic() + 3
             elif operation == 0x5B:
-                resume_station = self.paused and self.station != self.target and 1 <= self.target <= self.stations
+                resume_station = (self.paused and self.station != self.target
+                                  and self.stations >= 2 and 1 <= self.target <= self.stations)
                 self.paused = self.stopped = low == 1
                 self.arrives_at = monotonic() + 3 if low == 2 and resume_station else None
                 self.command_stop = False
@@ -343,10 +353,11 @@ class Simulator:
     def _report(self):
         speed = self.speed.to_bytes(2, 'little')
         actual = 0 if self.stopped else -self.speed if self.leading_end == 255 else self.speed
+        learned_legs = max(0, self.stations - 1)
         data = (bytes((self.prefix[1], 86)) + speed
                 + bytes((self.stopped, 0, self.arrival, self.command_stop))
                 + actual.to_bytes(2, 'little', signed=True)
-                + bytes((self.station, self.target, 0, self.stations, self.mode, 0))
+                + bytes((self.station, self.target, 0, learned_legs, self.mode, 0))
                 + bytes(4) + bytes((self.paused, 0 if self.stopped else self.leading_end, 0xCC, 0)))
         self.buffer += Frame(0x25, data, self.reply_prefix).encode()
 
@@ -635,7 +646,7 @@ class Connection:
             pending.status_seen = True
             if name == 'call_station':
                 value = self.results[name]['value']
-                learned = decoded.get('mode') == 2 and 1 <= value <= decoded.get('max_stations', 0)
+                learned = decoded.get('mode') == 2 and 1 <= value <= station_limit(decoded.get('max_stations', 0))
                 if learned and decoded.get('current_station') == value and decoded.get('stopped') is True:
                     self._finish_confirmation(name, 'arrived')
                 else:
@@ -1272,7 +1283,7 @@ class Connection:
         if name == 'call_station':
             if status['mode'] != 2:
                 raise ValueError(STATION_CALL_REQUIRED)
-            maximum = status.get('max_stations', 0)
+            maximum = station_limit(status.get('max_stations', 0))
             if maximum == 0:
                 raise ValueError('AGV station learning is unverified. Learn the route before calling a station.')
             if type(value) is int and value > maximum:

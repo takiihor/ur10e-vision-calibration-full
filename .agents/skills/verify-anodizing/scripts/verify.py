@@ -176,7 +176,7 @@ def agv(_, token, __):
         save_json('agv-' + step + '.json', state)
         return state
 
-    connected = action('connect', action='connect', mode='simulator')
+    connected = action('connect', action='connect', mode='simulator', stations=2)
     require(connected['connected'] and connected['settings']['mode'] == 'simulator'
             and not connected['armed'], 'Expected an unarmed simulator connection.')
     queried = action('query', action='send', command='query_status')
@@ -195,7 +195,7 @@ def agv(_, token, __):
     require(speed['results']['read_speed']['state'] == 'reply: 1500 m/h',
             'The valid speed reply did not complete the read.')
     connection_id = connected['connection_id']
-    require(status['max_stations'] == 3 and status['current_station'] == 1, 'Expected three learned stations.')
+    require(status['max_stations'] == 1 and status['current_station'] == 1, 'Expected one learned leg from station 1.')
     armed = action('arm', action='arm', connection_id=connection_id, armed=True)
     approval = dict(connection_id=connection_id, stop_generation=armed['stop_generation'])
     action('reverse', action='send', command='reverse', **approval)

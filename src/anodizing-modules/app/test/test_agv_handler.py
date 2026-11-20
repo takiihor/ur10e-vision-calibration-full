@@ -488,12 +488,16 @@ def test_query_waits_for_reply_or_full_timeout_before_next_request(session, monk
 
 def test_station_arrival_uses_a_later_stop_and_measures_travel(session, agv_clock):
     _, request = session
-    connection_id = open_simulator(request)
-    assert send(request, 'query_status')[1]['status']['max_stations'] == 3
+    _, connected = request({'action': 'connect', 'mode': 'simulator', 'stations': 2})
+    connection_id = connected['connection_id']
+    assert send(request, 'query_status')[1]['status']['max_stations'] == 1
     assert send(request, 'call_station', connection_id, value=2)[0] == 400
     assert send(request, 'set_speed', connection_id, value=500)[0] == 400
     request(dict(action='arm', armed=True, connection_id=connection_id))
-    assert send(request, 'call_station', connection_id, value=4)[0] == 400
+    assert send(request, 'call_station', connection_id, value=0)[0] == 400
+    code, refused = send(request, 'call_station', connection_id, value=3)
+    assert code == 400 and 'from 1 to 2' in refused['error']
+    assert not command_writes(request()[1], 'call_station')
     status, state = send(request, 'call_station', connection_id, value=2)
     assert status == 200
     assert state['results']['call_station']['state'] == agv.SENT
@@ -502,17 +506,20 @@ def test_station_arrival_uses_a_later_stop_and_measures_travel(session, agv_cloc
     state = send(request, 'query_status')[1]
     assert not state['status']['stopped']
     assert state['status']['current_station'] == 1 and state['status']['target_station'] == 2
+    assert state['results']['call_station']['state'] == 'travelling'
     agv_clock.now += 4
     state = send(request, 'query_status')[1]
     assert state['status']['current_station'] == 2 and state['status']['stopped']
     assert state['results']['call_station']['state'] == 'arrived'
     assert state['results']['call_station']['elapsed_s'] == pytest.approx(5)
     assert {'stopped', 'current_station', 'target_station'} <= {event['field'] for event in state['events']}
+    assert send(request, 'call_station', connection_id, value=1)[0] == 200
 
 
-def test_stop_counter_cannot_confirm_a_station_call(session, agv_clock):
+@pytest.mark.parametrize('stations', [0, 1])
+def test_stop_counter_cannot_confirm_a_station_call(session, agv_clock, stations):
     _, request = session
-    _, connected = request({'action': 'connect', 'mode': 'simulator', 'stations': 0})
+    _, connected = request({'action': 'connect', 'mode': 'simulator', 'stations': stations})
     connection_id = connected['connection_id']
     assert send(request, 'query_status')[1]['status']['max_stations'] == 0
     request(dict(action='arm', armed=True, connection_id=connection_id))

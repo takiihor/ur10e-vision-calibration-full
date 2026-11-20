@@ -73,6 +73,12 @@ async function load(ports) {
           commands: [{name: 'forward', label: 'Forward', motion: true},
             {name: 'rotate_clockwise', label: 'Rotate', motion: true}],
         });
+        if (['station-range', 'station-unlearned'].includes(scenario)) Object.assign(response, {
+          connected: true, armed: true, stop_generation: 7, status_hex: 'station report', status_age_s: .2,
+          status: {mode: 2, current_station: 2, max_stations: scenario === 'station-range' ? 1 : 0, stopped: true},
+          commands: [{name: 'call_station', label: 'Call station', motion: true,
+            argument: {label: 'Station number', min: 1, max: 255, default: 1}}],
+        });
         if (scenario === 'standard') Object.assign(response, {
           connected: true, status_hex: 'standard report', status_age_s: .2,
           status: {mode: 0, current_station: 7, max_stations: 1, position_units: 20, stopped: true},
@@ -128,7 +134,27 @@ async function run() {
     assert.match(get('station-label').textContent, /Stop counter/);
     assert.match(get('link-quality').textContent, /Sent 4.*Acknowledged 1.*Resent 2.*No reply 1.*1.2 s/);
   }
-  if (scenario === 'reload') {
+  if (scenario === 'station-range' || scenario === 'station-unlearned') {
+    get('call_station-value').valueAsNumber = 2;
+    get('call_station-value').emit('input');
+    if (scenario === 'station-range') {
+      assert.equal(get('stations').options.length, 2);
+      assert.equal(get('station-1').textContent, 'Go to station 1');
+      assert.equal(get('station-2').textContent, 'Go to station 2 · Current');
+      assert.equal(get('call_station').disabled, false);
+      get('call_station-value').valueAsNumber = 3;
+      get('call_station-value').emit('input');
+      assert.equal(get('call_station').disabled, true);
+      assert.match(get('call_station-why').textContent, /from 1 to 2/);
+      await get('station-2').emit('click');
+      assert.equal(requests.at(-1).value, 2);
+    } else {
+      assert.equal(get('stations').options.length, 0);
+      assert.equal(get('call_station').disabled, true);
+      assert.match(get('station-label').textContent, /Stop counter/);
+      assert.deepEqual(requests, []);
+    }
+  } else if (scenario === 'reload') {
     selectSerial(get);
     get('port').value = radio.device;
     get('address').value = 'aa 12';

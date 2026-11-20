@@ -44,7 +44,7 @@ let lastPressed, networkError = false, reportError = '', lastMaximum, renderedSt
 let audio, reportErrorUntil = 0;
 
 const fieldLabels = {
-  vehicle_id: 'Vehicle ID', set_speed_m_h: 'Set speed', max_stations: 'Learned stations',
+  vehicle_id: 'Vehicle ID', set_speed_m_h: 'Set speed', max_stations: 'Learned legs',
   customer_sensors: 'Customer sensor inputs', position_units: 'Route position (device units)',
   leading_end: 'Leading end', obstacle_input: 'Obstacle input',
   laser_blocked: 'Laser eye blocked', roller_center_blocked: 'Roller centre beam blocked',
@@ -248,6 +248,12 @@ function disabled(id, reason) {
   if ($(id + '-why')) display(id + '-why', reason);
 }
 
+function stationLimit(status) {
+  const legs = status?.max_stations;
+  // XBOT V2.0 manual lines 630–645 include the start as station 1.
+  return legs > 0 ? Math.min(legs + 1, 255) : legs;
+}
+
 function commandReason(name, preset) {
   if (!state.connected) return 'Connect first.';
   if (urgent.has(name)) return '';
@@ -264,7 +270,7 @@ function commandReason(name, preset) {
   }
   if (busy) return 'Wait for the current request.';
   const value = commandValue(name, preset);
-  const maximum = state.status?.max_stations;
+  const maximum = stationLimit(state.status);
   if (name === 'call_station' && maximum > 0 && value > maximum) return `Choose a learned station from 1 to ${maximum}.`;
   if (value === undefined) return name === 'set_speed' ? 'Enter a whole number from 500 to 4000 m/h.' : 'Enter a whole number from 1 to 255.';
   return '';
@@ -278,15 +284,15 @@ function faultText(status) {
 function renderStatus() {
   const status = state.status;
   const standard = status?.mode === 0;
-  const maximum = standard ? undefined : status?.max_stations;
+  const maximum = standard ? undefined : stationLimit(status);
   $('manual-station').hidden = standard;
   $('target-readout').hidden = standard;
   $('direction-note').hidden = !standard;
   if (commands.has('forward')) display('forward', standard ? 'Forward' : 'Forward');
   if (commands.has('reverse')) display('reverse', standard ? 'Reverse' : 'Reverse');
   display('station-note', standard ? stationCallRequired : maximum === 0
-    ? 'No route learned yet (AGV reports 0 stations). Teach the route with the AGV’s green button; see the XBOT station guide (V1.61, pp. 2–3). Manual numbers may be unrecognised.'
-    : maximum > 0 ? `${maximum} learned stations. Current station is marked on its button.`
+    ? 'No route learned yet. Teach the route with the AGV’s green button; see the XBOT station guide (V1.61, pp. 2–3).'
+    : maximum > 0 ? `${maximum} stations on the learned route. Current station is marked on its button.`
       : 'Query status to see whether the AGV has learned a route. Manual station numbers are unverified.');
   if (maximum !== lastMaximum) {
     for (const id of controls.keys()) if (id.startsWith('station-')) controls.delete(id);

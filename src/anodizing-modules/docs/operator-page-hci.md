@@ -44,6 +44,7 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 - Standalone MCU gripper actuation requires AGV parked or an operator confirmation that it is switched off. If the AGV starts reporting during a job declared switched off, the job is interrupted. The read-sensors button stays available under the existing MCU rules.
 - **Disabled controls say why.** For example "Tick Armed to enable movement", "Connect first" or "A robot job is running". A greyed-out button with no reason is a bug.
 - **Validate input before sending.** Set speed defaults to 500 m/h, the slowest setting. Check ranges (speed 500–4000 m/h, stations 1–N) and explain any limit next to the field.
+- In station-call mode (2), the raw RS485 `max_stations` field counts learned legs beyond the start. A count of 1 gives two call targets, stations 1 and 2. A zero count disables calls. The simulator setting counts physical stations including the start, so set it to 2 for a two-station simulation.
 - In standard mode (0), show the stop counter and distance to the stop line. Forward and Reverse are the vehicle command names. The Stations panel explains how to enable station call in the XBOT app.
 
 ## 4. Feedback timing

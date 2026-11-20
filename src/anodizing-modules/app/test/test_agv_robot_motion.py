@@ -58,6 +58,20 @@ def connect_parked(link):
     return link.transport
 
 
+@pytest.mark.parametrize('count,station,allowed', [
+    (0, 1, False), (1, 0, False), (1, 1, True), (1, 2, True), (1, 3, False),
+    (255, 255, True), (255, 256, False),
+])
+def test_recipe_checks_the_learned_station_range(count, station, allowed):
+    visit = StationVisit(None, None)
+    visit.status = dict(mode=2, max_stations=count, set_speed_m_h=500)
+    if allowed:
+        visit.check_route([station], 500)
+    else:
+        with pytest.raises(ValueError, match=f'station {station} is not learned'):
+            visit.check_route([station], 500)
+
+
 def test_hold_attempts_agv_stop_and_releases_waiter_when_robot_stop_raises():
     link = Mock()
     robot_stop = Mock(side_effect=RuntimeError('robot stop failed'))

@@ -81,7 +81,7 @@ def check_status(status, stamp, *, require_unpaused=True):
 
 
 def learned(status, station):
-    return 1 <= station <= status.get('max_stations', 0) and status.get('mode') == 2
+    return status.get('mode') == 2 and 1 <= station <= agv.station_limit(status.get('max_stations', 0))
 
 
 class StationVisit:
