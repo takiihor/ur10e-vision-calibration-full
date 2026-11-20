@@ -220,3 +220,34 @@ an import with the same source content and catalog produces the same archive
 ID. Import folders and files are owner-only. Keep them and all downloads outside
 Git and release artifacts. Select the archive in the test view to see the
 historical API and human totals, provenance and individual original downloads.
+
+## Pick/place and Recipe
+
+| Route | Controls |
+| --- | --- |
+| `/operator/#/pick-place` and `/operator/#/tests/pick-place` | Recipe review and run, single PICK and PLACE, saved-role preparation and job inspection |
+| `/operator/#/tests/robot` | Robot step controls expanded |
+| `/operator/#/tests/mcu` | Manual MCU controls expanded |
+| `/operator/#/tests/tool-power` | Tool supply controls expanded |
+
+The legacy entry is `/pick-place`. Enter completed Teaching projects and
+review the collision scene, joint operating bounds and workspace.
+**Review bounded recipe** reads the saved inputs and returns a plan digest.
+Read the shown endpoints, stations, approaches and transfer count before
+approving. A parked recipe requires a fresh serial report. Only a recipe
+with the station-call launch permission can cross stations, and it also
+requires the separate AGV confirmation. **AGV is switched off** is an
+operator declaration for the selected operation.
+
+Escape sends **AGV Stop**. Use **Pick/place Stop (software)** to stop the
+active robot operation. Keep the physical e-stops accessible. Inspect a
+request by its ID after a disconnect. Complete automatic transfer counts
+describe commanded work. MCU replies and controller voltage readings are
+recorded observations. Check the item physically before confirming a
+manual grip or release.
+
+Use the normal service flags and the reviewed robot model for native
+execution. The disabled default service can show setup and saved evidence.
+The browser test fixture uses fake serial reporting and fake native
+drivers inside an isolated network namespace. It cannot qualify a site
+installation, robot reach, grip, tool voltage, radio or e-stop.

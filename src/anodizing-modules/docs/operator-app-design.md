@@ -149,3 +149,48 @@ preserve the console originals under a private content digest. The view
 keeps archive context, recorded identities, latest judgments, automated
 results, human backfills and explicit API overrides. Historical results
 grant no write authority. See [setup and import](../operator-ui/README.md#unified-line-test).
+
+## Pick/place and Recipe (Stage 6)
+
+The Pick/place menu opens `/operator/#/pick-place`. The legacy
+`/pick-place` page and service landing remain available. The test route
+`#/tests/pick-place` uses the same page. The Robot steps, MCU and Tool
+power test aliases open their corresponding control groups in the same layout.
+
+The page reads each explicitly selected Teaching project to display its
+taught tank and station. Missing tank metadata displays **Tank not taught**.
+Station fields can be edited and flag a disagreement with the taught value.
+Tank metadata gives no movement permission. Changing recipe inputs clears
+the review and both approvals, including while the read-only review job is
+pending. Run uses a fresh request ID and the digest from the completed
+review. The native service reopens and compares the saved inputs before
+motion. A cross-station run requires the existing launch flag and separate
+confirmation of AGV Manual mode, clear route and physical e-stop coverage.
+
+The Vue page reads the connection worker's cached status at the recipe's
+three-second freshness limit. Opening or polling the page leaves AGV and
+robot devices to their existing owners. A saved travel-pose read is passive.
+**Check live travel pose** explicitly requests the existing guarded read.
+A parked recipe binds the approvals to the connection and halt generation.
+AGV Stop or Pause clears them. The shared bar keeps AGV Stop and Pause
+separate from job-bound Pick/place Stop. Escape targets AGV Stop here.
+Accepted automatic work can continue in the service after a page disconnect.
+
+Single PICK/PLACE and Robot steps use the server-held plan and phase IDs.
+The operator confirms each shown prompt separately. An MCU child stays
+bound to its parent's grip or release prompt. A robot Stop clears the
+visible approval and disables confirmation for that job. Evidence shows
+terminal results, commanded transfer counts, ACKs, arrivals and an unknown
+item after interruption. The service retains execution fences across
+reload. Browser reload may read a saved request ID or follow the current
+job. It does not restore confirmations, answer prompts or submit motion.
+
+MCU sensor replies and tool-power reads are historical, timestamped
+evidence. Check request reads the saved job. If a tool submission loses
+its acknowledgement, the page can explicitly retry the same ID with its
+exact payload. Tool off requires the Released declaration. An ambiguous
+motion submission stays fenced in the browser until the request ID can
+be inspected. Native owner, TCP, model, swept-path, AGV and device checks
+remain authoritative for all dispatches.
+
+See [Pick/place routes and operation](../operator-ui/README.md#pickplace-and-recipe).
