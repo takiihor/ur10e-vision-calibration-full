@@ -2,7 +2,7 @@
 import { onUnmounted, ref, watch } from 'vue';
 import { requestDownload } from './api';
 
-const props = defineProps({ label: String, snapshot: Object, path: String });
+const props = defineProps({ label: String, snapshot: Object, path: String, image: String });
 const emit = defineEmits(['loaded']);
 const url = ref('');
 const loading = ref(false);
@@ -15,11 +15,16 @@ function reset() {
   emit('loaded', null);
 }
 
-watch(() => props.path, async path => {
+watch([() => props.path, () => props.image], async ([path, image]) => {
   const current = ++revision;
   reset();
   failed.value = false;
   loading.value = Boolean(path);
+  if (image) {
+    url.value = 'data:image/jpeg;base64,' + image;
+    loading.value = false;
+    return;
+  }
   if (!path) return;
   try {
     const blob = await requestDownload(path);
@@ -46,7 +51,7 @@ onUnmounted(() => {
       <span v-if="snapshot"> · {{ snapshot.detection }} · {{ snapshot.provider }}
         {{ snapshot.camera || '' }} · <time :datetime="snapshot.acquired_at">{{ new Date(snapshot.acquired_at).toLocaleString() }}</time></span>
       <small v-if="snapshot">Capture ID {{ snapshot.id }} · Saved snapshot</small>
-      <small v-else-if="path">Legacy image · Capture time and detection identity unavailable.</small>
+      <small v-else-if="path || image">Legacy image · Capture time and detection identity unavailable.</small>
       <small v-else>No saved snapshot.</small>
       <small v-if="loading" role="status">Loading saved image…</small>
       <small v-if="failed" role="status">Image unavailable. Open the saved project or capture again.</small>

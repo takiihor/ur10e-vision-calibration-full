@@ -294,3 +294,32 @@ button.p-button[aria-current="true"] { box-shadow: inset 0 0 0 2px currentColor;
 .teacher-snapshot figcaption { padding-top: .45rem; }
 .teacher-snapshot small { display: block; }
 .teacher-history { padding-inline-start: 1.25rem; }
+
+.calibration-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(20rem, 1fr);
+  align-items: start;
+  gap: 1rem;
+}
+.calibration-workflow, .calibration-operation { min-width: 0; }
+.calibration-steps { margin-bottom: 0.75rem; }
+.calibration-step, .calibration-operation, .calibration-details { padding: 1rem; }
+.calibration-operation { position: sticky; top: calc(var(--stop-height, 0px) + 1rem); }
+.calibration-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 0.75rem;
+  margin-block: 0.75rem;
+}
+.calibration-fields label, .calibration-details label { display: grid; gap: 0.25rem; min-width: 0; }
+.calibration-fields :is(input, select), .calibration-details input { min-height: 44px; width: 100%; }
+.calibration-checks { margin-block: 0.75rem; }
+.calibration-workspace .check { display: flex; align-items: center; min-height: 44px; gap: 0.5rem; }
+.calibration-actions { margin-block: 0.75rem; }
+.calibration-tool iframe { border: 0; width: 100%; min-height: 38rem; }
+.calibration-path, .calibration-workspace pre { overflow-wrap: anywhere; }
+.calibration-workspace pre, .calibration-prompt { white-space: pre-wrap; }
+@media (max-width: 1100px) {
+  .calibration-workspace { grid-template-columns: minmax(0, 1fr); }
+  .calibration-operation { position: static; }
+}

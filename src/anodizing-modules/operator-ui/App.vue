@@ -14,6 +14,7 @@ import LinePage from './LinePage.vue';
 import LineTestPanel from './LineTestPanel.vue';
 import PickPlacePage from './PickPlacePage.vue';
 import TeacherPage from './TeacherPage.vue';
+import CalibrationPage from './CalibrationPage.vue';
 import { request } from './api';
 import { useAgv } from './useAgv';
 
@@ -25,11 +26,13 @@ const lineRoute = computed(() => /^#\/(line|tests\/line-api)(?:\/(tank|signals|a
 const lineTest = computed(() => lineRoute.value?.[1] === 'tests/line-api');
 const pickRoute = computed(() => /^#\/(?:pick-place|tests\/(pick-place|robot|mcu|tool-power))$/.exec(route.value));
 const isTeacher = computed(() => ['#/teaching', '#/tests/teaching'].includes(route.value));
+const isCalibration = computed(() => ['#/calibration', '#/tests/calibration'].includes(route.value));
 const pickTitles = { robot: 'Robot steps', mcu: 'MCU gripper commands', 'tool-power': 'Tool power' };
 const title = computed(() => isAgv.value ? 'AGV commissioning' : isScene.value ? 'Scene' : isRecords.value ? 'Recorder' :
   lineRoute.value ? (lineTest.value ? 'Unified line test' : 'Line reads') :
-  pickRoute.value ? (pickTitles[pickRoute.value[1]] ?? 'Pick/place') : isTeacher.value ? 'Teaching' : 'Home');
-const agv = useAgv(isAgv, isScene, lineEscape, computed(() => pickRoute.value || isTeacher.value));
+  pickRoute.value ? (pickTitles[pickRoute.value[1]] ?? 'Pick/place') : isTeacher.value ? 'Teaching' :
+  isCalibration.value ? 'Calibration' : 'Home');
+const agv = useAgv(isAgv, isScene, lineEscape, computed(() => pickRoute.value || isTeacher.value || isCalibration.value));
 const sceneConfig = ref(null);
 const sceneError = ref('');
 let sceneRead = false;
@@ -67,10 +70,14 @@ const transport = computed(() => {
   return agv.state.settings?.mode === 'serial' ? 'AGV transport · Serial' : 'AGV transport · Simulator';
 });
 const active = computed(() => service.value?.owner?.jobs?.find(job => job.id === service.value.owner.active));
-const targets = computed(() => (service.value?.owner?.stop_targets ?? []).map(({ kind, job_id }) => ({
+const targetControls = {
+  teacher: { path: '/api/teacher-control', label: 'Teacher Stop (software)' },
+  manual: { path: '/api/manual-control', label: 'Pick/place Stop (software)' },
+  calibration: { path: '/api/calibration-control', label: 'Calibration Stop (software)' },
+};
+const targets = computed(() => (service.value?.owner?.stop_targets ?? []).filter(({ kind }) => targetControls[kind]).map(({ kind, job_id }) => ({
   kind, job_id,
-  path: kind === 'teacher' ? '/api/teacher-control' : '/api/manual-control',
-  label: kind === 'teacher' ? 'Teacher Stop (software)' : 'Pick/place Stop (software)',
+  ...targetControls[kind],
 })));
 
 
@@ -174,12 +181,14 @@ function navigate() {
   const wasLineTest = lineTest.value;
   const wasPick = pickRoute.value;
   const wasTeacher = isTeacher.value;
+  const wasCalibration = isCalibration.value;
   route.value = location.hash;
   if (wasLine && !lineRoute.value) agv.retireOutcome('line-read');
   if (wasLineTest && !lineTest.value) agv.retireOutcome('line-test');
   if (wasRecords && !isRecords.value) agv.retireOutcome('recorder');
   if (wasPick && !pickRoute.value) agv.retireOutcome('pick-place');
   if (wasTeacher && !isTeacher.value) agv.retireOutcome('teacher');
+  if (wasCalibration && !isCalibration.value) agv.retireOutcome('calibration');
   document.title = title.value + ' · Operator app';
   if (isAgv.value) agv.enterAgv();
   if (isScene.value) void loadScene();
@@ -239,6 +248,9 @@ onUnmounted(() => {
     <TeacherPage v-else-if="isTeacher" :service="offline ? null : service" :agv="agv"
       :stop-id="teacherStopId" :manual-stop-id="manualStopId" @changed="refreshService"
       @outcome="(outcome, choose) => agv.showOutcome('teacher', outcome, choose)" />
+    <CalibrationPage v-else-if="isCalibration" :service="offline ? null : service" :agv="agv"
+      :stop-outcomes="targetOutcome" @changed="refreshService"
+      @outcome="(outcome, choose) => agv.showOutcome('calibration', outcome, choose)" />
     <div v-else class="home-grid">
       <Card class="panel home-card" aria-labelledby="service-heading">
         <template #title><h2 id="service-heading">Service</h2></template>
@@ -252,7 +264,7 @@ onUnmounted(() => {
           </Message>
           <p v-else role="status"><ProgressSpinner class="control-spinner" aria-hidden="true" /> Checking service…</p>
           <p v-if="service && !offline">{{ active ? `Current operation · ${active.module} · ${active.state}` : 'No active job' }}</p>
-          <Button v-if="active?.module === 'calibration'" as="a" href="/calibration" class="page-link"
+          <Button v-if="active?.module === 'calibration'" as="a" href="#/calibration" class="page-link"
             label="Open current Calibration operation" severity="secondary" />
           <dl v-if="service && !offline" class="capabilities">
             <dt>Camera</dt><dd>{{ service.allow_camera ? 'Enabled' : 'Disabled' }}</dd>
