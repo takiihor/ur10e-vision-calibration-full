@@ -227,3 +227,34 @@ history. Capturing a validation image creates a separate native validation
 identity and timing window. Saved validation history can display its bound
 image after setup or service restart. Saved evidence supplies no restored
 movement approval. See the [Teaching workspace instructions](../operator-ui/README.md#teaching-and-snapshots).
+
+## Calibration (Stage 8)
+
+The Calibration and test routes render one Vue workspace. Camera access,
+pendant collection, and automatic planning and collect/replay keep their
+independent IPC gates. The legacy route and the native module entry points
+remain available.
+
+Existing calibration jobs continue to own the camera and robot interfaces.
+Vue submits through the token client and inspects the persisted job ID.
+The registered capture Stop target accepts only the current calibration job
+ID. Stop invalidates the current prompt and latches before the native runner
+starts. A started worker receives the existing interrupt signal and retains
+service ownership through cleanup. The page reports the request independently
+from the physical outcome. Active targets remain reachable from other Vue
+routes, and Escape keeps the AGV Stop binding.
+
+Camera-only results and worker observation events bind image bytes and
+capture metadata in the same job record. Time is taken upon frame receipt.
+Multi-frame pose estimation and quality checks are labelled as burst
+results. Historical images without capture metadata remain viewable.
+Calibration artifacts and verification reports remain in their respective
+sessions. Teaching handoff checks a completed candidate against the current
+selected path and content digest. Old jobs without a stored digest require
+the file to match the complete saved result at handoff.
+
+The tool editor retains the vendor scene validation, model hash and file
+workflows. Its same-origin bridge accepts messages only from the embedded
+preview and hands back the saved scene. A saved or displayed scene never
+replaces the native checks on automatic admission and prompt approval.
+See [Calibration setup](../operator-ui/README.md#calibration).

@@ -1,6 +1,6 @@
 # Operator app
 
-Open `/operator/` on the local Anodizing Modules service. Home reports service and AGV state. The AGV link opens commissioning. The sidebar lists Calibration, Teaching, AGV and Pick/place in that order. Its Legacy labels identify the links to the standalone Calibration, Teaching and Pick/place pages. The original landing page and AGV link are the defaults.
+Open `/operator/` on the local Anodizing Modules service. Home reports service and AGV state. The AGV link opens commissioning. The sidebar opens the Vue modules. Calibration, Teaching and Pick/place link to their standalone pages. The service starts at the original landing page.
 
 ## Build and package
 
@@ -311,3 +311,46 @@ simulated calibration and an empty project folder. **Save current joints
 as travel pose** needs an explicit fold confirmation and a stopped
 robot read. Cached travel evidence is shown on entry. **Check live travel
 pose** requests a new checked read.
+
+## Calibration
+
+Open `/operator/#/calibration` or `/operator/#/tests/calibration`. Choose a
+session directory and measured board manifest in **Setup**. All entered paths
+resolve inside the IPC data directory. To prefill reviewed settings on the IPC,
+use the optional `calibration` section of `site-profile.json`. It accepts
+`session`, `manifest`, `board`, `serial`, `robot_ip`, `camera_provider`,
+`camera_fps`, `camera_exposure_us`, `camera_gain_db`, `intrinsics`,
+`calibration`, `verification`, `collision_scene`, `views`, `tilt_deg`, and
+`roll_deg`. Saved browser edits take precedence until **Load IPC calibration
+profile** is pressed. Setup checks and the AGV switched-off declaration reset
+on reload. Simulator datasets and verification sessions need separate folders.
+
+- **Preview camera (no pose)** checks focus and marker visibility. **Capture
+  board view** runs the board pose and quality checks. Both require
+  `--allow-camera`. Use the mounted lens intrinsics for a Basler board view.
+  New images show a capture ID, camera and host receipt time. A board view
+  shows one image from the burst and an explicitly labelled burst pose result.
+- **Tool box** uses the same native editor as the standalone tool preview.
+  Use it to inspect a saved scene, edit and save the tool envelope, import or
+  export JSON, and preview the selected hand-eye result. Read-only robot pose
+  also needs `--allow-manual`. Open **Robot steps** for separately gated manual
+  joint steps in the shared Vue workspace.
+- **Plan** performs an inspection with `--allow-auto-calibration`. **Capture**
+  offers pendant-positioned collection with `--allow-manual` and the separate
+  scene- and AGV-gated automatic job. Each operator reply is scoped to the
+  active job and prompt. **Calibration Stop (software)** remains in the shared
+  header while a capture owns the service. It interrupts that job; verify
+  physical state at the machine. Escape targets AGV Stop on Calibration.
+- **Results** fits hand-eye, intrinsics or both from a saved session, or
+  generates a simulated calibration. **Continue to Teaching** requests the
+  selected usable result and checks its recorded file identity on the IPC.
+  Simulated output can seed an offline Teaching project.
+- **Verify** checks the calibration against an independent recorded session. Pendant and
+  automatic verification capture require a usable real calibration. The
+  results panel shows PASS or FAIL and the saved report path. Open **Saved
+  job details** to inspect a previous job without replaying its actions.
+  If a request loses its reply, inspect its ID before starting another.
+
+`/calibration` remains the standalone workspace. The Firefox verification
+uses synthetic camera and robot inputs. Real camera and TCP setup, collision
+coverage, measurement accuracy and physical stops require attended site checks.
