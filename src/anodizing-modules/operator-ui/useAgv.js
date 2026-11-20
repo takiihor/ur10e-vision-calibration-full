@@ -2,7 +2,7 @@ import { computed, onMounted, onUnmounted, reactive, shallowRef, ref } from 'vue
 import { request, requestError } from './api';
 import {
   badFrame, connectionKey, emptyJournal, eventText, faultText, isoNow, journalKey,
-  load, newSession, reads, resultText, save, seconds, sessionKey, stationCallRequired, urgent,
+  load, newSession, reads, resultText, save, seconds, sessionKey, stationCallRequired, stationLimit, urgent,
   connectionKeyFor,
 } from '../app/anodizing_web/web/agv-record.mjs';
 
@@ -260,12 +260,13 @@ export function useAgv(isAgv) {
     if (state.value.motion_block) return state.value.motion_block;
     if (stale.value || !freshReport.value) return 'Wait for a fresh status report. Query status or check the radio.';
     if (!armed.value) return 'Tick Armed to enable movement.';
-    const { mode, max_stations: maximum, fault_code: fault, obstacle_stop: obstacle } = freshReport.value;
+    const { mode, fault_code: fault, obstacle_stop: obstacle } = freshReport.value;
     if (![0, 2].includes(mode)) return 'Select standard or station-call mode in the XBOT app first.';
     if (fault || obstacle) return 'Clear the reported AGV fault or obstacle before continuing.';
     if (name === 'resume' && mode !== 2) return 'Resume requires station-call mode.';
     if (name === 'call_station') {
       if (mode !== 2) return stationCallRequired;
+      const maximum = stationLimit(freshReport.value);
       if (!maximum) return 'Teach a route in the XBOT app before calling a station.';
       if (!Number.isInteger(value) || value < 1 || value > maximum) return `Choose a learned station from 1 to ${maximum}.`;
     }

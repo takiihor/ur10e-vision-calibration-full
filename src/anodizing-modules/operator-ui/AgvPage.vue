@@ -18,14 +18,15 @@ import OperatorButton from './OperatorButton.vue';
 import StateIcon from './StateIcon.vue';
 import AgvRecord from './AgvRecord.vue';
 import {
-  faultText, fieldLabels, linkQualityText, localTime, modes, speedText, stationCallRequired,
+  faultText, fieldLabels, linkQualityText, localTime, modes, speedText, stationCallRequired, stationLimit,
 } from '../app/anodizing_web/web/agv-record.mjs';
 
 const { agv } = defineProps({ agv: { type: Object, required: true } });
 const status = computed(() => agv.freshReport);
 const standard = computed(() => status.value?.mode === 0);
-const zero = computed(() => status.value?.max_stations === 0);
-const stationMode = computed(() => status.value?.mode === 2 && !zero.value);
+const maximum = computed(() => stationLimit(status.value));
+const zero = computed(() => maximum.value === 0);
+const stationMode = computed(() => status.value?.mode === 2 && maximum.value > 0);
 const age = computed(() => agv.age == null ? 'No status report yet.' : `Last report ${agv.age.toFixed(1)} s ago.`);
 const disconnectReason = computed(() => !agv.state.connected ? 'Connect first.' :
   agv.state.recipe_active ? 'Stop the active recipe before disconnecting.' : agv.busy ? 'Wait for the current request.' : '');
@@ -145,16 +146,16 @@ function connect() {
         <template #header><h2 id="stations-title">Stations</h2></template>
         <p v-if="standard">{{ stationCallRequired }}</p>
         <p v-else-if="zero">No route learned. The report shows the stop counter. Teach the route with the AGV’s green button. See the XBOT station guide (V1.61, pp. 2–3).</p>
-        <p v-else-if="stationMode">{{ status.max_stations }} learned stations. The current station is marked below.</p>
+        <p v-else-if="stationMode">{{ maximum }} stations on the learned route. The current station is marked below.</p>
         <p v-else>Query status to check for a learned route.</p>
         <div v-if="stationMode" class="controls">
-          <OperatorButton v-for="station in status.max_stations" :id="'station-' + station" :key="station"
+          <OperatorButton v-for="station in maximum" :id="'station-' + station" :key="station"
             :label="'Go to station ' + station + (station === status.current_station ? ' · Current' : '')" :current="station === status.current_station"
             :why="agv.commandReason('call_station', station)" :outcome="agv.feedback('station-' + station)"
             @press="agv.send('call_station', 'station-' + station, station)" />
         </div>
         <div v-if="agv.commands.has('call_station') && !standard && !zero" class="field-row">
-          <label for="agv-manual-station">Manual station number{{ status?.max_stations ? ` (1–${status.max_stations})` : '' }}
+          <label for="agv-manual-station">Manual station number{{ maximum ? ` (1–${maximum})` : '' }}
             <InputNumber input-id="agv-manual-station" v-model="agv.form.station" fluid :use-grouping="false"
               @input="agv.form.station = $event.value" />
           </label>

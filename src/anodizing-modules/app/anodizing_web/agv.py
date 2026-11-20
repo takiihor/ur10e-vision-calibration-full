@@ -641,7 +641,7 @@ class Connection:
         self.status_iso = timestamp()
         station = decoded.get('current_station')
         if (type(station) is int and decoded.get('mode') == 2
-                and 1 <= station <= decoded.get('max_stations', 0)
+                and 1 <= station <= station_limit(decoded.get('max_stations', 0))
                 and decoded.get('stopped') is True and decoded.get('actual_speed_m_h') == 0):
             self.last_confirmed_station = (station, self.status_iso)
         if self.recipe_active:

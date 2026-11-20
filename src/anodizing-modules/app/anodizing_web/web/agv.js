@@ -1,5 +1,5 @@
 import { connectionKey, sessionKey, journalKey, urgent, reads, linkLost, portRetry, badFrame,
-  stationCallRequired, emptyJournal, isoNow, localTime, seconds, speedText, load, save, newSession,
+  stationCallRequired, stationLimit, emptyJournal, isoNow, localTime, seconds, speedText, load, save, newSession,
   fieldLabels, modes, outcomesList, checklist, checklistCommands, foundFields, faultText,
   linkQualityText, resultText, eventText, connectionKeyFor, exportRecord, markdown } from './agv-record.mjs';
 
@@ -187,12 +187,6 @@ function showPorts(ports) {
 function disabled(id, reason) {
   $(id).disabled = !!reason;
   if ($(id + '-why')) display(id + '-why', reason);
-}
-
-function stationLimit(status) {
-  const legs = status?.max_stations;
-  // XBOT V2.0 manual lines 630–645 include the start as station 1.
-  return legs > 0 ? Math.min(legs + 1, 255) : legs;
 }
 
 function commandReason(name, preset) {

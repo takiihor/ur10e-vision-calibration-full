@@ -28,6 +28,7 @@ async function open(respond = () => ({})) {
       commands: [
         { name: 'query_status', motion: false, label: 'Query status' },
         { name: 'set_speed', motion: true, label: 'Set speed' },
+        { name: 'call_station', motion: true, label: 'Call station' },
       ],
       ...await respond(body),
     };
@@ -117,6 +118,26 @@ it('keeps Armed off until the service confirms the change', async () => {
 it('keeps unconfirmed motion distinct from a stopped report', async () => {
   await open(() => ({ status: { ...status, actual_speed_m_h: 250 } }));
   expect(app.get('#agv-motion').text()).toBe('Running');
+});
+
+it('allows both stations when the AGV reports one learned leg', async () => {
+  const requests = [];
+  let armed = false;
+  const agv = await open(body => {
+    if (body) requests.push(body);
+    if (body?.action === 'arm') armed = body.armed;
+    return { armed, status: { ...status, max_stations: 1 } };
+  });
+  app.get('#agv-armed').element.click();
+  await flushPromises();
+
+  expect(agv.commandReason('call_station', 2)).toBe('');
+  expect(agv.commandReason('call_station', 3)).toBe('Choose a learned station from 1 to 2.');
+  expect(app.get('#agv-station-1').text()).toContain('Current');
+  expect(app.get('label[for="agv-manual-station"]').text()).toContain('(1–2)');
+  await app.get('#agv-station-2').trigger('click');
+  await flushPromises();
+  expect(requests[1]).toMatchObject({ command: 'call_station', value: 2, stop_generation: 7 });
 });
 
 it('shows a spinner beside a pending connection control without disabling urgent sends', async () => {

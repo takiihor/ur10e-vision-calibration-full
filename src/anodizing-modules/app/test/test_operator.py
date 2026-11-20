@@ -69,20 +69,22 @@ def test_state_is_authenticated_read_only_and_copies_acquisition_time(service, m
     link.transport = object()
     link.settings = {'mode': 'simulator'}
     link.connected_at = 9.0
-    link._status_received({'mode': 2, 'max_stations': 3, 'current_station': 1,
+    link._status_received({'mode': 2, 'max_stations': 1, 'current_station': 2,
                            'stopped': True, 'actual_speed_m_h': 0}, b'')
     stamp = link.status_iso
 
-    def station():
+    def station(key='current_station'):
         status, headers, payload = request(service, '/api/state')
         assert status == 200 and headers['Cache-Control'] == 'no-store'
         state = json.loads(payload)
         assert state['schema_version'] == 1
         variables = state['variables']
         assert [v['id'] for v in variables] == sorted(v['id'] for v in variables)
-        return next(v for v in variables if v['id'] == 'agv.current_station')
+        return next(v for v in variables if v['id'] == f'agv.{key}')
 
-    assert (station()['quality'], station()['value'], station()['read_at']) == ('fresh', 1, stamp)
+    assert (station()['quality'], station()['value'], station()['read_at']) == ('fresh', 2, stamp)
+    confirmed = station('last_confirmed_station')
+    assert (confirmed['quality'], confirmed['value'], confirmed['read_at']) == ('fresh', 2, stamp)
     assert request(service, '/api/agv?cached=1')[0] == 200
     link.recipe_active = True
     clock[0] += 3

@@ -7,6 +7,13 @@ const linkLost = 'Link lost. The AGV may still be moving. Use its e-stop if need
 const portRetry = 'Reseat the USB plug, reload this page, then select Connect.';
 const badFrame = 'Invalid AGV reply. Check the radio connection, then query status again.';
 const stationCallRequired = 'Station call needs the station-call function, set in the XBOT app. In standard mode, use Forward/Reverse.';
+
+function stationLimit(status) {
+  const legs = status?.max_stations;
+  // XBOT V2.0 manual lines 630–645 include the start as station 1.
+  return legs > 0 ? Math.min(legs + 1, 255) : legs;
+}
+
 const emptyJournal = () => ({log: [], events: [], commands: {}, transports: {}, link_quality: {}, cursors: {}, log_gap: false});
 const isoNow = () => new Date().toISOString();
 const localTime = stamp => new Date(stamp).toLocaleTimeString('en-GB', {
@@ -176,6 +183,6 @@ function markdown(record, commands) {
 }
 
 export { connectionKey, sessionKey, journalKey, urgent, reads, linkLost, portRetry, badFrame,
-  stationCallRequired, emptyJournal, isoNow, localTime, seconds, speedText, load, save, newSession,
+  stationCallRequired, stationLimit, emptyJournal, isoNow, localTime, seconds, speedText, load, save, newSession,
   fieldLabels, modes, outcomesList, checklist, checklistCommands, foundFields, faultText,
   linkQualityText, resultText, eventText, connectionKeyFor, exportRecord, markdown };
