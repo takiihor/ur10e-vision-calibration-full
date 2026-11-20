@@ -116,8 +116,7 @@ These are **short-term repeatability results from one setup**. Absolute accuracy
 was not measured against an independent reference. Verify the printed scale and
 camera calibration before relying on physical distances: a 1% board-scale error
 can produce about 2.7 mm depth bias at this range despite a low image-fit error.
-See the [saved measurement summary](docs/measurements/2026-10-28-80mm.json) and
-[accuracy measurement procedure](docs/REFERENCE.md#measuring-physical-accuracy).
+See the [accuracy measurement procedure](docs/REFERENCE.md#measuring-physical-accuracy).
 
 ## Continuous operation
 

@@ -35,13 +35,13 @@ IPC service instance.
 
 ## Verify
 
+Use the test runner below to verify the current source. The import manifests
+`CONTENTS.sha256`, `SOURCE_MANIFEST.sha256` and
+`src/anodizing-modules/SHA256SUMS` describe the original package.
+The current vendor mapping can be verified offline with the original baseline
+archives. See [vendor provenance](provenance/README.md).
+
 ```bash
-sha256sum -c CONTENTS.sha256
-
-cd src/anodizing-modules
-sha256sum -c ../../SOURCE_MANIFEST.sha256
-cd ../..
-
 python3 provenance/verify.py
 ```
 

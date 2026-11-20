@@ -16,7 +16,7 @@ See the [operator HCI guide](operator-page-hci.md) and [UI build instructions](.
 
 Open `/operator/#/scene` or `/operator/#/tests/scene` for the same display. The service still opens the legacy landing page by default. The Scene page links to the legacy tool and collision preview. The display has no motion controls and shares the operator shell's AGV Stop and Pause.
 
-The service reads a local drawing and its display configuration at startup. It verifies the drawing's size and SHA-256, then serves the single configured, self-contained GLB at its protected, versioned URL. The browser revalidates cached drawing bytes through the authenticated endpoint. Scene uses drawing-frame metres and +Y up. The AGV marker is the last confirmed arrival on the current connection. Motion and its reported target are words. A stale report changes the live label to **Unknown** while the last confirmed station remains labelled as history. A new connection starts without that history.
+The service reads a local drawing and its display configuration at startup. It verifies the drawing's size and SHA-256, then serves the single configured, self-contained GLB at its protected, versioned URL. The browser revalidates cached drawing bytes through the authenticated endpoint. Scene uses drawing-frame metres and +Y up. The AGV marker is the last confirmed arrival on the current connection. The map and text list label that historical placement on the AGV and mounted robot, including when an AGV stops between stations. Motion and its reported target are words. A stale report changes the live label to **Unknown** while the last confirmed station remains labelled as history. A new connection starts without that history.
 
 The renderer uses the service's selected robot model and the existing UR10e joint transforms. The browser compares the downloaded model SHA-256 with the joint sample's model identity before drawing it. The transform maps robot +Z to drawing +Y, applies the entered mount offset and rotation, then places it at the last confirmed AGV station in the entered track frame. The track frame uses +X from start to end, projected horizontally, and +Y up. The position and heading are a fixed display reference. The AGV supplies no continuous pose.
 
@@ -58,8 +58,8 @@ the session visibly without blocking native producers on recorder storage.
 A service restart retains complete rows and marks an unfinished session
 Interrupted. The Recorder lists a damaged session by ID as unreadable and
 preserves its files. Healthy finished sessions remain available for download.
-JSON carries the manifest and all retained rows. CSV lists samples with observation and
-acquisition times and quality. The Markdown summary names the transports, shows
+JSON carries the manifest and all retained rows. CSV lists samples with observation
+and acquisition times and quality. The Markdown summary names the transports, shows
 counts and notes, and links to the full evidence.
 
 Recorder data and downloaded files are local evidence and can contain entered
@@ -87,11 +87,14 @@ HTTP reachability and sample quality are separate. A fresh sample needs two
 advancing rows after startup, a changed catalog, clock reset, lost contact or
 expiry. The service retains the unmodified supplier timestamp, row ID and
 receipt time. It computes initial age from the configured clock correction and
-then ages the sample on a monotonic clock. Repeated rows keep the same age
-reference. At 3 s, values expire to Unknown. Partial rows show identifiable
-values and make missing, invalid or failed tags unknown. If failure counts
-cannot be reconciled to affected tags, all tag values are unavailable.
-Reported counts are shown when supplied. Raw alarm bits carry no assumed
+then ages the sample on a monotonic clock. The overview shows the applied clock
+correction and corrected timestamp alongside the raw supplier timestamp. The
+browser includes elapsed request time when deciding expiry. Repeated rows keep
+their age reference. At 3 s, values expire to Unknown. Partial rows show valid
+tags when the reported counts agree with the catalog and identifiable failures,
+or when the supplier omits both counts. A count contradiction suppresses all tag
+values. Omitted counts display as Unknown. Communication diagnostics identify
+the row received on each individual request. Raw alarm bits carry no assumed
 polarity. Published engineering values are kept at their reported scale.
 
 The local line profile assigns catalog tags to physical tanks. When a door

@@ -154,10 +154,9 @@ If you have the separate local package, extract the archive only in a dedicated
 review directory, as described in `state/README.md`. Do not add the extracted
 data to this repository.
 
-The recorded launch configuration describes the existing installation. It is not
-an instruction to start another hardware controller beside it. Hardware use still
+Keep the installation's launch configuration in local storage. Hardware use
 requires the correct camera serial, active TCP, robot model, scene, calibration
-and explicit task approval. Machine-specific paths in saved records remain intact.
+and explicit task approval.
 
 Current physical limits:
 
@@ -166,9 +165,8 @@ Current physical limits:
 - The supervised-self scene omits external cell objects.
 - MCU acknowledgements do not prove that the rod is held or released.
 - D435 intrinsics were fitted from 16 views, but remain marked unvalidated.
-- Basler preparation uses the 12 mm lens and 32 mm fine boards. A [provisional
-  encoder-plate estimate](review/results/basler-encoder-intrinsics/README.md) is
-  available for the recorded Basler and optical settings. Physical validation
-  remains outstanding.
+- Basler preparation uses the 12 mm lens and 32 mm fine boards. Keep measured
+  intrinsics with the selected camera and its optical settings. Physical validation
+  remains outstanding. See the [encoder-plate workflow](tools/ENCODER_INTRINSICS.md).
 
 Packaging reads files only. It does not provide new physical validation.

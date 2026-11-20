@@ -16,7 +16,7 @@ The draft full-frame profile is **2448 × 2048, 20 FPS, Mono8, 5000 µs exposure
 
 ## Required first physical calibration
 
-The initial preparation had no Basler camera or serial. A later [provisional Basler lens estimate](../../review/results/basler-encoder-intrinsics/README.md) is available for the recorded camera and optical settings. Complete physical validation before relying on the estimate for metric work. The D435 fitted intrinsics apply only to the D435.
+Use the [encoder-plate workflow](../../tools/ENCODER_INTRINSICS.md) to fit Basler intrinsics for the selected camera and optical settings. Complete physical validation before relying on the estimate for metric work. The D435 fitted intrinsics apply only to the D435.
 
 1. Mount the final 12 mm lens rigidly. Set focus and aperture for the intended working distance.
 2. Use pylon Viewer or an external OpenCV calibration procedure to acquire varied board images. Use the intended image profile, ROI and lens settings.
@@ -54,6 +54,8 @@ Official references: [Basler model](https://docs.baslerweb.com/a2a2448-23gmbas),
 
 For Basler Teaching/tracking, explicitly select `data/boards/stage2_charuco_basler_32mm/board_manifest.json` and the correct tank board. For hand-eye capture, use the separate `data/boards/calibration_stage2/board_manifest.json` and `calibration_stage2` board. The existing D435 80 mm board selection stays unchanged. No automatic board swap occurs.
 
-The bundled 35 fine-board files are exact copies from the user-provided `two_stage.zip`, SHA-256 `58c94b96a6ef6967efc4127fb59bbfa01ccccf3d0e37b71d5377a4acfaf5f226`. Every copied file matches its original archive entry. `BASLER_BOARD_PROVENANCE.json` in the release review directory records individual hashes. No board dimensions, marker IDs or generated assets changed. These are immutable board assets, not IPC runtime profiles, jobs or captures.
+The bundled fine-board files retain their original dimensions and marker IDs.
+The board manifest identifies the calibration targets. Keep workstation
+provenance, runtime profiles, jobs and captures in local storage.
 
 The existing `vision-basler` example uses a 30 mm ArUco demonstration target. It does not select the requested 32 mm fine ChArUco boards. Select the explicit fine-board manifest when preparing the new Basler teaching project.

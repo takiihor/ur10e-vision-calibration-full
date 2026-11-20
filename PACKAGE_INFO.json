@@ -17,7 +17,6 @@
   "data_manifest_sha256": "f311c3c699175d6648a2fd82da2353a8626f2b6c53e352402d3e9281e4da3524",
   "data_included": false,
   "data_location": "Omitted from this public source repository; see state/README.md. The local packaging bundle referenced state/ipc-data.tar.gz with a data/ member prefix.",
-  "snapshot_evidence": "evidence/snapshot-receipt.json",
   "hardware_tested_by_packaging": false,
   "service_restarted_by_packaging": false,
   "external_requirements": "Python, third-party packages, system libraries and matching hardware setup",
