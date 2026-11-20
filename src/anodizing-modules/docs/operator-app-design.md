@@ -14,4 +14,6 @@ See the [operator HCI guide](operator-page-hci.md) and [UI build instructions](.
 
 The Stop bar remains visible across both operator routes. Escape targets the AGV. Manual and Teacher Stop retain their active job ID and existing control endpoint.
 
+Home and AGV share the Nord colour preset, state labels and icons.
+
 The Python package includes offline-built Vite assets, an asset allowlist and third-party notices. The HTML entry uses the existing token guard and supplies a fresh style nonce.

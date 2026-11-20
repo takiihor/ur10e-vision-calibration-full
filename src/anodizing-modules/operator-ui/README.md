@@ -12,7 +12,7 @@ npm test -- --maxWorkers=2
 npm run build
 ```
 
-The exact dependency versions and integrity hashes are in `package-lock.json`. The Sakai 5.0.0 layout is trimmed to navigation and a content region for the two routes. PrimeVue uses Aura, the app’s own control and status colours, local PrimeIcons and system fonts. The notices accompany the release artifacts.
+The exact dependency versions and integrity hashes are in `package-lock.json`. The Sakai 5.0.0 layout is trimmed to navigation and a content region for the two routes. PrimeVue uses the Nord dark preset in `nord.js`, built on Aura. It supplies the CSS colour tokens for both routes. Connect and Query status use Frost. Stop and critical alerts use Aurora red. State colours have a matching icon and label. The contrast test checks the emitted PrimeVue and operator tokens for 4.5:1 text and 3:1 control boundaries and focus rings. The bundle includes local PrimeIcons, uses system fonts and carries the third-party notices. [Nord palette](https://www.nordtheme.com/docs/colors-and-palettes/) · [Nord MIT licence](https://github.com/nordtheme/nord/blob/develop/license)
 
 Vite writes `../app/anodizing_web/operator_dist/`, including the hashed assets and HTTP allowlist. Commit the generated output with the UI changes. Build the Python wheel from a clean app source directory with the generated output present. The Python package includes the entry, asset allowlist, fonts, CSS, JavaScript and notices. The IPC only needs the Python package and its usual dependencies. For local iteration, use `npm run build -- --watch` with the normal Python service in simulation.
 
