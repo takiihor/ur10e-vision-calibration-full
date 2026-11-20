@@ -187,7 +187,7 @@ function connect() {
               <ProgressSpinner class="field-spinner" aria-hidden="true" />Refreshing ports…
             </span>
           </div>
-          <Message v-if="agv.portError" id="port-error" severity="error">{{ agv.portError }}</Message>
+          <Message v-if="agv.portError" severity="error" :pt="{ root: { id: 'port-error' } }">{{ agv.portError }}</Message>
         </div>
         <Accordion class="agv-disclosure">
           <AccordionPanel value="settings">
@@ -216,7 +216,7 @@ function connect() {
           <OperatorButton id="disconnect" label="Disconnect" :why="disconnectReason" :outcome="agv.feedback('disconnect')"
             @press="agv.post({ action: 'disconnect' }, 'disconnect')" />
         </div>
-        <Message v-if="agv.frameError" severity="warn" role="status" aria-live="polite">{{ agv.frameError }}</Message>
+        <Message v-if="agv.frameError" severity="warn" :pt="{ root: { role: 'status', 'aria-live': 'polite' } }">{{ agv.frameError }}</Message>
         <template v-if="agv.state.connected && agv.state.settings.mode === 'simulator'">
           <label class="check" for="agv-silence">
             <ToggleSwitch input-id="agv-silence" :model-value="Boolean(agv.state.silent)" :disabled="agv.busy"
