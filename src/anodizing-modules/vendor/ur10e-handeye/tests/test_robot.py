@@ -217,6 +217,14 @@ def test_stop_accepts_none_from_binding(robot):
     assert robot.control.calls == ["stopJ"]
 
 
+def test_explicit_stop_rejection_is_a_cleanup_error(robot, monkeypatch):
+    from ur_handeye.robot import RobotCleanupError
+
+    monkeypatch.setattr(robot.control, "stopJ", lambda _: False)
+    with pytest.raises(RobotCleanupError, match="stopJ was rejected"):
+        robot.stop()
+
+
 def test_stop_propagates_binding_failure(robot, monkeypatch):
     def fail(*args, **kwargs):
         raise RuntimeError("stop command failed")

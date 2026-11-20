@@ -232,7 +232,6 @@ def test_unique_physical_alias_keeps_original_signal_and_clears_its_source_tank(
 
 def test_catalog_and_state_are_cache_only_during_stalled_single_worker(service):
     fake = Fake()
-    service.owner = SimpleNamespace()
     line = service.line = line_source(fake)
     fake.poll(line, 1)
     entered, release = Event(), Event()

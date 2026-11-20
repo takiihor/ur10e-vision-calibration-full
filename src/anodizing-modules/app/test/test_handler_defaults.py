@@ -17,6 +17,7 @@ class HandlerDefaultsTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.server = SimpleNamespace(root=self.root, token='first-start-token',
             hosts={'localhost'}, model_source=None, asset_cache={}, check_model=lambda: None,
+            owner=SimpleNamespace(allow_manual_pick_place=False),
             line=SimpleNamespace(tanks={'Tank03': {}}),
             scene=SimpleNamespace(config={'tanks': [{'id': 'Tank03'}, {'id': 'Tank04'}]}))
         self.server.cached_asset = lambda path: Server.cached_asset(self.server, path)

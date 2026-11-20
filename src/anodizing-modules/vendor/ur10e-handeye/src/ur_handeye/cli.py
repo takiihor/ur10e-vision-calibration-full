@@ -201,7 +201,9 @@ def _solve_session(session_dir, *, exclude=(), thresholds=Thresholds(), loo=True
         solution.warnings.extend(estimation.get("warnings", []))
         if solution.verdict == "good":
             solution.verdict = "acceptable"
-    return build_result(solution, metadata, session_dir)
+    result = build_result(solution, metadata, Path(session_dir).resolve())
+    result["session_created_utc"] = metadata.get("created_utc")
+    return result
 
 
 def _target_from_metadata(metadata: dict, manifest=None) -> BoardTarget:
@@ -261,7 +263,7 @@ def cmd_check(args, *, on_observation=None) -> int:
     return 0 if ok else 1
 
 
-def cmd_collect(args, *, confirm=None, read_line=input, on_capture=None) -> int:
+def cmd_collect(args, *, confirm=None, read_line=input, on_capture=None, on_cleanup_failure=None) -> int:
     # A fixed camera cannot use automatic wrist-camera planning.
     calibration_type = getattr(args, "calibration_type", "eye_in_hand")
     if args.mode in ('auto', 'replay') and calibration_type != 'eye_in_hand':
@@ -287,7 +289,7 @@ def cmd_collect(args, *, confirm=None, read_line=input, on_capture=None) -> int:
         collision = load_scene(scene_path, model_path=model_path) if model_path is not None else load_scene(scene_path)
         if not args.dry_run:
             collision.require_motion_ready()
-    from .robot import LocalCaptureRobot, URRobot
+    from .robot import LocalCaptureRobot, RobotCleanupError, URRobot
     # Reject incompatible options before opening RTDE control or a camera.
     if args.mode == "manual" and args.dry_run:
         raise ValueError("--dry-run is supported in auto and replay modes; manual mode requires operator positioning")
@@ -316,8 +318,9 @@ def cmd_collect(args, *, confirm=None, read_line=input, on_capture=None) -> int:
         raise DatasetError(f"{output} already contains data; choose a new session folder")
     local_capture = args.mode == "manual"
     robot_class = LocalCaptureRobot if local_capture else URRobot
-    robot = robot_class(args.robot_ip, _limits(args), **({'collision': collision} if collision is not None else {}))
+    robot = None
     try:
+        robot = robot_class(args.robot_ip, _limits(args), **({'collision': collision} if collision is not None else {}))
         with _camera(args) as camera:
             if intrinsics:
                 _check_intrinsics_profile(intrinsics, {"intrinsics": camera.intrinsics, "camera": camera.metadata})
@@ -330,7 +333,8 @@ def cmd_collect(args, *, confirm=None, read_line=input, on_capture=None) -> int:
                                        "intrinsics_source": {"type": "override" if intrinsics else "factory",
                                                              "path": args.intrinsics}})
             collector = Collector(robot, observer, session, options,
-                                  confirm=confirm if confirm is not None else _confirm(args), on_capture=on_capture)
+                                  confirm=confirm if confirm is not None else _confirm(args), on_capture=on_capture,
+                                  on_cleanup_failure=on_cleanup_failure)
             if args.mode == "manual":
                 collector.run_manual(read_line=read_line, freedrive=args.freedrive)
             elif args.mode == "replay":
@@ -339,8 +343,21 @@ def cmd_collect(args, *, confirm=None, read_line=input, on_capture=None) -> int:
                 print(f"Camera plan: tilt {args.tilt_deg:g} deg, roll {args.roll_deg:g} deg; "
                       f"probe {args.probe_mm:g} mm")
                 planned_count = collector.run_auto(dry_run=args.dry_run)
+    except RobotCleanupError as exc:
+        if on_cleanup_failure:
+            on_cleanup_failure(str(exc))
+        raise
     finally:
-        robot.close()
+        if robot is not None:
+            operation_error = sys.exception()
+            try:
+                robot.close()
+            except BaseException as exc:
+                if on_cleanup_failure:
+                    if operation_error is not None and str(operation_error):
+                        on_cleanup_failure(str(operation_error))
+                    on_cleanup_failure(f"Controller cleanup failed: {exc or type(exc).__name__}")
+                raise
     print(f"Session saved to {output.resolve()} ({collector.usable} usable samples)")
     if args.dry_run:
         if args.mode == "auto" and planned_count + collector.usable < MIN_SAMPLES + 2:
@@ -435,7 +452,14 @@ def cmd_verify(args, *, on_report=None) -> int:
     if args.output and Path(args.output).exists():
         raise DatasetError(f"{args.output} already exists; choose a new verification report filename")
     result = load_result(args.calibration)
+    source = result.get("session")
+    refusal = "Choose fresh verification observations separate from the fitting session"
+    if isinstance(source, str) and source and Path(source).expanduser().resolve() == Path(args.session).resolve():
+        raise DatasetError(refusal)
     metadata, records = load_session(args.session)
+    fitting_created = result.get("session_created_utc")
+    if fitting_created and metadata.get("created_utc") == fitting_created:
+        raise DatasetError(refusal)
     samples = samples_from_records(records)
     if not samples:
         raise DatasetError("The verification session has no usable samples")
@@ -470,6 +494,9 @@ def cmd_verify(args, *, on_report=None) -> int:
     report = {"calibration": str(args.calibration), "session": str(args.session), "samples": len(samples),
               "software": f"ur10e-handeye {__version__}", "created_utc": datetime.now(UTC).isoformat(),
               "calibration_type": calibration_type,
+              "simulated": bool(result.get("simulation_truth") or any(
+                  provenance.get("simulated") or provenance.get("camera", {}).get("simulated")
+                  or provenance.get("robot", {}).get("host") == "simulated" for provenance in (result, metadata))),
               "board_refit": args.refit_board, "consistency": consistency(samples, x, y, target.centre),
               "reprojection_rmse_px": float(np.sqrt(np.mean(residual ** 2))),
               "limits": {"position_max_mm": args.max_mm, "rotation_max_deg": args.max_deg},

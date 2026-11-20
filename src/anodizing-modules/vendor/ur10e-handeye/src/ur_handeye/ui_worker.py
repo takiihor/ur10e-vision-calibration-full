@@ -120,12 +120,17 @@ def run(argv, channel):
     if args.command == "collect":
         if args.yes or args.freedrive:
             raise ValueError("The UI requires motion approval and pendant jogging for manual captures")
-        code = cli.cmd_collect(
-            args,
-            confirm=lambda summary: channel.request("motion", summary),
-            read_line=lambda summary: channel.request("manual", summary),
-            on_capture=lambda record, observation: channel.observation(observation, record),
-        )
+        cleanup_errors = []
+        try:
+            code = cli.cmd_collect(
+                args,
+                confirm=lambda summary: channel.request("motion", summary),
+                read_line=lambda summary: channel.request("manual", summary),
+                on_capture=lambda record, observation: channel.observation(observation, record),
+                on_cleanup_failure=cleanup_errors.append,
+            )
+        finally:
+            channel.emit("calibration_cleanup", errors=cleanup_errors)
     elif args.command == "check":
         code = cli.cmd_check(args, on_observation=channel.observation)
     elif args.command == "simulate":
@@ -174,7 +179,7 @@ def main(argv=None):
             channel.emit("log", message="Operation interrupted; hardware cleanup requested. Check the robot state.")
             return 130
         except Exception as exc:
-            channel.emit("log", message=f"error: {exc}")
+            channel.emit("error", message=str(exc))
             return 2
         finally:
             channel.closed.set()

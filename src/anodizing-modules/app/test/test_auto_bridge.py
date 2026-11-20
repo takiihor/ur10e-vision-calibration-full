@@ -34,7 +34,10 @@ class Runner:
         elif self.phase == 4:
             self.phase = 5
             self.active = False
+            yield from self.cleanup()
             yield {'type':'done', 'code':130 if self.stopped else 0}
+    def cleanup(self):
+        yield {'type': 'calibration_cleanup', 'errors': []}
     def answer(self, request_id, value):
         self.answers.append((request_id, value))
         self.phase = 2 if request_id == 1 and value else 4

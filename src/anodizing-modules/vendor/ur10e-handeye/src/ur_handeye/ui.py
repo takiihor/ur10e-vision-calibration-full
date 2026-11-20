@@ -1088,6 +1088,8 @@ class CalibrationUI:
             kind = event["type"]
             if kind == "log":
                 self.append_log(event["message"])
+            elif kind == "error":
+                self.append_log(f"error: {event['message']}")
             elif kind == "request":
                 self.show_request(event)
             elif kind == "observation":
@@ -1108,7 +1110,8 @@ class CalibrationUI:
                 self.verification_passed = bool(report["passed"])
                 c = report["consistency"]
                 self.verify_status.set(
-                    f"{'PASS' if report['passed'] else 'FAIL'} · maximum position "
+                    f"{'PASS' if report['passed'] else 'FAIL'}"
+                    f"{' · Simulation' if report.get('simulated') else ''} · maximum position "
                     f"{c['position_max_mm']:.3f} mm / rotation {c['rotation_max_deg']:.3f}°"
                     + (f"\nLimits: {report['limits']['position_max_mm']:g} mm / "
                        f"{report['limits']['rotation_max_deg']:g}°" if "limits" in report else "")

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .poses import PlanOptions, View, estimate_camera_rotation, plan_views, probe_targets
-from .robot import RobotError
+from .robot import RobotCleanupError, RobotError
 from .solver import MIN_SAMPLES, SolveError, _Problem, closed_form, refine
 from .transforms import matrix, matrix_to_pose
 from .vision import Observation
@@ -62,10 +62,11 @@ def _step(a, b) -> float:
 
 class Collector:
     def __init__(self, robot, observer, session, options: CollectOptions = CollectOptions(), *,
-                 log=print, confirm=lambda summary: False, on_capture=None):
+                 log=print, confirm=lambda summary: False, on_capture=None, on_cleanup_failure=None):
         self.robot, self.observer, self.session, self.options = robot, observer, session, options
         self.log, self.confirm = log, confirm
         self.on_capture = on_capture
+        self.on_cleanup_failure = on_cleanup_failure
         self.usable = 0
         self.intrinsics = None
         self.collision_checks = []
@@ -168,17 +169,21 @@ class Collector:
     def _move(self, joints: list[float]) -> None:
         try:
             self.robot.move_joints(joints)
-        except BaseException:
-            self._halt()
+        except BaseException as exc:
+            self._halt(report_success=not isinstance(exc, RobotCleanupError))
             raise
 
-    def _halt(self) -> None:
+    def _halt(self, *, report_success=True) -> None:
         try:
             self.robot.stop()
         except Exception as exc:
-            self.log(f"WARNING: stop command failed: {exc}")
+            message = f"stop command failed: {exc}"
+            if self.on_cleanup_failure:
+                self.on_cleanup_failure(message)
+            self.log(f"WARNING: {message}")
         else:
-            self.log("Stop request completed. Check the robot and cell before moving again.")
+            if report_success:
+                self.log("Stop request completed. Check the robot and cell before moving again.")
 
     # -- planning ----------------------------------------------------------------------------
     def _collision_checker(self):

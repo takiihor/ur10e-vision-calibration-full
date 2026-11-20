@@ -120,6 +120,7 @@ def state(owner, *, check_live=True):
                     result['detail'] = 'A job owns the robot. Follow Current operation for live checks.'
                 else:
                     result['at_pose'] = _check(owner, pose)
+                    result['checked_at'] = timestamp()
                     result['detail'] = 'Robot at travel pose and still.' if result['at_pose'] else OUTSIDE
             finally:
                 owner.lock.release()

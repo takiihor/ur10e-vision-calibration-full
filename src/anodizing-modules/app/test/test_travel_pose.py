@@ -48,7 +48,10 @@ def test_live_check_checks_every_joint_and_requires_stillness(robot):
     owner, feedback = robot
     travel_pose.save(owner, {'confirmed':True})
     feedback.joints[-1] += math.radians(1.99)
-    assert travel_pose.state(owner)['at_pose'] is True
+    checked = travel_pose.state(owner)
+    assert checked['at_pose'] is True
+    assert checked['checked_at'].endswith('+00:00')
+    assert travel_pose.state(owner, check_live=False).get('checked_at') is None
     feedback.joints[-1] += math.radians(.02)
     assert travel_pose.state(owner)['at_pose'] is False
     feedback.joints[-1] = .1

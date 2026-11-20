@@ -40,8 +40,12 @@ class CandidatePaths(unittest.TestCase):
     def test_fresh_verification_and_confinement(self):
         import ur_handeye.ui_jobs
         with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp); (root/'board.json').write_text('{}'); (root/'cal.json').write_text('{}')
+            root = Path(tmp)
+            (root / 'board.json').write_text('{}')
             fit=root/'fit'; fit.mkdir(); (fit/'session.json').write_text('{}'); (fit/'samples.jsonl').write_text('')
+            result = json.loads(test_port.FIXTURE.read_bytes())
+            result.update(session=str(fit), board_in_base=result['camera_in_flange'])
+            (root / 'cal.json').write_text(json.dumps(result))
             other=root/'fresh'; other.mkdir(); (other/'session.json').write_text('{}'); (other/'samples.jsonl').write_text('')
             owner=JobOwner(root)
             owner.event = mock.Mock()

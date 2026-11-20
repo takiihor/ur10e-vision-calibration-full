@@ -29,6 +29,10 @@ class RobotError(RuntimeError):
     """The robot refused, cannot reach, or is not in a state to perform a request."""
 
 
+class RobotCleanupError(RobotError):
+    """The controller did not confirm a halt or release of control."""
+
+
 @dataclass(frozen=True)
 class MotionLimits:
     """Conservative defaults for a camera on a UR10e working near a fixed calibration board."""
@@ -259,8 +263,11 @@ class URRobot:
                 if time.monotonic() > deadline:
                     raise RobotError("Joint move timed out")
                 time.sleep(0.02)
-        except BaseException:
-            self.stop()
+        except BaseException as cause:
+            try:
+                self.stop()
+            except RobotCleanupError as exc:
+                raise RobotCleanupError(f"{cause or type(cause).__name__}: {exc}") from cause
             raise
         deadline = time.monotonic() + self.limits.steady_timeout_s
         while not control.isSteady():
@@ -282,7 +289,11 @@ class URRobot:
 
     def stop(self) -> None:
         if self.control is not None:
-            self.control.stopJ(2.0)
+            try:
+                if self.control.stopJ(2.0) is False:
+                    raise RuntimeError("stopJ was rejected")
+            except Exception as exc:
+                raise RobotCleanupError(str(exc)) from exc
 
     def close(self) -> None:
         errors = []
@@ -293,12 +304,13 @@ class URRobot:
             operations.append(self.receive.disconnect)
         for operation in operations:
             try:
-                operation()
+                if operation() is False:
+                    errors.append(f"{operation.__name__} was rejected")
             except Exception as exc:
                 errors.append(str(exc))
         self.control = self.receive = None
         if errors:
-            raise RobotError("Robot cleanup failed: " + "; ".join(errors))
+            raise RobotCleanupError("Robot cleanup failed: " + "; ".join(errors))
 
 
 class LocalCaptureRobot(URRobot):

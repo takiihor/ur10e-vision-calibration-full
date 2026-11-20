@@ -508,6 +508,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(404, {'error': 'Not found.'})
         name, mime = routes[path]
         data, mtime, _ = self.server.cached_asset(WEB / name)
+        if name == 'index.html':
+            if self.server.owner.allow_manual_pick_place:
+                description = b'Run simulated or supervised hardware Pick/place tests.'
+                guidance = (b'Pick/place hardware controls are enabled by service configuration. '
+                            b'Robot motion requires a reviewed robot model and safety checks.')
+            else:
+                description = b'Run simulated PICK and PLACE requests.'
+                guidance = b'Pick/place hardware controls are disabled.'
+            data = data.replace(b'__PICK_PLACE_DESCRIPTION__', description).replace(b'__PICK_PLACE_GUIDANCE__', guidance)
         if name == 'calibration.html':
             editor, _, _ = self.server.cached_asset(files('ur_handeye').joinpath('web', 'tool-envelope.html'))
             fragment = editor[editor.index(b'<section id="tool-editor"'):editor.index(b'<footer>')]

@@ -39,8 +39,6 @@ def test_scene_serves_only_configured_versioned_glb(service, tmp_path, scene_pro
     status, _, raw = request(service, '/api/scene')
     assert status == 200
     config = json.loads(raw)
-    service.owner = service.agv.owner
-    service.owner.runner = service.owner.teacher_service = service.owner.teacher_job = None
     service.model_hash = 'a' * 64
     service.model_data = {'nominal': True}
     service.check_model = lambda: None

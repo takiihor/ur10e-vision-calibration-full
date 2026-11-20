@@ -415,7 +415,8 @@ class Recorder:
 
 
 def write_csv(rows, output):
-    fields = ('sample_at', 'id', 'name', 'value', 'unit', 'source', 'read_at', 'source_at', 'row_id', 'quality', 'age_ms', 'reason')
+    fields = ('sample_at', 'id', 'name', 'value', 'unit', 'source', 'read_at', 'source_at', 'row_id', 'job_id',
+              'quality', 'age_ms', 'reason')
     writer = csv.DictWriter(output, fields, extrasaction='ignore')
     writer.writeheader()
     for row in rows:

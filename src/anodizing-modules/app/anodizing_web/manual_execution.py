@@ -462,6 +462,8 @@ class TeacherDescent(ManualExecution):
 
 def control(owner, body):
     job_id = body.get('job_id')
+    if body.get('action') == 'cancel-unconfirmed':
+        return owner.cancel_unconfirmed(job_id)
     # Latch before any owner lock or disk I/O, including a stalled fsync.
     runner = owner.runner
     if body.get('action') == 'stop' and owner.active == job_id and isinstance(runner,ManualExecution):
@@ -618,6 +620,12 @@ def run(owner, root, body, job_id):
     def emit(state):
         with owner.lock:
             job = owner.jobs[job_id]
+            previous = job.get('manual') or {}
+            repeat_state = state.get('repeat') or {}
+            previous_repeat = previous.get('repeat') or {}
+            if (state.get('stage'), repeat_state.get('phase'), repeat_state.get('completed_transfers')) != (
+                    previous.get('stage'), previous_repeat.get('phase'), previous_repeat.get('completed_transfers')):
+                job['manual_updated_at'] = time.time()
             job.update(manual=state,state='waiting' if state.get('prompt') else 'running',pending=state.get('prompt'))
             owner._save(job)
     cleanup_error = None

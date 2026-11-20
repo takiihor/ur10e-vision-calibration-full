@@ -617,6 +617,35 @@ class ManualWorkerTests(unittest.TestCase):
             self.assertEqual(self.robot.moves,[])
             self.assertIsNone(owner.runner)
 
+    def test_unconfirmed_motion_id_is_closed_durably_or_returns_the_accepted_job(self):
+        import json
+        from anodizing_web.jobs import JobOwner
+        owner=self.public_server()
+        request_id=self.public_body['request_id']
+        cancel={'job_id':request_id,'action':'cancel-unconfirmed'}
+        status,raw=self.request('POST','/api/manual-control',cancel)
+        self.assertEqual(status,200,raw)
+        self.assertTrue(json.loads(raw)['cancelled_before_acceptance'])
+        status,raw=self.request('POST','/api/manual-pick-place',self.public_body)
+        self.assertEqual(status,400,raw)
+        self.assertIn('cancelled',json.loads(raw)['error'])
+        status,raw=self.request('POST','/api/mcu',{'request_id':request_id,'project':'fixture','command':'0'})
+        self.assertEqual(status,400,raw)
+        self.assertIn('already used',json.loads(raw)['error'])
+        self.assertEqual(self.robot.moves,[])
+        self.assertTrue(JobOwner(self.root).get(request_id)['cancelled_before_acceptance'])
+
+        accepted=dict(self.public_body,request_id='received-before-cancellation')
+        status,raw=self.request('POST','/api/manual-pick-place',accepted)
+        self.assertEqual(status,202,raw)
+        status,raw=self.request('POST','/api/manual-control',dict(cancel,job_id=accepted['request_id']))
+        self.assertEqual(status,200,raw)
+        self.assertFalse(json.loads(raw).get('cancelled_before_acceptance'))
+        self.assertEqual(owner.active,accepted['request_id'])
+        self.assertEqual(self.request('POST','/api/manual-control',dict(cancel,job_id=accepted['request_id'],action='stop'))[0],200)
+        self.public_body=accepted
+        self.wait_public(lambda record:record['state'] not in ('running','waiting'))
+
     def test_public_native_job_admission_exact_retry_and_restart_cannot_replay(self):
         import json
         from anodizing_web.jobs import JobOwner

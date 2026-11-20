@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from anodizing_web import agv, operator_records, operator_state, server
+from anodizing_web import agv, operator_records, operator_state, server, tool_power
 from anodizing_web.jobs import JobOwner
 from test_operator import request
 from test_agv_handler import open_simulator, send, session
@@ -30,6 +30,74 @@ def exported(records, ident, format='json'):
 
 def document(records, ident):
     return json.loads(exported(records, ident))
+
+
+def test_recorder_selects_and_exports_cached_module_evidence(tmp_path, monkeypatch):
+    owner = JobOwner(tmp_path, allow_manual_pick_place=True)
+    link = agv.Connection(owner)
+
+    def forbid(*args, **kwargs):
+        pytest.fail('Recorder attempted device access.')
+
+    monkeypatch.setattr(link, '_receive', forbid)
+    monkeypatch.setattr(link, '_send', forbid)
+    monkeypatch.setattr(tool_power.socket, 'create_connection', forbid)
+    stamp = '2026-01-01T00:00:00.000+00:00'
+    owner.active = 'recipe-example'
+    owner.jobs = {
+        'recipe-example': dict(id='recipe-example', module='manual-pick-place',
+                               state='running', created=3, manual_updated_at=4,
+                               manual={'stage': 'moving', 'repeat': {'phase': 'place', 'completed_transfers': 2}}),
+        'mcu-example': dict(id='mcu-example', module='mcu', state='done', created=2, finished=3,
+                            mcu={'rx_text': 'FSR1:1/FSR2:2', 'status': 'replied', 'observed_at': 1}),
+        'mcu-later': dict(id='mcu-later', module='mcu', state='failed', created=3, finished=4,
+                          mcu={'rx_text': 'partial', 'status': 'unknown', 'observed_at': None}),
+        'power-example': dict(id='power-example', module='tool-power', state='done', created=1, finished=3,
+                              tool_power={'controller_tool_output_voltage': 0, 'observed_at': 1, 'status': 'observed'}),
+        'power-later': dict(id='power-later', module='tool-power', state='failed', created=3, finished=4,
+                            tool_power={'controller_tool_output_voltage': None, 'observed_at': None, 'status': 'unknown'}),
+        'fit-example': dict(id='fit-example', module='calibration', state='done', created=1, finished=2,
+                            result={'path': 'fit.json', 'calibration_sha256': 'a' * 64,
+                                    'result': {'type': 'eye_in_hand'}}),
+        'preview-example': dict(id='preview-example', module='calibration', state='done', created=2, finished=3,
+                                result={'snapshot': {'id': 'board-frame', 'acquired_at': stamp}}),
+        'teach-example': dict(id='teach-example', module='teaching', state='done', created=1, finished=2,
+                              result={'project': {'project': 'training-project', 'flow': {'taught': False},
+                                                  'snapshots': {'reference': {'id': 'target-frame', 'acquired_at': stamp}}}}),
+    }
+    instance = SimpleNamespace(owner=owner, agv=link)
+    records = operator_records.Recorder(tmp_path, lambda: operator_state.server_state(instance))
+    expected = {
+        'job.phase': ('place', 'recipe-example'),
+        'job.transfers_done': (2, 'recipe-example'),
+        'mcu.reply': ('FSR1:1/FSR2:2', 'mcu-example'),
+        'mcu.command_outcome': ('unknown', 'mcu-later'),
+        'tool_power.controller_tool_output_voltage': (0, 'power-example'),
+        'tool_power.readback_outcome': ('unknown', 'power-later'),
+        'calibration.calibration_sha256': ('a' * 64, 'fit-example'),
+        'calibration.snapshot_id': ('board-frame', 'board-frame'),
+        'teaching.capture_id': ('target-frame', 'target-frame'),
+        'teaching.taught': (False, 'teach-example'),
+        'teaching.tank': (None, 'teach-example'),
+    }
+    try:
+        ident = records.start({'rate_hz': 5, 'variables': list(expected)})['id']
+        until(lambda: (records.directory / ident / 'rows.jsonl').stat().st_size > 0)
+        records.stop(ident)
+    finally:
+        records.close()
+    saved = document(records, ident)
+    assert {v['id'] for v in saved['manifest']['variables']} == expected.keys()
+    variables = {v['id']: v for v in saved['rows'][0]['variables']}
+    assert {key: (item['value'], item['row_id']) for key, item in variables.items()} == expected
+    assert variables['calibration.snapshot_id']['job_id'] == 'preview-example'
+    assert variables['calibration.snapshot_id']['read_at'] == stamp
+    assert variables['teaching.capture_id']['read_at'] == stamp
+    assert variables['tool_power.controller_tool_output_voltage']['quality'] == 'historical'
+    assert variables['tool_power.controller_tool_output_voltage']['read_at'] == '1970-01-01T00:00:01.000+00:00'
+    assert variables['teaching.tank']['quality'] == 'unknown'
+    csv_rows = {row['id']: row for row in csv.DictReader(StringIO(exported(records, ident, 'csv')))}
+    assert csv_rows['teaching.capture_id']['job_id'] == 'teach-example'
 
 
 @pytest.fixture

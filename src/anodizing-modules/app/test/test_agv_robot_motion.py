@@ -197,23 +197,28 @@ def test_pick_place_station_hold_explains_standard_mode_refusal():
     assert StationVisit(None, None, strict_station=False)._check_hold(status, time.monotonic()) == 1
 
 
-def test_capture_station_prefers_fresh_serial_report_and_preserves_provenance(tmp_path):
-    from anodizing_web.teaching import agv_capture
+def test_capture_station_prefers_fresh_serial_report_and_preserves_provenance(tmp_path, monkeypatch):
+    from anodizing_web import teaching
 
     owner = JobOwner(tmp_path)
     link = agv.Connection(owner)
     try:
         connect_parked(link)
-        assert agv_capture(link, 7) == dict(station=2, source='agv_status',
-                                             status_time=link.status_iso, transport='serial')
+        def report(_delay):
+            with link.lock:
+                link._status_received(link.status, b'')
+
+        monkeypatch.setattr(teaching, '_capture_wait', report)
+        assert teaching.capture_station(link, 7)() == dict(station=2, source='agv_status',
+                status_time=link.status_iso, transport='serial', after_image=True)
         link.settings['mode'] = 'simulator'
-        assert agv_capture(link, 7) == dict(station=7, source='operator',
-                                             status_time=link.status_iso, transport='simulator')
+        assert teaching.capture_station(link, 7)() == dict(station=7, source='operator',
+                status_time=link.status_iso, transport='simulator')
         with pytest.raises(ValueError, match='1 to 255'):
-            agv_capture(link, 256)
+            teaching.capture_station(link, 256)
     finally:
         link.close()
-    assert agv_capture(link, 7) == dict(station=7, source='operator', status_time=None, transport=None)
+    assert teaching.capture_station(link, 7)() == dict(station=7, source='operator', status_time=None, transport=None)
 
 
 def interrupt_vehicle(vehicle, violation):
@@ -359,7 +364,7 @@ def test_agv_page_blocks_motion_during_a_switched_off_job(tmp_path, monkeypatch)
     ('obstacle_stop', True), ('fault_code', 1),
 ])
 def test_capture_station_requires_safe_arrival_evidence(tmp_path, field, value):
-    from anodizing_web.teaching import agv_capture
+    from anodizing_web.teaching import capture_station
 
     owner = JobOwner(tmp_path)
     link = agv.Connection(owner)
@@ -367,7 +372,7 @@ def test_capture_station_requires_safe_arrival_evidence(tmp_path, field, value):
         connect_parked(link)
         with link.lock:
             link.status = dict(link.status, **{field: value})
-        result = agv_capture(link, 7)
+        result = capture_station(link, 7)()
         assert result['station'] == 7
         assert result['source'] == 'operator'
     finally:

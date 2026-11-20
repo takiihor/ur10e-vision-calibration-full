@@ -139,7 +139,7 @@ function render(job){
     if(job.result?.preview_only)$('summary').textContent+=' · preview only (no pose)';
     const seenCamera=job.result?.camera;
     if(seenCamera&&Number.isFinite(seenCamera.exposure_time_us))$('summary').textContent+=' · '+Math.round(seenCamera.exposure_time_us)+' µs'+(Number.isFinite(seenCamera.gain_db)?' · '+seenCamera.gain_db.toFixed(2)+' dB':'');
-    if(verification?.report)$('summary').textContent+=' · verification '+(verification.report.passed?'PASS':'FAIL');
+    if(verification?.report)$('summary').textContent+=' · verification '+(verification.report.passed?'PASS':'FAIL')+(verification.report.simulated?' · Simulation':'');
   }
   const clean=JSON.parse(JSON.stringify(job));
   for(const event of clean.events||[]) if(event.image)event.image='[image shown above]';

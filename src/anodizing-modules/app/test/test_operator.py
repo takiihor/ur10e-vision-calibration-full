@@ -3,12 +3,12 @@ from email.parser import BytesParser
 from io import BytesIO
 import json
 import re
-from threading import RLock
 from types import SimpleNamespace
 
 import pytest
 
 from anodizing_web import agv, server
+from anodizing_web.jobs import JobOwner
 
 
 def request(service, path, token='secret', host='127.0.0.1:8870', origin=None, method='GET', etag=None, body=None):
@@ -31,10 +31,9 @@ def request(service, path, token='secret', host='127.0.0.1:8870', origin=None, m
 
 
 @pytest.fixture
-def service():
-    owner = SimpleNamespace(lock=RLock(), active=None, closing=False,
-                            storage_error=None, execution_uncertain=False)
-    instance = SimpleNamespace(agv=agv.Connection(owner), token='secret',
+def service(tmp_path):
+    owner = JobOwner(tmp_path)
+    instance = SimpleNamespace(owner=owner, agv=agv.Connection(owner), token='secret',
                                hosts={'127.0.0.1:8870', 'localhost:8870'}, asset_cache={})
     instance.cached_asset = lambda path: server.Server.cached_asset(instance, path)
     return instance
@@ -61,6 +60,21 @@ def test_operator_entry_refreshes_nonce_and_uses_a_static_allowlist(service, tmp
     for path in ('/operator/assets/private.js', '/operator/asset-allowlist.json', '/operator/index.html',
                  '/operator/../agv'):
         assert request(service, path)[0] == 404
+
+
+@pytest.mark.parametrize(('enabled', 'description', 'guidance'), [
+    (False, 'Run simulated PICK and PLACE requests.', 'Pick/place hardware controls are disabled.'),
+    (True, 'Run simulated or supervised hardware Pick/place tests.',
+     'Pick/place hardware controls are enabled by service configuration.'),
+])
+def test_legacy_landing_describes_pick_place_capability(service, enabled, description, guidance):
+    service.owner = service.agv.owner
+    service.owner.allow_manual_pick_place = enabled
+    code, _, page = request(service, '/')
+    assert code == 200
+    assert b'href="/pick-place"' in page
+    assert description.encode() in page
+    assert guidance.encode() in page
 
 
 def test_state_is_authenticated_read_only_and_copies_acquisition_time(service, monkeypatch):

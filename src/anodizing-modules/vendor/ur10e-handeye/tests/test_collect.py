@@ -147,8 +147,9 @@ def test_failed_stop_does_not_claim_success():
     class Robot:
         def stop(self):
             raise RobotError("stop failed")
-    logs = []
-    Collector(Robot(), None, None, log=logs.append)._halt()
+    logs, cleanup_errors = [], []
+    Collector(Robot(), None, None, log=logs.append, on_cleanup_failure=cleanup_errors.append)._halt()
+    assert cleanup_errors == ["stop command failed: stop failed"]
     assert any("stop command failed" in line for line in logs)
     assert not any("Stop request completed" in line or "stopped where" in line for line in logs)
 

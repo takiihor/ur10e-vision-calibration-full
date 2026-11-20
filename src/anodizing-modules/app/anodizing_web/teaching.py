@@ -135,12 +135,13 @@ def simulated(root, body):
     for key in ('board_manifest', 'aruco_manifest'):
         if settings['target'].get(key):
             inputs['manifest'] = digest(settings['target'][key])
+    flow = {'captured': True, 'taught': True, 'exported': False}
     atomic_json(project / 'project.json', {'schema_version': 1, 'type': 'marker_pick_project',
         'simulation': True, 'settings': {k: v for k, v in settings.items() if k != 'project'},
-        'inputs': inputs, 'flow': {'captured': True, 'taught': True, 'exported': False}})
+        'inputs': inputs, 'flow': flow})
     atomic_json(project / 'observation.json', observation.to_json())
     atomic_json(project / 'grasp_pick.json', grasp)
-    return {'simulation': True, 'project': str(project), 'calibration_sha256': calibration.sha256,
+    return {'simulation': True, 'project': str(project), 'calibration_sha256': calibration.sha256, 'flow': flow,
             'files': ['project.json', 'observation.json', 'grasp_pick.json']}
 
 
@@ -162,30 +163,18 @@ def session_state(owner, job_id):
 def control(owner, job_id, action):
     if action not in ('heartbeat', 'stop'):
         raise ValueError('Unknown Teacher control.')
+    if action == 'stop':
+        owner.stop_teacher(job_id)
+        return {'ok': True}
     with owner.lock:
-        if action == 'stop' and owner.active == job_id and owner.teacher_stop is not None:
-            owner.teacher_stop.set()
-            if owner.teacher_service:
-                owner.teacher_service.stop()
-            return {'ok': True}
         if not owner.teacher_service or owner.teacher_job != job_id:
             raise ValueError('This Teacher control belongs to an old session.')
-        service = owner.teacher_service
-        if action == 'stop':
-            service.stop()
-        else:
-            service.heartbeat()
+        owner.teacher_service.heartbeat()
     return {'ok': True}
 
 
 def _identity(settings):
     return {k:v for k,v in settings.items() if k not in ('project', 'tcp_confirmed')}
-
-
-def agv_capture(connection, station):
-    from .recipe_agv import motion_state
-    state = motion_state(connection)
-    return _station_record(state, station)
 
 
 def _station_record(state, station):
@@ -312,18 +301,21 @@ def run(owner, root, body, job_id, allow_teaching):
         service = TeachingService(Path(root), motion_factory=native_backend)
         try:
             service.configure(settings)
+            native = service.state().get('project') or {}
+            native_identity = _identity(checked_settings(root, dict(native.get('settings', settings), project=settings['project'])))
         except BaseException:
             service.close()
             raise
-        with owner.lock:
+        with owner.lock, owner.agv_start_lock:
             owner.teacher_service = service
+            owner.teacher_job = job_id
             owner.teacher_project = settings['project']
-            native = service.state().get('project') or {}
-            owner.teacher_settings = _identity(checked_settings(root, dict(native.get('settings', settings), project=settings['project'])))
+            owner.teacher_settings = native_identity
     elif _identity(settings) != owner.teacher_settings:
         raise ValueError('Teacher settings changed. Check setup and capture again.')
-    with owner.lock:
-        owner.teacher_job = job_id
+    else:
+        with owner.lock, owner.agv_start_lock:
+            owner.teacher_job = job_id
     if action == 'configure':
         return service.state()
     started = False
@@ -347,10 +339,8 @@ def run(owner, root, body, job_id, allow_teaching):
             if scene.model['nominal']:
                 raise ValueError('Teacher movement requires the factory robot model.')
             speed = number(body.get('joint_speed_deg_s'), 'Joint test speed (degrees/s)', low=1, high=6)
-            stop_requested = owner.teacher_stop
-
             def check_stop():
-                if stop_requested is not None and stop_requested.is_set():
+                if owner.stop_requested(job_id):
                     raise ValueError('Teacher Stop cancelled the pending motion.')
 
             def check_binding():
@@ -458,6 +448,6 @@ def _abort_and_drain(owner, service, job_id, cause):
                     uncertain = True
                     break
         owner.drain_workers(job_id, workers)
-    with owner.lock:
+    with owner.lock, owner.agv_start_lock:
         owner.teacher_service = None
         owner.teacher_job = owner.teacher_project = owner.teacher_settings = None

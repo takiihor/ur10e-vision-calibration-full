@@ -75,7 +75,11 @@ class JobRunner:
         self.pending = None
 
     def stop(self):
-        if self.active and not self.stopping:
+        process = self.process
+        if process is not None and not self.stopping:
             self.stopping, self.pending = True, None
-            if self.process.poll() is None:
-                self.process.send_signal(signal.SIGINT)
+            try:
+                if process.poll() is None:
+                    process.send_signal(signal.SIGINT)
+            except ProcessLookupError:
+                pass  # Completion won the race with Stop.
