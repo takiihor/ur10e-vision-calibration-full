@@ -930,6 +930,46 @@ def test_query_only_simulator_gets_background_status_without_page_requests(sessi
     assert not [event for event in state['events'] if event['field'] == 'link_stale' and event['after']]
 
 
+def test_one_missed_poll_keeps_status_age_below_two_and_a_half_seconds(agv_clock, monkeypatch):
+    class DelayedReply(agv.Simulator):
+        queries = 0
+        reply_at = None
+
+        def write(self, raw):
+            if agv.parse_frame(raw, offset=3).command == 0x26:
+                self.queries += 1
+                if self.queries != 2:
+                    self.reply_at = agv_clock.now + .83
+                return len(raw)
+            return super().write(raw)
+
+        @property
+        def in_waiting(self):
+            if self.reply_at is not None and agv_clock.now >= self.reply_at:
+                self._report()
+                self.reply_at = None
+            return super().in_waiting
+
+    monkeypatch.setattr(agv, 'Simulator', DelayedReply)
+    monkeypatch.setattr(agv.Connection, '_start_worker', lambda *args, **kwargs: None)
+    link = agv.Connection(SimpleNamespace(lock=RLock(), closing=False, active=None,
+                                          storage_error=None, execution_uncertain=False))
+    try:
+        link.submit(dict(action='connect'))
+        max_age = 0
+        for step in range(800):
+            agv_clock.now = 10 + step / 100
+            if link.status_at is not None:
+                max_age = max(max_age, agv_clock.now - link.status_at)
+            with link.lock:
+                link._receive()
+            link._poll_status(link.transport)
+        assert link.transport.queries >= 3
+        assert max_age < 2.5, f'maximum status age was {max_age:.3f} s'
+    finally:
+        link.close()
+
+
 def test_query_replies_do_not_extend_timed_report_presence(agv_clock, monkeypatch):
     monkeypatch.setattr(agv.Connection, '_start_worker', lambda *args, **kwargs: None)
     link = agv.Connection(SimpleNamespace(lock=RLock(), closing=False, active=None,
