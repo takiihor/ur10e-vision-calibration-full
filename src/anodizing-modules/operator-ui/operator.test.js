@@ -101,7 +101,7 @@ it('keeps navigation, urgent controls and records available when storage is deni
   open('#/agv', async path => path === '/api/state' ? { variables: [] } :
     path === '/api/status' ? { owner: {} } : { ...connected, armed: false, sequence: 1, commands: [] });
   await flushPromises();
-  expect(app.get('a[href="/teaching"]').text()).toMatch(/Teaching\s*Legacy/);
+  expect(app.get('a[href="#/teaching"]').text()).toMatch(/Teaching/);
   await element('notes-1').setValue('Simulator only');
   expect(element('record-note').text()).toMatch(/storage is unavailable/i);
   expect(element('stop').element.disabled).toBe(false);
@@ -119,9 +119,9 @@ it('keeps urgent controls outside the Sakai shell and routes between marked modu
   const menu = wrapper.get('nav[aria-label="Modules"]');
   const links = menu.findAll('a');
   expect(links.slice(1).map(link => link.attributes('href'))).toEqual([
-    '/calibration', '/teaching', '#/agv', '#/scene', '#/line', '#/records', '#/pick-place',
+    '/calibration', '#/teaching', '#/agv', '#/scene', '#/line', '#/records', '#/pick-place',
   ]);
-  expect(links.slice(1).map(link => link.findAll('.p-tag').map(tag => tag.text()).join(''))).toEqual(['Legacy', 'Legacy', '', '', '', '', '']);
+  expect(links.slice(1).map(link => link.findAll('.p-tag').map(tag => tag.text()).join(''))).toEqual(['Legacy', '', '', '', '', '', '']);
   expect(wrapper.find('.stop-bar').exists()).toBe(false);
   expect(app.get('.stop-bar').find('#agv-stop').exists()).toBe(true);
   expect(wrapper.findAll('.home-grid .p-card')).toHaveLength(2);
@@ -510,4 +510,20 @@ it('clears parked recipe approval when the link closes before the cached recipe 
   await vi.advanceTimersByTimeAsync(800);
   expect(approval.element.checked).toBe(false);
   expect(element('recipe-start').element.disabled).toBe(true);
+});
+
+it('opens the same Teacher workspace at both Vue routes and keeps the legacy link', async () => {
+  open('#/tests/teaching', async path => {
+    if (path === '/api/status') return { owner: {}, allow_teaching: true };
+    if (path === '/api/teacher-defaults') return { settings: { project: 'teaching/fixture', target: { kind: 'aruco' } } };
+    return { variables: [] };
+  });
+  await flushPromises();
+  expect(app.get('h1').text()).toBe('Teaching');
+  expect(app.get('#teacher-project').element.value).toBe('teaching/fixture');
+  expect(app.get('a[href="/teaching"]').text()).toMatch(/Legacy Teaching/i);
+  location.hash = '#/teaching';
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+  await flushPromises();
+  expect(app.get('#teacher-project').element.value).toBe('teaching/fixture');
 });

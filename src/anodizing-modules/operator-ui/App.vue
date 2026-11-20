@@ -13,6 +13,7 @@ import RecordsPage from './RecordsPage.vue';
 import LinePage from './LinePage.vue';
 import LineTestPanel from './LineTestPanel.vue';
 import PickPlacePage from './PickPlacePage.vue';
+import TeacherPage from './TeacherPage.vue';
 import { request } from './api';
 import { useAgv } from './useAgv';
 
@@ -23,11 +24,12 @@ const isRecords = computed(() => ['#/records', '#/tests/records'].includes(route
 const lineRoute = computed(() => /^#\/(line|tests\/line-api)(?:\/(tank|signals|alarms|catalog|diagnostics))?$/.exec(route.value));
 const lineTest = computed(() => lineRoute.value?.[1] === 'tests/line-api');
 const pickRoute = computed(() => /^#\/(?:pick-place|tests\/(pick-place|robot|mcu|tool-power))$/.exec(route.value));
+const isTeacher = computed(() => ['#/teaching', '#/tests/teaching'].includes(route.value));
 const pickTitles = { robot: 'Robot steps', mcu: 'MCU gripper commands', 'tool-power': 'Tool power' };
 const title = computed(() => isAgv.value ? 'AGV commissioning' : isScene.value ? 'Scene' : isRecords.value ? 'Recorder' :
   lineRoute.value ? (lineTest.value ? 'Unified line test' : 'Line reads') :
-  pickRoute.value ? (pickTitles[pickRoute.value[1]] ?? 'Pick/place') : 'Home');
-const agv = useAgv(isAgv, isScene, lineEscape, pickRoute);
+  pickRoute.value ? (pickTitles[pickRoute.value[1]] ?? 'Pick/place') : isTeacher.value ? 'Teaching' : 'Home');
+const agv = useAgv(isAgv, isScene, lineEscape, computed(() => pickRoute.value || isTeacher.value));
 const sceneConfig = ref(null);
 const sceneError = ref('');
 let sceneRead = false;
@@ -56,6 +58,7 @@ const lineState = computed(() => service.value?.line_test);
 const lineActive = computed(() => lineState.value?.active);
 const targetSending = new Set();
 const manualStopId = ref('');
+const teacherStopId = ref('');
 let timer, observer, checking = false, retired = false;
 
 const transport = computed(() => {
@@ -93,6 +96,7 @@ async function stopTarget(target) {
   if (targetSending.has(key)) return;
   targetSending.add(key);
   if (target.kind === 'manual') manualStopId.value = target.job_id;
+  if (target.kind === 'teacher') teacherStopId.value = target.job_id;
   const started = Date.now();
   const at = new Date(started).toLocaleTimeString();
   function show(text, tone) {
@@ -169,11 +173,13 @@ function navigate() {
   const wasRecords = isRecords.value;
   const wasLineTest = lineTest.value;
   const wasPick = pickRoute.value;
+  const wasTeacher = isTeacher.value;
   route.value = location.hash;
   if (wasLine && !lineRoute.value) agv.retireOutcome('line-read');
   if (wasLineTest && !lineTest.value) agv.retireOutcome('line-test');
   if (wasRecords && !isRecords.value) agv.retireOutcome('recorder');
   if (wasPick && !pickRoute.value) agv.retireOutcome('pick-place');
+  if (wasTeacher && !isTeacher.value) agv.retireOutcome('teacher');
   document.title = title.value + ' · Operator app';
   if (isAgv.value) agv.enterAgv();
   if (isScene.value) void loadScene();
@@ -230,6 +236,9 @@ onUnmounted(() => {
     <PickPlacePage v-else-if="pickRoute" :owner="offline ? null : service?.owner" :agv="agv"
       :stop-id="manualStopId" :tool="pickRoute[1]" @changed="refreshService"
       @outcome="(outcome, choose) => agv.showOutcome('pick-place', outcome, choose)" />
+    <TeacherPage v-else-if="isTeacher" :service="offline ? null : service" :agv="agv"
+      :stop-id="teacherStopId" :manual-stop-id="manualStopId" @changed="refreshService"
+      @outcome="(outcome, choose) => agv.showOutcome('teacher', outcome, choose)" />
     <div v-else class="home-grid">
       <Card class="panel home-card" aria-labelledby="service-heading">
         <template #title><h2 id="service-heading">Service</h2></template>

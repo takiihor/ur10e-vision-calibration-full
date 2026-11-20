@@ -8,7 +8,7 @@ defineEmits(['navigate']);
 const model = [
     { label: 'Home', url: '#/', icon: 'pi pi-fw pi-home' },
     { label: 'Calibration', url: '/calibration', icon: 'pi pi-fw pi-camera', legacy: true },
-    { label: 'Teaching', url: '/teaching', icon: 'pi pi-fw pi-book', legacy: true },
+    { label: 'Teaching', url: '#/teaching', icon: 'pi pi-fw pi-book' },
     { label: 'AGV', url: '#/agv', icon: 'pi pi-fw pi-truck' },
     { label: 'Scene', url: '#/scene', icon: 'pi pi-fw pi-map' },
     { label: 'Line', url: '#/line', icon: 'pi pi-fw pi-chart-line' },
