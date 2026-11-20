@@ -6,14 +6,18 @@ export function stationPosition(track, station) {
   return track.start_m.map((value, axis) => value + delta[axis] * fraction);
 }
 
+export function sampleAge(sample) {
+  return sample?.age_ms == null ? 'Age unavailable' : (sample.age_ms / 1000).toFixed(1) + ' s ago';
+}
+
 function label(id, name, state, sample, anchor = null) {
   return {
     id, name, state, anchor, unknown: state === 'Unknown',
-    age: sample?.age_ms == null ? 'Age unavailable' : (sample.age_ms / 1000).toFixed(1) + ' s ago',
+    age: sampleAge(sample),
   };
 }
 
-export function sceneLabels(config, variable, taughtTank) {
+export function sceneLabels(config, variable, taughtTank, lineTanks) {
   const last = variable('agv.last_confirmed_station')?.value;
   const anchor = stationPosition(config?.track, last);
   const moving = variable('agv.moving');
@@ -28,8 +32,11 @@ export function sceneLabels(config, variable, taughtTank) {
     { ...label('robot', 'Robot', robot, joints),
       detail: anchor && config?.robot_mount ? `Display reference · AGV station ${last}` : 'Unplaced' },
     ...(config?.tanks ?? []).map(tank => {
-      const sample = tank.status_id && variable(tank.status_id);
-      const state = typeof sample?.value === 'string' ? sample.value : 'Unknown';
+      const basket = lineTanks?.[tank.id]?.basket;
+      const statusId = lineTanks ? (basket && 'line.' + basket) : tank.status_id;
+      const sample = statusId && variable(statusId);
+      const state = sample?.value === 1 ? 'Occupied' : sample?.value === 0 ? 'Empty' :
+        typeof sample?.value === 'string' ? sample.value : 'Unknown';
       return { ...label(tank.id, tank.label, state, sample, tank.anchor_m), taught: tank.id === taughtTank };
     }),
   ];

@@ -166,6 +166,7 @@ onUnmounted(() => {
           <p>{{ active.variable_count ?? active.variables?.length }} variables · {{ active.rate_hz }} Hz · Started {{ localTime(active.started_at) }}</p>
           <p>AGV transport at start: {{ transport(active.agv_transport) }}</p>
           <p v-if="active.scene_simulation">Scene simulation enabled</p>
+          <p v-if="active.line_sources?.length">Line sources · {{ active.line_sources.join(', ') }}</p>
           <div class="control controls">
             <Button id="record-stop" label="Stop recording" severity="secondary" :disabled="Boolean(stopReason)"
               :aria-describedby="stopReason ? 'record-stop-why' : undefined" @click="update('stop')" />
@@ -198,7 +199,7 @@ onUnmounted(() => {
             <div class="record-choices">
               <label v-for="item in variables" :key="item.id" class="check">
                 <Checkbox v-model="selected" :value="item.id" :disabled="Boolean(blocked)" />
-                <span>{{ item.name }}<template v-if="item.unit"> ({{ item.unit }})</template><small>{{ item.id }}</small></span>
+                <span>{{ item.name }}<template v-if="item.unit"> ({{ item.unit }})</template><small>{{ item.id }}<template v-if="item.source === 'line.simulator'"> · Simulation</template></small></span>
               </label>
             </div>
           </fieldset>
@@ -228,6 +229,7 @@ onUnmounted(() => {
               <strong>{{ localTime(record.started_at) }} · {{ record.rate_hz }} Hz</strong>
               <p>{{ reasons[record.outcome.reason] }} · AGV at start: {{ transport(record.agv_transport) }}</p>
               <p v-if="record.scene_simulation">Scene simulation enabled</p>
+              <p v-if="record.line_sources?.length">Line sources · {{ record.line_sources.join(', ') }}</p>
             </div>
             <div class="controls">
               <Button v-for="format in formats" :key="format.id" :label="format.label" severity="secondary"

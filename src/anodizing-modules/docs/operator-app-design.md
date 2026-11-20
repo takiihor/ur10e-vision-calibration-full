@@ -22,7 +22,7 @@ The renderer uses the service's selected robot model and the existing UR10e join
 
 Opt-in scene simulation produces six fake joint angles at 5 Hz and optional scripted tank statuses at 1 Hz. A job takes precedence over the fake joint stream. Scene only consumes feedback the Manual or Teacher worker has already cached for that job. It shows **Unknown** on contention, a missing or expired sample, or an invalid model. Live idle RTDE is deferred pending stalled connect/read/disconnect checks during job admission, Stop and travel reads. Existing native stillness and motion gates remain independent of display data.
 
-Scene reads the optional canonical `tank` from an explicitly selected saved Teaching project. Older projects show **Tank not taught**. Tank authoring and capture binding belong to Teaching. Tank status inputs are scripted or **Unknown** until the line reader is integrated. The text list carries the same labels and ages as the map and remains available without WebGL. See the [local Scene configuration](../operator-ui/README.md#local-scene-configuration).
+Scene reads the optional canonical `tank` from an explicitly selected saved Teaching project. Older projects show **Tank not taught**. Tank authoring and capture binding belong to Teaching. Tank status uses the line reader’s mapped basket feedback when configured. Scene-only simulation still accepts scripted status. The text list carries the same labels and ages as the map and remains available without WebGL. See the [local Scene configuration](../operator-ui/README.md#local-scene-configuration).
 
 ## Recorder (Stage 3)
 
@@ -33,7 +33,7 @@ exports. That checklist, operator observations and link-quality summary use the
 same browser session as legacy commissioning.
 
 Start with a selection of stable variable IDs and 0.2, 1 or 5 Hz. The worker and
-`GET /api/state` use the same AGV, Scene and scripted line projections. Reads
+`GET /api/state` use the same AGV, Scene and line projections. Reads
 use existing acquisitions and keep their source time. A missing or expired
 value is null with its quality and reason. Recording does not enumerate ports,
 poll devices, start jobs or acquire an idle robot session. The available variable
@@ -60,5 +60,46 @@ counts and notes, and links to the full evidence.
 
 Recorder data and downloaded files are local evidence and can contain entered
 site details and raw device frames. Use the service data directory for private
-storage. Stage 3 exercises only simulation. Live line sources and line-test
-write, receipt, readback and restore events belong to the later line stages.
+storage. Recorder summaries identify selected line sources. Line samples keep the
+original supplier timestamp and row ID in JSON and CSV. Line-test write,
+receipt, readback and restore events belong to Stage 5.
+
+## Line reads (Stage 4)
+
+The operator's overview, tank monitor, alarms and browser are at `/operator/#/line`.
+`/operator/#/tests/line-api` uses the same view and adds writable readbacks to the
+catalog filters. Both views also show metadata, mapping warnings and recent
+read diagnostics. Bookmark a subview such as `#/line/tank`. The legacy console
+still runs separately. The service continues opening the legacy landing page.
+
+One optional service worker loads the catalog and polls at up to 1 Hz.
+Startup retries the catalog while it is unavailable. An authenticated
+refresh requests a catalog update from that worker. Read requests from browser
+tabs and Recorder copy the cached data. The worker sends only list and read
+GETs to one configured origin. It never follows redirects. The service key
+stays at the service, including in simulation and recording paths.
+
+HTTP reachability and sample quality are separate. A fresh sample needs two
+advancing rows after startup, a changed catalog, clock reset, lost contact or
+expiry. The service retains the unmodified supplier timestamp, row ID and
+receipt time. It computes initial age from the configured clock correction and
+then ages the sample on a monotonic clock. Repeated rows keep the same age
+reference. At 3 s, values expire to Unknown. Partial rows show identifiable
+values and make missing, invalid or failed tags unknown. If failure counts
+cannot be reconciled to affected tags, all tag values are unavailable.
+Reported counts are shown when supplied. Raw alarm bits carry no assumed
+polarity. Published engineering values are kept at their reported scale.
+
+The local line profile assigns catalog tags to physical tanks. When a door
+belongs to a different physical tank than the name implies, assign the reported
+door tags only to the confirmed physical tank. The monitor names the original
+tag and flags the alias. Duplicate bindings, shared addresses, and reviewed
+tag identities that have drifted stay out of the physical view. The raw
+catalog and the Recorder still identify each by the supplier's tag name.
+Auxiliary tag groups remain browseable. Scene uses the exact same basket
+variable and age as the tank monitor. The drawing and Teaching assignment
+supply display identity only.
+
+The standalone modules and native job paths require no active line source.
+Stage 5 owns command approvals, simulator dispatch, cleanup, and the historical
+API/operator archive. See [Line read setup](../operator-ui/README.md#line-reads).

@@ -10,6 +10,7 @@ import StopBar from './StopBar.vue';
 import AgvPage from './AgvPage.vue';
 import ScenePage from './ScenePage.vue';
 import RecordsPage from './RecordsPage.vue';
+import LinePage from './LinePage.vue';
 import { request } from './api';
 import { useAgv } from './useAgv';
 
@@ -17,7 +18,10 @@ const route = ref(location.hash);
 const isAgv = computed(() => route.value === '#/agv');
 const isScene = computed(() => ['#/scene', '#/tests/scene'].includes(route.value));
 const isRecords = computed(() => ['#/records', '#/tests/records'].includes(route.value));
-const title = computed(() => isAgv.value ? 'AGV commissioning' : isScene.value ? 'Scene' : isRecords.value ? 'Recorder' : 'Home');
+const lineRoute = computed(() => /^#\/(line|tests\/line-api)(?:\/(tank|signals|alarms|catalog|diagnostics))?$/.exec(route.value));
+const lineTest = computed(() => lineRoute.value?.[1] === 'tests/line-api');
+const title = computed(() => isAgv.value ? 'AGV commissioning' : isScene.value ? 'Scene' : isRecords.value ? 'Recorder' :
+  lineRoute.value ? (lineTest.value ? 'Line API reads' : 'Line reads') : 'Home');
 const agv = useAgv(isAgv, isScene);
 const sceneConfig = ref(null);
 const sceneError = ref('');
@@ -94,6 +98,10 @@ async function stopTarget(target) {
   }
 }
 
+function selectLineView(view) {
+  location.hash = '#/' + lineRoute.value[1] + (view === 'overview' ? '' : '/' + view);
+}
+
 function navigate() {
   route.value = location.hash;
   document.title = title.value + ' · Operator app';
@@ -134,9 +142,14 @@ onUnmounted(() => {
     <h1 ref="heading" tabindex="-1">{{ title }}</h1>
     <AgvPage v-if="isAgv" :agv="agv" />
     <ScenePage v-else-if="isScene" :config="sceneConfig" :config-error="sceneError"
-      :state-error="agv.stateError" :variable="agv.variableInfo" />
+      :state-error="agv.stateError" :variable="agv.variableInfo"
+      :line-mode="agv.line?.mode" :line-tanks="agv.line?.mode === 'disabled' ? null : agv.line?.tanks" />
     <RecordsPage v-else-if="isRecords" :variables="agv.variables" :state-error="agv.stateError"
       @outcome="(outcome, choose) => agv.showOutcome('recorder', outcome, choose)" />
+    <LinePage v-else-if="lineRoute" :test="lineTest" :state="agv.line" :state-error="agv.stateError"
+      :variable="agv.variableInfo" :view="lineRoute[2]"
+      @view="selectLineView"
+      @outcome="(outcome, choose) => agv.showOutcome('line-read', outcome, choose)" />
     <div v-else class="home-grid">
       <Card class="panel home-card" aria-labelledby="service-heading">
         <template #title><h2 id="service-heading">Service</h2></template>

@@ -350,7 +350,7 @@ export function useAgv(isAgv, isScene) {
       if (!retired && response.agv && (!report.value || response.agv.connection_id >= report.value.connection_id &&
           response.agv.sequence >= report.value.sequence)) {
         reportReceivedAt = performance.now();
-        report.value = { ...response.agv, variables: new Map(response.variables.map(variable => [variable.id, variable])) };
+        report.value = { ...response.agv, line: response.line, variables: new Map(response.variables.map(variable => [variable.id, variable])) };
       }
       stateError.value = '';
     } catch (error) {
@@ -448,6 +448,7 @@ export function useAgv(isAgv, isScene) {
     state, capability, form, commands, ports, age, stale, freshReport, connectionLabel, alarms,
     connectionLocked, connectReason, armed, armReason, busy, stateError, portError,
     variableInfo,
+    line: computed(() => report.value?.line),
     variables: computed(() => [...(report.value?.variables.values() ?? [])]),
     variable: name => variableInfo('agv.' + name)?.value ?? null,
     session, journal, recordNote, sound, serviceError,

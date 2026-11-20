@@ -119,9 +119,9 @@ it('keeps urgent controls outside the Sakai shell and routes between marked modu
   const menu = wrapper.get('nav[aria-label="Modules"]');
   const links = menu.findAll('a');
   expect(links.slice(1).map(link => link.attributes('href'))).toEqual([
-    '/calibration', '/teaching', '#/agv', '#/scene', '#/records', '/pick-place',
+    '/calibration', '/teaching', '#/agv', '#/scene', '#/line', '#/records', '/pick-place',
   ]);
-  expect(links.slice(1).map(link => link.findAll('.p-tag').map(tag => tag.text()).join(''))).toEqual(['Legacy', 'Legacy', '', '', '', 'Legacy']);
+  expect(links.slice(1).map(link => link.findAll('.p-tag').map(tag => tag.text()).join(''))).toEqual(['Legacy', 'Legacy', '', '', '', '', 'Legacy']);
   expect(wrapper.find('.stop-bar').exists()).toBe(false);
   expect(app.get('.stop-bar').find('#agv-stop').exists()).toBe(true);
   expect(wrapper.findAll('.home-grid .p-card')).toHaveLength(2);

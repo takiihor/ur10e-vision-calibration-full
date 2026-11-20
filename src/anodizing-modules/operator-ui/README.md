@@ -65,3 +65,73 @@ linked from Recorder.
 The service saves sessions under `<data-dir>/records/`. Keep the directory and
 downloads local because they contain operator notes and device evidence. Local
 simulation uses the existing AGV simulator and optional Scene fixtures.
+
+## Line reads
+
+Open `/operator/#/line` for the read-only operator display or
+`/operator/#/tests/line-api` to browse all catalog tags, including writable
+readbacks. Use Line view to open Tank monitor, Signal browser, Alarm signals,
+Tag catalog or Communication log. Signal and catalog search accepts names,
+descriptions and addresses. The catalog's Advanced metadata option shows the
+address, type, multiplier and published limits. Refresh catalog asks the shared
+worker to reload its inventory. Download log JSON or CSV saves the most recent 100 read events with the
+source mode. The legacy console keeps its existing
+independent launch workflow, and `/` remains this service's legacy landing page.
+
+Line reads default to disabled. Set `--line-mode simulation` or `--line-mode live`
+on the existing launcher to enable one source. Put configuration and referenced
+files in the private service data directory. The example is synthetic.
+
+```json
+{
+  "line": {
+    "simulation_fixture": "line-fixture.json",
+    "tanks": {
+      "Tank21": {
+        "basket": "Tank21_HaveBasket",
+        "door_opened": "Tank22_DoorOpened"
+      },
+      "Tank22": {}
+    }
+  }
+}
+```
+
+A minimal `line-fixture.json` for that profile follows. Each row advances at
+the worker cadence. Omit a signal or use null to simulate missing feedback.
+
+```json
+{
+  "tags": [
+    {"tag_name":"Tank21_HaveBasket","device_address":"M4","data_type":"Bool","read_write":"R","description":"Synthetic basket","multiplier":1},
+    {"tag_name":"Tank22_DoorOpened","device_address":"M5","data_type":"Bool","read_write":"R","description":"Synthetic door","multiplier":1}
+  ],
+  "rows": [
+    {"Tank21_HaveBasket":1,"Tank22_DoorOpened":0},
+    {"Tank21_HaveBasket":1,"Tank22_DoorOpened":null}
+  ]
+}
+```
+
+For live reads, set `origin` to the confirmed base HTTP(S) origin, `clock_zone`
+to the confirmed IANA timezone, and `clock_offset_s` to the measured seconds
+to add to the supplier clock. Enter zero only if measured. Provide
+`PLC_API_KEY` through the service environment. Restart for configuration
+changes. Without confirmed time settings the browser can show API contact and
+catalog metadata while PLC values remain Unknown. HTTP sends the credential
+over the configured transport. Use HTTPS where the supplier supports it.
+
+An optional `baseline` names a private JSON copy of an approved tag list in the
+same shape as the list response. Catalog drift and duplicate addresses show as
+warnings. The physical map uses explicit `TankNN` entries. Assign each
+confirmed feedback tag exactly once. Use `basket` for the Bool shown on the
+tank monitor and matching Scene anchor. For a door alias, enter the original
+supplier tag only under the confirmed physical tank. Keep shared addresses
+and disputed feedback out of the physical map. Scene's old `status_key` still
+serves the Scene-only scripted fixture when line reads are disabled.
+
+The worker preserves the supplier's engineering values, raw timestamp and row
+ID. It separates HTTP 200 from PLC freshness. After two advancing rows,
+values age out at 3 s. Missing or invalid values show as Unknown. The recorder
+can sample any catalog tag with the same freshness rule and source identity.
+Carry the local evidence files and exports separately from the repository.

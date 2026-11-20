@@ -10,14 +10,14 @@ import { sceneLabels } from './sceneState';
 
 const SceneCanvas = defineAsyncComponent(() => import('./SceneCanvas.vue'));
 const props = defineProps({
-  config: Object, configError: String, stateError: String,
+  config: Object, lineTanks: Object, lineMode: String, configError: String, stateError: String,
   variable: { type: Function, required: true },
 });
 const projectPath = ref('');
 const project = ref(null);
 const loading = ref(false);
 const projectError = ref('');
-const labels = computed(() => sceneLabels(props.config, props.variable, project.value?.tank));
+const labels = computed(() => sceneLabels(props.config, props.variable, project.value?.tank, props.lineTanks));
 const joints = computed(() => props.variable('robot.joints'));
 const model = computed(() => props.variable('robot.model')?.value);
 const projectStatus = computed(() => {
@@ -58,6 +58,7 @@ async function loadProject() {
       <template #content>
         <p><strong>Display only. No collision checking.</strong>
           <Tag v-if="config?.simulation" severity="info" value="Simulation" />
+          <Tag v-if="lineMode === 'simulation'" severity="warn" value="Line simulation" />
         </p>
         <p v-if="config?.track">Track and mount · Entered, not measured.</p>
         <p v-if="model?.nominal">Nominal UR10e model.</p>
