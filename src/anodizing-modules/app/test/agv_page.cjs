@@ -40,12 +40,12 @@ async function load(ports) {
   get('address').value = '00 01';
   get('channel').value = '04';
   get('stations-config').value = '3';
-  let sequence = 0;
+  let sequence = 0, now = 0, tick, stopSent;
   vm.runInNewContext(source, {
     document: {getElementById: field, querySelector: () => ({content: 'fixture'}), createElement: () => element()},
     window,
     Option: class { constructor(text, value) { Object.assign(this, {text, value}); } },
-    performance: {now: () => 0}, setInterval() {},
+    performance: {now: () => now}, setInterval(callback) { tick = callback; },
     localStorage: {
       getItem(key) {
         storageReads++;
@@ -72,8 +72,11 @@ async function load(ports) {
           commands: [{name: 'forward', label: 'Forward', motion: true}, {name: 'reverse', label: 'Reverse', motion: true}],
           link_quality: {sent: 4, acknowledged: 1, resent: 2, no_reply: 1, timed_report_interval_s: 1.2},
         });
+        if (stopSent) Object.assign(response, {...stopSent, sequence,
+          results: {stop: {...stopSent.results.stop, state: 'no reply', tries: 5}},
+          link_quality: {sent: 5, acknowledged: 0, resent: 4, no_reply: 1, timed_report_interval_s: 1.2}});
       } else if (scenario === 'rejected') return {ok: false, json: async () => ({error: 'Fixture rejection'})};
-      else if (body.action === 'send') Object.assign(response, {connected: true, connection_id: 2,
+      else if (body.action === 'send') stopSent = Object.assign(response, {connected: true, connection_id: 2,
         settings: {mode: 'simulator', address: '00 01', channel: '04', port: null},
         results: {stop: {tx_id: sequence, state: 'sent', sent_at: '2026-11-19T12:34:56.789Z'}}});
       else Object.assign(response, {connected: true, connection_id: 2,
@@ -83,6 +86,7 @@ async function load(ports) {
     },
   }, {filename: 'agv.js'});
   await new Promise(setImmediate);
+  get.refresh = async () => { now += 6000; await tick(); };
   return get;
 }
 
@@ -153,6 +157,9 @@ async function run() {
     const stopRequest = {action: 'send', command: 'stop', connection_id: 2, value: null, background: false};
     assert.deepEqual(requests.slice(1), [stopRequest, stopRequest]);
     assert.match(get('outcome').textContent, /^Stop sent \d\d:\d\d:\d\d\.789 · /);
+    await get.refresh();
+    assert.equal(get('stop-outcome').textContent, 'No reply from the AGV after 5 tries. Check the radio, then try again.');
+    assert.equal(get('outcome').textContent, get('stop-outcome').textContent);
   } else {
     assert.equal(get('port').value, '');
     selectSerial(get);

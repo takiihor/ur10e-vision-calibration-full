@@ -31,7 +31,8 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 - **Shortcut.** Press Esc anywhere on the page to send one software Stop while connected. The Stop outcome shows `(Esc)` next to the send time. While disconnected, pressing Esc shows “Connect first” in the status line. Esc is the only command shortcut.
 
 ## 3. Movement is deliberate
-- **One press authorizes one command on AGV commissioning.** The link can resend the same frame until the AGV acknowledges it or a later status confirms it. Stop and Pause send immediately, with up to five tries about 1 s apart. Other movement and setting commands get up to four tries at least 2 s apart. When timed reports are detected, ordinary sends align with the measured 100–150 ms gap after a report. Stop, Pause, disarm and disconnect cancel pending retries. The Pick/place recipe keeps its existing supervision and deadlines.
+- **One press authorizes one command on AGV commissioning.** Stop and Pause send immediately, then can retry up to four times until an ACK or confirming status. With timed reports, each retry uses the next 100–150 ms gap after a report. The 1 s retry timer applies before timed reports are detected and after 1.5 intervals without a timed report. A repeated Stop press joins the pending Stop. An unchanged parked status on a timed stream only confirms the vehicle's current state.
+- Other movement and setting commands get up to four tries at least 2 s apart. When timed reports are detected, their sends align with the measured 100–150 ms gap after a report. Stop and Pause supersede other pending retries. Disarm, disconnect and link changes cancel retries. Pick/place uses the same Stop retry timing and keeps its existing supervision and deadlines.
 - **Arming.**
   - Movement needs a visible Armed control.
   - Armed resets on reconnect and is never restored from storage.

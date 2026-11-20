@@ -918,3 +918,173 @@ def test_timed_reports_pace_ordinary_send_but_never_delay_stop(session, agv_cloc
     stopped_at = agv_clock.now
     assert send(request, 'stop')[0] == 200
     assert agv_clock.now == stopped_at
+
+
+@pytest.mark.parametrize(('command', 'initially_stopped', 'press_phase'), [
+    ('stop', False, .02), ('pause', False, .995), ('stop', True, .995),
+])
+def test_urgent_retry_reaches_the_next_report_gap(session, monkeypatch, agv_clock, command,
+                                                 initially_stopped, press_phase):
+    class PhaseLossSimulator(agv.Simulator):
+        delivered = None
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.stopped = initially_stopped
+            self.command_stop = initially_stopped
+            instances.append(self)
+
+        def write(self, raw):
+            frame = agv.parse_frame(raw, offset=3)
+            if frame.command == 0x23 and frame.data[0] in (0x87, 0x5B):
+                phase = agv_clock.now - (self.next_report - 1)
+                if phase < .05 or phase + .015 >= 1:
+                    return len(raw)
+                self.delivered = agv_clock.now
+            return super().write(raw)
+
+    instances = []
+    monkeypatch.setattr(agv, 'Simulator', PhaseLossSimulator)
+    _, request = session
+    request(dict(action='connect', mode='simulator', agv_mode=0))
+    for _ in range(4):
+        agv_clock.now += 1
+        request()
+    last_report = agv_clock.now
+    agv_clock.now += press_phase
+    pressed_at = agv_clock.now
+    status, state = send(request, command)
+    assert status == 200 and len(command_writes(state, command)) == 1
+    assert agv_clock.now == pressed_at and instances[0].delivered is None
+
+    gap_report = last_report + (press_phase >= agv.REPORT_GAP[0])
+    if gap_report > pressed_at:
+        agv_clock.now = gap_report
+        request()
+    agv_clock.now = gap_report + .09
+    request()
+    assert instances[0].delivered is None
+    agv_clock.now = gap_report + .12
+    state = request()[1]
+    assert len(command_writes(state, command)) == 2
+    assert instances[0].delivered == agv_clock.now
+    interval = state['link_quality']['timed_report_interval_s']
+    assert instances[0].delivered - pressed_at <= interval + agv.REPORT_GAP[1] + .1
+    agv_clock.now = gap_report + 1.13
+    state = request()[1]
+    assert state['results'][command]['acknowledged_at']
+    assert len(command_writes(state, command)) == 2
+
+
+def test_duplicate_stop_does_not_postpone_the_pending_retry(session, agv_clock):
+    _, request = session
+    connection_id = open_simulator(request)
+    request(dict(action='silence', silent=True, connection_id=connection_id))
+    first = send(request, 'stop', connection_id)[1]['results']['stop']
+    agv_clock.now += .9
+    repeated = send(request, 'stop', connection_id)[1]
+    assert repeated['results']['stop']['tx_id'] == first['tx_id']
+    assert len(command_writes(repeated, 'stop')) == 1
+    agv_clock.now += .1
+    state = request()[1]
+    assert len(command_writes(state, 'stop')) == 2
+    assert state['results']['stop']['tries'] == 2
+
+
+@pytest.mark.parametrize('action', ['disarm', 'disconnect', 'link_change'])
+def test_pending_urgent_retry_is_cancelled_when_link_is_disarmed_or_changed(session, agv_clock, action):
+    _, request = session
+    _, state = request(dict(action='connect', mode='simulator', agv_mode=0))
+    connection_id = state['connection_id']
+    for _ in range(4):
+        agv_clock.now += 1
+        request()
+    agv_clock.now += .03
+    send(request, 'stop', connection_id)
+    if action == 'disarm':
+        request(dict(action='arm', armed=False, connection_id=connection_id))
+    else:
+        request(dict(action='disconnect', connection_id=connection_id))
+        if action == 'link_change':
+            assert open_simulator(request) != connection_id
+    for delay in (.09, 1, 1):
+        agv_clock.now += delay
+        state = request()[1]
+        assert len(command_writes(state, 'stop')) == (0 if action == 'link_change' else 1)
+
+
+@pytest.mark.parametrize('command', ['stop', 'pause'])
+def test_timed_reports_allow_four_urgent_gap_retries_before_no_reply(session, monkeypatch, agv_clock, command):
+    class DropUrgent(agv.Simulator):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.stopped = False
+
+        def write(self, raw):
+            frame = agv.parse_frame(raw, offset=3)
+            if frame.command == 0x23 and frame.data[0] in (0x87, 0x5B):
+                return len(raw)
+            return super().write(raw)
+
+    monkeypatch.setattr(agv, 'Simulator', DropUrgent)
+    _, request = session
+    request(dict(action='connect', mode='simulator', agv_mode=0))
+    for _ in range(4):
+        agv_clock.now += 1
+        request()
+    agv_clock.now += .5
+    send(request, command)
+    for attempt in range(2, 6):
+        agv_clock.now = int(agv_clock.now) + 1
+        request()
+        agv_clock.now += .11
+        assert len(command_writes(request()[1], command)) == attempt
+    agv_clock.now = int(agv_clock.now) + 1
+    request()
+    agv_clock.now += .11
+    state = request()[1]
+    assert len(command_writes(state, command)) == 5
+    assert state['results'][command]['state'] == 'no reply'
+
+
+def test_late_timed_reports_fall_back_to_urgent_retry_timer(session, agv_clock):
+    _, request = session
+    _, state = request(dict(action='connect', mode='simulator', agv_mode=0))
+    cid = state['connection_id']
+    for _ in range(4):
+        agv_clock.now += 1
+        request()
+    request(dict(action='silence', silent=True, connection_id=cid))
+    agv_clock.now += .1
+    send(request, 'stop', cid)
+    agv_clock.now += 1.39
+    assert len(command_writes(request()[1], 'stop')) == 1
+    agv_clock.now += .02
+    state = request()[1]
+    assert len(command_writes(state, 'stop')) == 2
+    agv_clock.now += 1
+    assert len(command_writes(request()[1], 'stop')) == 3
+
+
+def test_recipe_stop_retries_in_the_next_report_gap_after_recipe_exit(agv_clock):
+    owner = SimpleNamespace(lock=RLock(), closing=False, active=None, storage_error=None,
+                            execution_uncertain=False)
+    link = agv.Connection(owner)
+    link.submit(dict(action='connect', mode='simulator', agv_mode=0))
+    try:
+        for _ in range(4):
+            agv_clock.now += 1
+            link.capability()
+        link.transport.loss_fraction = 1
+        agv_clock.now += .03
+        with link.recipe_link():
+            assert link.recipe_stop()
+            first, = command_writes(link.capability(), 'stop')
+            assert first['decode']['try'] == 1
+        link.transport.loss_fraction = 0
+        agv_clock.now += .09
+        state = link.capability()
+        assert [tx['decode']['try'] for tx in command_writes(state, 'stop')] == [1, 2]
+        assert link.transport.command_stop
+    finally:
+        link.close()

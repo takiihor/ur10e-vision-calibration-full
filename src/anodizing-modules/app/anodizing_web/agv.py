@@ -484,7 +484,10 @@ class Connection:
             result = self.results[name]
             if self.resend is not None and self.resend.name == name:
                 retry = self.resend
-                result['remaining_s'] = max(0, retry.sent_at + retry.interval * (retry.limit - retry.tries + 1) - now)
+                interval = retry.interval
+                if name in URGENT and self._timed_reports_on_time(now):
+                    interval = max(interval, self.timed_report_interval)
+                result['remaining_s'] = max(0, retry.sent_at + interval * (retry.limit - retry.tries + 1) - now)
                 continue
             result['remaining_s'] = remaining
             if remaining == 0 and not pending.travelling:
@@ -525,6 +528,10 @@ class Connection:
     def _fresh_timed_reports(self, now, stale_after):
         return (self.timed_report_interval is not None and self.status_at is not None
                 and now - self.status_at < stale_after)
+
+    def _timed_reports_on_time(self, now):
+        return (self.timed_report_interval is not None
+                and now - self.passive_reports[-1] < 1.5 * self.timed_report_interval)
 
     def _send_slot(self):
         if self.timed_report_interval is None:
@@ -580,8 +587,14 @@ class Connection:
             elif name in URGENT:
                 stopped = decoded.get('stopped') is True and decoded.get('actual_speed_m_h') == 0
                 flag = 'command_stop' if name == 'stop' else 'paused'
-                if stopped or decoded.get(flag) is True:
-                    self.results[name]['confirmed_stopped'] = stopped
+                flag_active = decoded.get(flag) is True
+                result = self.results[name]
+                was_stopped = pending.before.get('stopped') is True and pending.before.get('actual_speed_m_h') == 0
+                # A repeated parked report alone cannot confirm delivery of a new urgent command.
+                changed = (stopped and not was_stopped) or (flag_active and pending.before.get(flag) is not True)
+                if (stopped or flag_active) and (
+                        self.timed_report_interval is None or changed or 'ack_elapsed_s' in result):
+                    result['confirmed_stopped'] = stopped
                     self._finish_confirmation(name, 'confirmed by status')
             elif pending.expected and all(decoded.get(key) == value for key, value in pending.expected.items()) and (
                     not pending.before or any(key in pending.before and pending.before[key] != value
@@ -823,6 +836,8 @@ class Connection:
         return sent_at, self._record('TX', raw, detail)
 
     def _send(self, name, value, *, background=False, prewrite=None, recipe_check=None):
+        if name == 'stop' and self.resend is not None and self.resend.name == name:
+            return self.pending[name].sent_at
         frame = command_frame(name, value, self.splitter.prefix)
         if name in URGENT:
             self._cancel_resend()
@@ -880,7 +895,7 @@ class Connection:
     def _retry_loop(self, transport, receive):
         tick = Event()
         while True:
-            tick.wait(.020 if receive else .05)
+            tick.wait(.020)
             with self.lock:
                 if self.transport is not transport:
                     return
@@ -896,7 +911,14 @@ class Connection:
             self._service_resend()
 
     def _due(self, retry):
-        return retry is not None and monotonic() >= retry.sent_at + retry.interval
+        if retry is None:
+            return False
+        now = monotonic()
+        if retry.name in URGENT and self._timed_reports_on_time(now):
+            start = self.passive_reports[-1] + REPORT_GAP[0]
+            end = self.passive_reports[-1] + REPORT_GAP[1]
+            return retry.sent_at < start <= now <= end
+        return now >= retry.sent_at + retry.interval
 
     def _retry(self, retry):
         if self.resend is not retry or not self._due(retry):
@@ -925,7 +947,9 @@ class Connection:
     def _service_resend(self):
         with self.lock:
             retry = self.resend
-            if not self._due(retry) or retry.recipe_check is not None:
+            if retry is None or retry.recipe_check is not None:
+                return
+            if retry.name not in URGENT and not self._due(retry):
                 return
             try:
                 self._receive()
