@@ -102,6 +102,26 @@ def test_partial_rows_keep_good_values_and_report_null_missing_and_invalid():
     assert (state['line']['quality'], state['line']['tags_ok'], state['line']['tags_failed']) == ('partial', 6, 3)
 
 
+@pytest.mark.parametrize('reported', [None, (99, 1), (7, 1), (7, 0), (7, None)])
+def test_partial_row_qualifies_reported_counts_against_catalog_and_values(reported):
+    fake = Fake()
+    line = line_source(fake, tanks={'Tank21': {'have_basket': 'Tank21_HaveBasket'}})
+    fake.poll(line, 1)
+    fake.sec = 1
+    fake.row.update(id=2, timestamp=fake.at().isoformat(), Tank21_TempPV=None, Remote=2)
+    if reported is None:
+        del fake.row['tags_ok'], fake.row['tags_failed']
+    else:
+        fake.row.update(zip(('tags_ok', 'tags_failed'), reported))
+    line.step()
+    state = line.snapshot()
+    assert state['line']['quality'] == 'partial'
+    assert (state['line']['tags_ok'], state['line']['tags_failed']) == (reported or (None, None))
+    basket = item(state, 'Tank21_HaveBasket')
+    assert basket['value'] == (1 if reported is None else None)
+    assert basket['quality'] == ('fresh' if reported is None else 'unknown')
+
+
 @pytest.mark.parametrize('timestamp', ['2026-01-01T00:00:02+00:00', '2025-12-31T23:59:59+00:00', 'bad'])
 def test_untrusted_future_backwards_and_malformed_times_require_two_progressions(timestamp):
     fake = Fake()
@@ -129,6 +149,9 @@ def test_clock_configuration_handles_naive_offset_and_rejects_ambiguous_local_ti
         state = fake.poll(line, ident, timestamp=raw)
     assert item(state, 'Remote')['quality'] == 'fresh'
     assert item(state, 'Remote')['source_at'] == raw
+    assert state['line']['source_at'] == raw
+    assert state['line']['clock_offset_ms'] == -1000
+    assert state['line']['corrected_source_at'] == fake.at().isoformat()
     ambiguous = line_source(fake, clock_zone='America/New_York')
     state = fake.poll(ambiguous, 1, timestamp='2025-11-02T01:30:00')
     assert 'ambiguous' in item(state, 'Remote')['reason'].lower()
@@ -155,6 +178,27 @@ def test_bad_http_and_reused_row_id_cannot_revalidate_live_values():
     assert item(fake.poll(line, 3), 'Remote')['quality'] == 'unknown'
     fake.sec = 4
     assert item(fake.poll(line, 4), 'Remote')['quality'] == 'fresh'
+
+
+def test_diagnostics_report_only_the_row_received_on_each_attempt():
+    fake = Fake()
+    line = line_source(fake)
+    fake.poll(line, 1)
+    fake.sec = 1
+    fake.poll(line, 2)
+    original = fake.request
+    fake.request = lambda operation: (503, None)
+    line.step()
+    unavailable = line.log()[-1]
+    assert unavailable['http_status'] == 503
+    assert all(unavailable[key] is None for key in ('row_id', 'source_at', 'tags_ok', 'tags_failed'))
+    fake.request = original
+    fake.poll(line, 5, timestamp='2026-01-01T00:00:03+00:00', tags_ok=2, tags_failed=7)
+    rejected = line.log()[-1]
+    assert rejected['row_id'] == 5
+    assert rejected['source_at'] == fake.row['timestamp']
+    assert (rejected['tags_ok'], rejected['tags_failed']) == (2, 7)
+    assert 'future' in rejected['outcome']
 
 
 def test_catalog_alias_and_shared_addresses_do_not_claim_independent_tank_values():

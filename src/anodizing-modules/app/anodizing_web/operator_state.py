@@ -4,8 +4,9 @@ from math import isfinite
 from . import agv
 
 
-def agv_state(sample):
-    report, read_at, stamp, connected, mode, recipe, last_station, opened_at, error, now = sample[:10]
+def agv_state(sample, now=None):
+    report, read_at, stamp, connected, mode, recipe, last_station, opened_at, error = sample[:9]
+    now = sample[9] if now is None else now
     report = report or {}
     limit = 1000 * (agv.RECIPE_STALE_S if recipe else agv.STALE_AFTER)
     age = None if stamp is None else max(0, int(1000 * (now - stamp)))
@@ -55,21 +56,26 @@ def agv_state(sample):
         yield reported(key, name, report.get(field), unit)
 
 
-def read(connection, extra_variables=()):
-    sample = connection.state_sample()
+def project(sample, extra_variables, now):
     connection_id, sequence = sample[-2:]
     return dict(schema_version=1, generated_at=agv.timestamp(),
                 agv=dict(connection_id=connection_id, sequence=sequence),
-                variables=sorted((*agv_state(sample), *extra_variables), key=lambda variable: variable['id']))
+                variables=sorted((*agv_state(sample, now), *extra_variables), key=lambda variable: variable['id']))
+
+
+def read(connection, extra_variables=()):
+    sample = connection.state_sample()
+    return project(sample, extra_variables, sample[9])
 
 
 def server_state(server):
+    sample = server.agv.state_sample()
     scene = getattr(server, 'scene', None)
-    variables = scene.variables(server.owner, server) if scene else ()
+    variables = tuple(scene.variables(server.owner, server)) if scene else ()
     line = getattr(server, 'line', None)
     if line is None:
-        return read(server.agv, variables)
+        return project(sample, variables, agv.monotonic())
     snapshot = line.snapshot()
     if line.mode != 'disabled':
         variables = (item for item in variables if not item['id'].startswith('line.'))
-    return dict(read(server.agv, (*variables, *snapshot['variables'])), line=snapshot['line'])
+    return dict(project(sample, (*variables, *snapshot['variables']), agv.monotonic()), line=snapshot['line'])

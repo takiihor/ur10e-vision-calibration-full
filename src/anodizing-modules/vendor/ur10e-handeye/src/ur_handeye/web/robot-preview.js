@@ -55,7 +55,6 @@ function canonical(v) {if(Array.isArray(v))return '['+v.map(canonical).join(',')
 if(typeof module!=='undefined')module.exports={multiply,rigid,point,robotFrames,boxPoints,validateScene,readJointPlan,canonical};
 
 if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',()=>{
-  if (!document.getElementById('tool-diagrams')) return;
   const native=document.getElementById('native-tool-preview'),visualOnly=!!native||new URLSearchParams(location.search).get('view')==='preview';
   const section=document.createElement('section');section.className='panel robot-panel'+(visualOnly?' visual-only':'');section.id='robot-panel';
   section.innerHTML=`<h2>UR10e and tool preview</h2><p class="badge">NOMINAL MODEL · PREVIEW</p>

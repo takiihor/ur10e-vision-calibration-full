@@ -23,6 +23,8 @@ OPERATIONS = {'list': '/api/v1/tags/list', 'read': '/api/v1/tags/read'}
 IDENT = re.compile(r'[A-Za-z][A-Za-z0-9_]{0,63}')
 GROUP = re.compile(r'(Tank[0-9]{2}[A-Z]?)_')
 ALARM = re.compile(r'Alarm[0-9]+')
+POLL_TIME = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}'
+                       r'(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})?')
 TYPES = {'Bool', 'Word', 'SignedWord', 'Float', None}
 RESERVED = {'id', 'timestamp', 'poll_count', 'tags_ok', 'tags_failed', 'api_reachable', 'poll_age'}
 SYSTEM = ('Remote', 'Local', 'MainInletStatus')
@@ -306,41 +308,41 @@ class Line:
             return
         status, payload = self.client.request('read')
         now, stamp = self.clock(), self.wall()
+        row = payload if status == 200 and isinstance(payload, dict) else {}
+        row_id, source_at, ok, failed = (row.get(key) for key in ('id', 'timestamp', 'tags_ok', 'tags_failed'))
         # Parse outside the cache lock. Only this worker publishes samples.
         values, sample_time, error = {}, None, None
         if status != 200:
             error = 'Line API unavailable. Check the service connection and credentials.'
         elif not self.tags:
             error = 'Catalog unavailable. Refresh the catalog and check the service.'
-        elif not isinstance(payload, dict) or not count(payload.get('id')):
+        elif not count(row_id):
             error = 'PLC row invalid. Check the supplier response.'
         else:
             try:
-                sample_time = self.poll_time(payload.get('timestamp'))
+                sample_time = self.poll_time(source_at)
             except (TypeError, OverflowError, ValueError) as exc:
                 error = str(exc) if isinstance(exc, PollTimeError) else 'PLC time invalid. Check the supplier clock.'
             if sample_time is not None:
                 reported_age = (stamp - sample_time).total_seconds()
                 if reported_age < 0:
                     error = 'PLC time is in the future. Check the clock and measured offset.'
-                values = {name: self.tag_value(tag, payload.get(name)) for name, tag in self.tags.items()}
+                values = {name: self.tag_value(tag, row.get(name)) for name, tag in self.tags.items()}
         with self.lock:
             self.contact = (status == 200, stamp.isoformat(), now)
             if error:
                 self.progress, self.reason = 0, error
+                outcome = error
             else:
-                self.accept(payload, values, sample_time, reported_age, now, stamp)
-            sample = self.sample
-            self.log_read('Read', stamp, status, outcome=self.reason or ('Partial row' if sample['failed'] else 'Replied'),
-                          row_id=sample['id'] if sample else None, source_at=sample['source_at'] if sample else None,
-                          tags_ok=sample['ok'] if sample else None, tags_failed=sample['failed'] if sample else None)
+                outcome = self.accept(row, values, sample_time, reported_age, now, stamp)
+            self.log_read('Read', stamp, status, outcome=outcome, row_id=row_id if count(row_id) else None,
+                          source_at=source_at if isinstance(source_at, str) and POLL_TIME.fullmatch(source_at) else None,
+                          tags_ok=ok if count(ok) else None, tags_failed=failed if count(failed) else None)
 
     def poll_time(self, value):
         if self.zone is None or self.offset is None:
             raise PollTimeError('PLC clock is unverified. Confirm its timezone and measured offset.')
-        if not isinstance(value, str) or not re.fullmatch(
-                r'[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}'
-                r'(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})?', value):
+        if not isinstance(value, str) or not POLL_TIME.fullmatch(value):
             raise ValueError('Invalid timestamp.')
         stamp = datetime.fromisoformat(value)
         if stamp.tzinfo is None:
@@ -366,11 +368,11 @@ class Line:
         ident = (sample_time, payload['id'])
         previous = self.identity
         if ident == previous:
-            return
+            return 'Repeated row'
         self.identity = ident
         if previous and (ident[0] <= previous[0] or ident[1] <= previous[1]):
             self.progress, self.reason = 0, 'PLC poll time or row ID went backwards or repeated inconsistently. Check the supplier clock and feed.'
-            return
+            return self.reason
         if self.sample is None or now - self.sample['monotonic_at'] >= LIMIT_MS / 1000:
             self.progress = 0
         if age >= LIMIT_MS / 1000:
@@ -379,16 +381,17 @@ class Line:
             self.progress = min(2, self.progress + 1)
         failure_count = sum(value is None for value in values.values())
         ok_count, failed_count = payload.get('tags_ok'), payload.get('tags_failed')
-        if ok_count is None and failed_count is None:
-            ok_count, failed_count = len(values) - failure_count, failure_count
-        counts_valid = count(ok_count) and count(failed_count)
-        counts_match = counts_valid and (ok_count, failed_count) == (len(values) - failure_count, failure_count)
-        unidentified = not counts_valid or failed_count > failure_count or ok_count < len(values) - failure_count
+        counts_supplied = 'tags_ok' in payload or 'tags_failed' in payload
+        counts_match = (count(ok_count) and count(failed_count)
+                        and (ok_count, failed_count) == (len(values) - failure_count, failure_count))
+        unidentified = counts_supplied and not counts_match
         self.sample = dict(id=ident[1], source_at=payload['timestamp'], read_at=stamp.isoformat(),
+                           corrected_source_at=sample_time.isoformat(),
                            monotonic_at=now - age, values={} if unidentified else values,
-                           partial=failure_count > 0 or not counts_match, unidentified=unidentified,
+                           partial=failure_count > 0 or unidentified, unidentified=unidentified,
                            ok=ok_count if count(ok_count) else None, failed=failed_count if count(failed_count) else None)
         self.reason = None if self.progress == 2 else 'Waiting for two progressing PLC rows.'
+        return self.reason or ('Partial row' if self.sample['partial'] else 'Replied')
 
     def snapshot(self):
         with self.lock:
@@ -424,6 +427,8 @@ class Line:
         return dict(variables=variables, line=dict(mode=self.mode, quality=quality, refresh=refresh,
                     catalog_revision=view['revision'], catalog_count=len(tags), tanks=view['tanks'],
                     row_id=sample['id'] if sample else None, source_at=sample['source_at'] if sample else None,
+                    corrected_source_at=sample['corrected_source_at'] if sample else None,
+                    clock_offset_ms=self.offset.total_seconds() * 1000 if self.zone is not None and self.offset is not None else None,
                     tags_ok=sample['ok'] if sample else None, tags_failed=sample['failed'] if sample else None,
                     reason=expired_reason if expired else reason, refresh_available=self.client is not None))
 

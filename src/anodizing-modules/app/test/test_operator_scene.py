@@ -154,3 +154,24 @@ def test_native_job_feedback_is_copied_from_the_existing_cache():
     assert q == worker._feedback['joints_rad'] and q is not worker._feedback['joints_rad']
     worker._connected = False
     assert worker.cached_joint_sample() is None
+
+
+def test_line_expires_during_server_state_collection():
+    from anodizing_web.operator_state import server_state
+    from test_operator_line import Fake, item, line_source
+
+    fake = Fake()
+    line = line_source(fake)
+    fake.poll(line, 1)
+    fake.sec = 1
+    fake.poll(line, 2)
+
+    class DelayedAgv:
+        def state_sample(self):
+            fake.sec = 4
+            return ({}, None, None, False, None, False, None, None, None, 4, None, 0)
+
+    state = server_state(SimpleNamespace(scene=None, line=line, agv=DelayedAgv()))
+    reading = item(state, 'Tank21_HaveBasket')
+    assert reading['quality'] == 'stale' and reading['value'] is None
+    assert state['line']['quality'] == 'stale'

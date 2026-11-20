@@ -130,7 +130,6 @@ class Scene:
             owner.lock.release()
 
     def variables(self, owner, model, now=None):
-        now = monotonic() if now is None else now
         try:
             model.check_model()
             identity = dict(sha256=model.model_hash, nominal=model.model_data.get('nominal') is True)
@@ -138,6 +137,7 @@ class Scene:
             identity = None
         yield variable('robot.model', 'Robot model', identity, 'robot.model',
                        reason=None if identity else 'The selected robot model changed. Review it and restart the service.')
+        now = monotonic() if now is None else now
         sample, reason = self.robot_sample(owner, now) if identity else (None, 'Robot model unavailable.')
         source, age, read_at, q = 'robot.joints', None, None, None
         if sample is not None:

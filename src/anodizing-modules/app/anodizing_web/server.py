@@ -434,11 +434,15 @@ class Handler(BaseHTTPRequestHandler):
                 data, mtime, _ = self.server.cached_asset(files('ur_handeye').joinpath('web', name))
                 if name == 'tool-envelope.html':
                     data = data.replace(b'__TOKEN__', self.server.token.encode()).replace(b'</head>', b'<script src="preview-init.js" defer></script></head>', 1)
-                if name == 'robot-preview.js' and self.server.model_source:
-                    data = data.replace(b'NOMINAL MODEL \xc2\xb7 PREVIEW', b'MODEL PREVIEW')
-                    data = data.replace(b"The preview shows the robot visual model and collision boxes. The nominal model uses generic UR10e data. It does not include this robot's factory calibration.",
-                                        b'The preview shows the robot visual model and collision boxes for the selected model. Check the physical geometry and cell before motion.')
-                    data = data.replace(b'Preview only \xc2\xb7 UR10e nominal collision hulls', b'Preview only \xc2\xb7 selected UR10e collision hulls')
+                if name == 'robot-preview.js':
+                    # Scene uses the kinematics without mounting the legacy preview panel.
+                    listener = b"document.addEventListener('DOMContentLoaded',()=>{"
+                    data = data.replace(listener, listener + b"\n  if (!document.getElementById('tool-diagrams')) return;", 1)
+                    if self.server.model_source:
+                        data = data.replace(b'NOMINAL MODEL \xc2\xb7 PREVIEW', b'MODEL PREVIEW')
+                        data = data.replace(b"The preview shows the robot visual model and collision boxes. The nominal model uses generic UR10e data. It does not include this robot's factory calibration.",
+                                            b'The preview shows the robot visual model and collision boxes for the selected model. Check the physical geometry and cell before motion.')
+                        data = data.replace(b'Preview only \xc2\xb7 UR10e nominal collision hulls', b'Preview only \xc2\xb7 selected UR10e collision hulls')
             return self.send_asset(data, preview_files[name], mtime=mtime,
                                    editor_frame=(name == 'tool-envelope.html'),
                                    cache_control='no-store' if name == 'tool-envelope.html' else 'no-cache')
