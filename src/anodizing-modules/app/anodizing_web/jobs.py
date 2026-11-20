@@ -52,6 +52,7 @@ class JobOwner:
         self.lock = threading.RLock()
         self.jobs = {}
         self.active = None
+        self.line_test_fence = False
         self.mcu_pending = None
         self.runner = None
         self.storage_error = None
@@ -119,6 +120,8 @@ class JobOwner:
                 if old['fingerprint'] != fingerprint:
                     raise ValueError('Request ID was already used for a different request.')
                 return dict(old)
+            if self.line_test_fence:
+                raise ValueError('A line test owns the service. Wait for confirmed restore.')
             if self.mcu_pending:
                 raise ValueError('An MCU request is still pending. Wait for its outcome.')
             if self.storage_error:

@@ -14,9 +14,10 @@ from importlib.resources import files
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import calibration, teaching, pick_place, manual_pick_place, tool_power, mcu, robot_control, agv, travel_pose, operator_state, operator_records
+from . import calibration, teaching, pick_place, manual_pick_place, tool_power, mcu, robot_control, agv, travel_pose, operator_state, operator_records, operator_line_archive
 from .jobs import JobOwner
 from .operator_line import Line
+from .operator_line_test import LineTest
 from .operator_scene import Scene as OperatorScene, TANK_ID
 from .paths import check_tree, inside
 
@@ -32,7 +33,7 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, port, root, *, allow_camera=False, allow_teaching=False, allow_manual=False, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False, allow_agv_in_recipe=False, simulate_scene=False, line_mode='disabled'):
+    def __init__(self, port, root, *, allow_camera=False, allow_teaching=False, allow_manual=False, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False, allow_agv_in_recipe=False, simulate_scene=False, line_mode='disabled', allow_line_api_test_writes=False):
         lock_path = Path(tempfile.gettempdir()) / f'anodizing-modules-{os.getuid()}.lock'
         self.lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         self.data_lock_fd = None
@@ -95,6 +96,9 @@ class Server(ThreadingHTTPServer):
             self.line = Line.configured(self.root, line_mode)
             self.records = operator_records.Recorder(self.root, lambda: operator_state.server_state(self),
                                                       agv_context=self.agv.recording_context, scene_simulation=simulate_scene)
+            self.line_tests = LineTest(self.root, self.line, self.owner, allow_line_api_test_writes, self.records.event)
+            if self.line_tests.enabled:
+                self.line.tests = self.line_tests
             self.agv.record_event = self.owner.record_event = self.records.event
             self.token = secrets.token_urlsafe(32)
             self.allow_camera, self.allow_teaching, self.allow_manual = allow_camera, allow_teaching, allow_manual
@@ -136,10 +140,10 @@ class Server(ThreadingHTTPServer):
 
     def server_close(self):
         super().server_close()
+        self.line.close()
         self.owner.shutdown()
         self.agv.close()
         self.records.close()
-        self.line.close()
         if self.data_lock_fd is not None:
             os.close(self.data_lock_fd)
             self.data_lock_fd = None
@@ -231,6 +235,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.operator_asset(path)
         if path == '/api/state':
             return self.reply(200, operator_state.server_state(self.server))
+        if path == '/api/tests/line':
+            return self.reply(200, self.server.line_tests.status())
+        if path.startswith('/api/tests/line/'):
+            return self.line_evidence(path)
         if path == '/api/line/catalog':
             return self.reply(200, self.server.line.catalog())
         if path == '/api/line/diagnostics':
@@ -256,7 +264,8 @@ class Handler(BaseHTTPRequestHandler):
                 valid = False
             model = {'sha256': self.server.model_hash, 'nominal': self.server.model_data.get('nominal'),
                      'path': str(self.server.model_source) if self.server.model_source else None, 'valid': valid}
-            return self.reply(200, {'app_id': 'anodizing_modules_v1', 'owner': self.server.owner.status(), 'data_dir': str(self.server.root),
+            return self.reply(200, {'app_id': 'anodizing_modules_v1', 'owner': self.server.owner.status(),
+                                    'line_test': self.server.line_tests.status(summary=True), 'data_dir': str(self.server.root),
                                     'allow_camera': self.server.allow_camera,
                                     'allow_teaching': self.server.allow_teaching, 'allow_manual': self.server.allow_manual,
                                     'allow_manual_pick_place': self.server.owner.allow_manual_pick_place,
@@ -483,6 +492,34 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_asset(data, mime, mtime=mtime, editor_frame=False,
                                cache_control='no-store' if name.endswith('.html') else 'no-cache')
 
+    def line_evidence(self, path):
+        parts = path.removeprefix('/api/tests/line/').split('/')
+        try:
+            if parts == ['archives']:
+                return self.reply(200, {'archives': operator_line_archive.archives(self.server.root, detail=False)})
+            if len(parts) == 2 and parts[0] == 'archives':
+                imports = self.server.root / 'line-tests' / 'imports'
+                return self.reply(200, operator_line_archive.read_manifest(imports, parts[1]))
+            if len(parts) == 3 and parts[0] == 'archives':
+                with operator_line_archive.original(self.server.root, *parts[1:]) as stream:
+                    return self.reply(200, stream, 'application/octet-stream',
+                                      download=stream.original_name)
+            if len(parts) == 3 and parts[0] == 'run':
+                ident, format = parts[1:]
+                mime, suffix = {
+                    'json': ('application/json; charset=utf-8', 'json'),
+                    'csv': ('text/csv; charset=utf-8', 'csv'),
+                    'summary': ('text/markdown; charset=utf-8', 'md'),
+                }[format]
+                with tempfile.TemporaryFile(mode='w+', encoding='utf-8', newline='') as stream:
+                    self.server.line_tests.export(ident, format, stream)
+                    stream.flush()
+                    stream.buffer.seek(0)
+                    return self.reply(200, stream.buffer, mime, download=f'line-test-{ident}.{suffix}')
+        except (OSError, ValueError, TypeError, IndexError, KeyError, AttributeError, RecursionError):
+            pass
+        return self.reply(404, {'error': 'Line test evidence unavailable. Check the local records.'})
+
     def record_download(self, path):
         ident, _, format = path.removeprefix('/api/records/').partition('/')
         if format not in operator_records.FORMATS:
@@ -522,6 +559,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('Send a JSON object.')
             path = urlsplit(self.path).path
             owner = self.server.owner
+            if path == '/api/tests/line':
+                return self.reply(200, self.server.line_tests.action(body))
             if path == '/api/line/refresh':
                 if body != {'action': 'refresh'}:
                     raise ValueError('Choose Refresh catalog.')
@@ -581,13 +620,16 @@ def main():
     parser.add_argument('--allow-agv-in-recipe', action='store_true', help='Allow approved AGV station calls in Pick/place repeat recipes')
     parser.add_argument('--allow-teacher-motion', action='store_true', help='Allow reviewed planar-endpoint checked joint tests')
     parser.add_argument('--simulate-scene', action='store_true', help='Display fake joints and scripted tank status')
+    parser.add_argument('--allow-line-api-test-writes', action='store_true',
+                        help='Allow armed single-command tests in the in-process line simulator only')
     parser.add_argument('--line-mode', choices=('disabled', 'simulation', 'live'), default='disabled',
                         help='Use the configured read-only line source')
     parser.add_argument('--robot-model', help='Robot model JSON inside the data directory')
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error('Port must be 1 to 65535.')
-    server = Server(args.port, args.data_dir, allow_camera=args.allow_camera, allow_teaching=args.allow_teaching, allow_manual=args.allow_manual, allow_auto_calibration=args.allow_auto_calibration, robot_model=args.robot_model, allow_teacher_motion=args.allow_teacher_motion, allow_manual_pick_place=args.allow_manual_pick_place, allow_agv_in_recipe=args.allow_agv_in_recipe, simulate_scene=args.simulate_scene, line_mode=args.line_mode)
+    server = Server(args.port, args.data_dir, allow_camera=args.allow_camera, allow_teaching=args.allow_teaching, allow_manual=args.allow_manual, allow_auto_calibration=args.allow_auto_calibration, robot_model=args.robot_model, allow_teacher_motion=args.allow_teacher_motion, allow_manual_pick_place=args.allow_manual_pick_place, allow_agv_in_recipe=args.allow_agv_in_recipe, simulate_scene=args.simulate_scene, line_mode=args.line_mode,
+                    allow_line_api_test_writes=args.allow_line_api_test_writes)
     print(f'Anodizing modules: http://127.0.0.1:{args.port}/  data: {server.root}', flush=True)
     try:
         server.serve_forever(poll_interval=.2)

@@ -397,6 +397,8 @@ def motion_block(owner):
         return 'Job storage failed. Report the problem before moving.'
     if owner.execution_uncertain:
         return 'Robot state is uncertain. Check the robot before moving.'
+    if getattr(owner, 'line_test_fence', False):
+        return 'A line test owns the service. Wait for confirmed restore.'
     if owner.active:
         return 'A robot job is running. Wait for it to finish before sending movement.'
     return ''
@@ -1347,6 +1349,11 @@ class Connection:
         action, name = body.get('action'), body.get('command')
         if action == 'send' and (not isinstance(name, str) or name not in COMMANDS):
             raise ValueError('Select a known AGV command.')
+        if action == 'connect' and hasattr(self.owner, 'line_test_fence'):
+            with self.owner.lock:
+                if getattr(self.owner, 'line_test_fence', False):
+                    raise ValueError('A line test owns the service. Wait for confirmed restore.')
+                return self._submit_locked(body, action, name, False)
         if action != 'send':
             return self._submit_locked(body, action, name, False)
         if name in URGENT:

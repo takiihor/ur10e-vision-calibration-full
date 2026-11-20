@@ -93,7 +93,13 @@ class ReadClient:
 
 
 class Simulator:
-    def __init__(self, fixture):
+    def __init__(self, fixture, wall=utc_now):
+        self.fixture, self.wall = fixture, wall
+        self.overrides = {}
+        self.pending_feedback = None
+        self.feedback_delay = fixture.get('feedback_delay_rows', 0)
+        if type(self.feedback_delay) is not int or not 0 <= self.feedback_delay <= 15:
+            raise ValueError('Invalid simulator feedback delay.')
         self.tags = fixture['tags']
         self.rows = fixture['rows']
         parse_catalog({'tags': self.tags})
@@ -106,7 +112,26 @@ class Simulator:
             return 200, {'tags': self.tags}
         values = self.rows[self.sequence % len(self.rows)]
         self.sequence += 1
-        return 200, {**values, 'id': self.sequence, 'timestamp': utc_now().isoformat()}
+        if self.pending_feedback is not None:
+            due, name, value = self.pending_feedback
+            if self.sequence >= due:
+                self.overrides[name] = value
+                self.pending_feedback = None
+        return 200, {**values, **self.overrides, 'id': self.sequence, 'timestamp': self.wall().isoformat()}
+
+    def write(self, case, value):
+        # In-process dispatch finishes before it returns. There is no transport or delayed write.
+        name, feedback = case['command'], case['feedback']
+        self.overrides[name] = value
+        self.pending_feedback = None
+        if value:
+            self.pending_feedback = (self.sequence + 1 + self.feedback_delay, feedback, case['expected'])
+        elif 'clear' in case:
+            self.overrides[feedback] = case['clear']
+        else:
+            self.overrides.pop(feedback, None)
+        address = next(tag['device_address'] for tag in self.tags if tag['tag_name'] == name)
+        return dict(written=True, tag_name=name, device_address=address, value=value), True
 
 
 def local_json(root, path):
@@ -217,6 +242,7 @@ class Line:
         self.lock = Lock()
         self.stop = Event()
         self.worker = None
+        self.tests = None
         self.tags = {}
         self.view = dict(revision=0, tags=[], warnings=[], tanks={})
         self.diagnostics = deque(maxlen=100)
@@ -255,15 +281,30 @@ class Line:
             self.worker.start()
 
     def close(self):
-        self.stop.set()
+        if self.tests:
+            self.tests.closing = True
+            self.tests.wake.set()
+        else:
+            self.stop.set()
         if self.worker:
-            self.worker.join(timeout=2.5)
+            self.worker.join(timeout=11 if self.tests and self.tests.enabled else 2.5)
+        self.stop.set()
 
     def run(self):
+        next_poll = self.clock()
+        tests = self.tests
         while not self.stop.is_set():
-            start = self.clock()
-            self.step()
-            self.stop.wait(max(0, PERIOD_S - (self.clock() - start)))
+            now = self.clock()
+            if now >= next_poll:
+                self.step()
+                next_poll = now + PERIOD_S
+            if tests:
+                # A stop wakes the same worker between polls and cannot race a dispatch.
+                tests.wake.clear()
+                tests.tick()
+                if tests.closing and not tests.active:
+                    return
+            (tests.wake if tests else self.stop).wait(max(0, next_poll - self.clock()))
 
     def queue_refresh(self):
         if not self.client:
@@ -284,26 +325,31 @@ class Line:
     def log_read(self, operation, stamp, status, **details):
         self.diagnostics.append(dict(operation=operation, at=stamp.isoformat(), http_status=status, **details))
 
-    def step(self):
+    def refresh_catalog(self):
         with self.lock:
             requested = self.refresh if self.refresh['outcome'] == 'pending' else None
-            needs_catalog = not self.tags or requested is not None
+        status, payload = self.client.request('list')
+        stamp = self.wall()
+        try:
+            tags = parse_catalog(payload) if status == 200 else None
+        except ValueError:
+            tags = None
+        view = catalog_view(tags, self.expected, self.tanks, self.view['revision'] + 1) if tags else None
+        with self.lock:
+            self.log_read('Catalog', stamp, status, outcome='Replied' if tags else 'Catalog unavailable')
+            if view is not None and tags != self.tags:
+                # A row acquired under a different catalog cannot vouch for the new inventory.
+                self.tags, self.view, self.sample, self.progress = tags, view, None, 0
+                self.reason = 'Catalog changed. Waiting for two progressing PLC rows.'
+            if requested:
+                self.refresh = dict(id=requested['id'], outcome='done' if tags else 'failed')
+        return tags is not None
+
+    def step(self):
+        with self.lock:
+            needs_catalog = not self.tags or self.refresh['outcome'] == 'pending'
         if needs_catalog:
-            status, payload = self.client.request('list')
-            stamp = self.wall()
-            try:
-                tags = parse_catalog(payload) if status == 200 else None
-            except ValueError:
-                tags = None
-            view = catalog_view(tags, self.expected, self.tanks, self.view['revision'] + 1) if tags else None
-            with self.lock:
-                self.log_read('Catalog', stamp, status, outcome='Replied' if tags else 'Catalog unavailable')
-                if view is not None and tags != self.tags:
-                    # A row acquired under a different catalog cannot vouch for the new inventory.
-                    self.tags, self.view, self.sample, self.progress = tags, view, None, 0
-                    self.reason = 'Catalog changed. Waiting for two progressing PLC rows.'
-                if requested:
-                    self.refresh = dict(id=requested['id'], outcome='done' if tags else 'failed')
+            self.refresh_catalog()
         if self.stop.is_set():
             return
         status, payload = self.client.request('read')
