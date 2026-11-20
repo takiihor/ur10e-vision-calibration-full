@@ -90,6 +90,7 @@ export default definePreset(Aura, {
         overlay: {
           modal: { background: '{operator.panel}', color: '{operator.text}', borderColor: '{operator.border}' },
           select: { background: '{operator.panel}', borderColor: '{operator.border}' },
+          popover: { background: '{operator.panel}', borderColor: '{operator.border}' },
         },
       },
     },

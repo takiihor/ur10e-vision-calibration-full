@@ -58,6 +58,10 @@ it('meets operator HCI contrast for text, control boundaries and focus in all us
   check('operator-serious', [panel], 3); // alarm edge
   check('operator-warning', [canvas, panel], 3); // Armed outline
   check('operator-action', [canvas, raised], 3); // current page indicator
+  const sakai = readFileSync(new URL('./layout/sakai.css', import.meta.url), 'utf8');
+  expect(sakai).toContain('--surface-overlay: var(--p-overlay-popover-background)');
+  check('text-color', ['overlay-popover-background'], 4.5); // Sakai sidebar
+  check('text-muted-color', ['overlay-popover-background'], 4.5);
 
   const buttonParents = { primary: [panel], secondary: surfaces, danger: [panel] };
   for (const [variant, parents] of Object.entries(buttonParents)) {
