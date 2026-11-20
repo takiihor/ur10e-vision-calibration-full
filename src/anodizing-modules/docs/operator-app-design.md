@@ -194,3 +194,36 @@ be inspected. Native owner, TCP, model, swept-path, AGV and device checks
 remain authoritative for all dispatches.
 
 See [Pick/place routes and operation](../operator-ui/README.md#pickplace-and-recipe).
+
+## Teaching and snapshots (Stage 7)
+
+Both Vue Teaching routes use the existing Teacher owner, bounded camera
+worker, native validation, return and manual descent contracts. The
+legacy service entry remains the default. The protected read-only project
+lookup can include saved evidence with `evidence=1`. Reading a project
+opens no camera or robot receiver. The browser stores the selected project
+and request ID for inspection. Path and AGV approvals require new input
+after a reload. The browser sends a heartbeat while supervising its own
+checked move on the visible Teaching page. The service owns heartbeat
+expiry and job-bound Stop, including the handoff before the native
+motion worker starts. The manual descent uses its own operation ID and
+existing exact prompt.
+
+The project retains schema version 1. An omitted tank preserves the
+saved field. A validated canonical ID replaces the field, and an explicit
+null clears it. Capture stages the reference observation before publishing
+the project manifest with the station, tank and captured flag. A serial
+station uses the same qualified arrival, connection and generation
+throughout acquisition, including a confirming report after the camera
+worker completes. A changed, stale or missing required report refuses
+publication. Manual stations keep their separate operator provenance.
+
+Each snapshot kind has metadata for the JPEG digest, camera and provider,
+frame receipt time, detection outcome, and capture ID. The worker
+retains the same image for a given ID. The token-protected snapshot
+endpoint verifies project containment, identity format, JPEG size and
+digest. Operator UI labels distinguish the current evidence from dated
+history. Capturing a validation image creates a separate native validation
+identity and timing window. Saved validation history can display its bound
+image after setup or service restart. Saved evidence supplies no restored
+movement approval. See the [Teaching workspace instructions](../operator-ui/README.md#teaching-and-snapshots).

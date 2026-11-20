@@ -251,3 +251,63 @@ execution. The disabled default service can show setup and saved evidence.
 The browser test fixture uses fake serial reporting and fake native
 drivers inside an isolated network namespace. It cannot qualify a site
 installation, robot reach, grip, tool voltage, radio or e-stop.
+
+## Teaching and snapshots
+
+Open `/operator/#/teaching` or `/operator/#/tests/teaching`. Both open
+the same workspace. The service starts at the legacy landing page, and
+`/teaching` is available directly or through **Legacy Teaching**.
+
+Select a local project, calibration and printed marker. Compare the
+active TCP against the pendant before **Check setup**. **Open saved
+project** reads its evidence and fills the form. Check setup again to
+resume teaching. Older projects with no tank show **Tank not taught**.
+During reference capture, keep the saved tank, type a whole number from
+1 to 99, pick a tank from the configured Scene or physical line catalog,
+or explicitly clear the tank. The project stores canonical tank IDs
+alongside its captured station. The tank is display metadata and flows
+through to Scene and both Pick/place recipe endpoints.
+
+For a confirmed serial station, the service requires the same qualified
+arrival and connection throughout the native capture and a fresh report
+after the camera worker completes. A station transition, status gap,
+movement dispatch or link change ends that capture without publishing a
+new station or tank. When a qualifying arrival is unavailable, the service
+accepts an explicitly entered station and labels it **operator entry**.
+Observe the AGV and arm before capturing. Reports describe sampled
+vehicle state and cannot establish what happened between reports.
+
+Reference, export and validation images have separate capture IDs,
+camera labels, frame receipt times and detection outcomes. The service
+stores the JPEG and its digest in the project folder and checks the
+digest when serving the protected image. A failed marker read can leave
+dated **No pose** evidence. Older JPEG-only projects show an unbound
+legacy image when one is available. Keep saved projects and their images
+in the configured local data directory and include them in local backup
+and retention procedures.
+
+Teach the lower endpoint with the pendant, confirm that the marker stayed
+fixed, and read the stopped TCP. **Read marker and export poses** provides
+the current approach and pick poses and the existing JSON and URScript
+downloads. A later setup check requires a fresh export for use. The
+URScript file supplies pose variables. Robot Bench supplies the reviewed
+executor and its own checks.
+
+For an enabled factory model and reviewed collision scene, the operator
+can separately approve a checked return or planar joint validation. Keep
+the page visible during the move. The service expires supervision after
+two seconds without a heartbeat. **Teacher Stop (software)** targets the
+accepted Teacher job, and Escape sends AGV Stop. Use the robot's physical
+e-stop when needed. Inspect saved results and record visual alignment or
+an independent TCP measurement. A separate vertical descent requires the
+current completed alignment, reviewed bounds, and a new exact plan
+approval in **Current operation**. Use the job-bound Pick/place Stop for
+that descent. Reload restores saved evidence and clears approval controls.
+
+Use the reviewed launch flags `--allow-teaching`,
+`--allow-teacher-motion` and `--allow-manual-pick-place` for their
+respective native workflows. **Create simulated project** requires a
+simulated calibration and an empty project folder. **Save current joints
+as travel pose** needs an explicit fold confirmation and a stopped
+robot read. Cached travel evidence is shown on entry. **Check live travel
+pose** requests a new checked read.
