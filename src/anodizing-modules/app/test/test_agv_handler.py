@@ -1642,6 +1642,8 @@ def test_recipe_receive_failure_attempts_halt_before_close(agv_clock):
             with pytest.raises(ValueError, match='Link lost'):
                 link.recipe_feedback()
             assert writes == [agv.command_frame('pause', None, agv.DEFAULT_PREFIX).encode()]
+            assert link.recipe_stop() is True
+            assert len(writes) == 1
             state = link.capability()
             errors = [entry['decode'].get('error') for entry in state['log']]
             assert 'receive-side test failure' in errors

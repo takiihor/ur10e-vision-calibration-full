@@ -896,6 +896,8 @@ class Connection:
                 self._write(name, command_frame(name, None, self.splitter.prefix).encode(), None, 1)
             except OSError as write_error:
                 self._record('Link', b'', {'error': str(write_error), 'command': name})
+            else:
+                self.recipe_halt_sent = True
         try:
             self._close()
         except OSError as close_error:
@@ -976,8 +978,11 @@ class Connection:
     def _send_urgent(self, name, *, recipe=False):
         with self.lock:
             transport = self.transport
-            if recipe and (not self.recipe_active or transport is not self.recipe_transport):
-                return False
+            if recipe:
+                if not self.recipe_active:
+                    return False
+                if transport is not self.recipe_transport:
+                    return self.recipe_halt_sent
             if transport is None:
                 raise ValueError('Connect an AGV transport first.')
             self.stop_generation += 1
@@ -989,7 +994,8 @@ class Connection:
                 with self.lock:
                     if self.transport is not transport:
                         if recipe:
-                            return False
+                            return (self.recipe_active and transport is self.recipe_transport
+                                    and self.recipe_halt_sent)
                         raise ValueError('The AGV connection changed. Refresh before sending another command.')
                     try:
                         self._receive()
@@ -1015,7 +1021,10 @@ class Connection:
                                 if recipe:
                                     return False
                                 raise ValueError(self.error) from exc
-                        return True if recipe else dict(self._snapshot(), urgent_command=halt)
+                        if recipe:
+                            self.recipe_halt_sent = True
+                            return True
+                        return dict(self._snapshot(), urgent_command=halt)
                     if held_at is None:
                         held_at = now
                 sleep(.01)
@@ -1338,6 +1347,7 @@ class Connection:
             self._check_stop_generation(stop_generation)
             self.recipe_active = True
             self.recipe_generation = stop_generation
+            self.recipe_halt_sent = False
             self._cancel_resend(keep_urgent=True)
             self.armed = False
             self.recipe_transport = self.transport
