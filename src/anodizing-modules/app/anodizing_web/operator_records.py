@@ -1,5 +1,6 @@
 """One bounded, server-owned recording of cached state and native events."""
 from collections import Counter, deque
+from contextlib import nullcontext
 import csv
 import json
 import os
@@ -46,17 +47,63 @@ def terminal(reason):
     return dict(type='terminal', timestamp=timestamp(), reason=reason)
 
 
-def open_record(path, flags):
+def open_record(path, flags, *, buffering=0):
     fd = os.open(path, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
     if not stat.S_ISREG(os.fstat(fd).st_mode):
         os.close(fd)
         raise OSError('Recording file must be a regular file.')
-    return os.fdopen(fd, 'rb') if flags == os.O_RDONLY else os.fdopen(fd, 'r+b', buffering=0)
+    return os.fdopen(fd, 'rb') if flags == os.O_RDONLY else os.fdopen(fd, 'r+b', buffering=buffering)
 
 
 def check_directory(path):
     if not stat.S_ISDIR(path.lstat().st_mode):
         raise OSError('Recording directory must be a real directory.')
+
+
+def read_manifest(path):
+    with open_record(path / 'manifest.json', os.O_RDONLY) as stream:
+        data = stream.read(MAX_ROW + 1)
+    if len(data) > MAX_ROW:
+        raise ValueError('Invalid recording manifest size.')
+    manifest = json.loads(data)
+    if (not isinstance(manifest, dict) or manifest.get('id') != path.name
+            or manifest.get('schema_version') != 1
+            or type(manifest.get('rate_hz')) not in (int, float) or manifest['rate_hz'] not in RATES
+            or not isinstance(manifest.get('started_at'), str)
+            or type(manifest.get('scene_simulation')) is not bool
+            or 'agv_transport' not in manifest
+            or not isinstance(manifest['agv_transport'], (str, type(None)))
+            or any(not isinstance(manifest.get(key), str) for key in ('site', 'operator', 'devices', 'notes'))
+            or not isinstance(manifest.get('variables'), list)
+            or any(not isinstance(item, dict) or not isinstance(item.get('id'), str)
+                   or not isinstance(item.get('source'), (str, type(None))) for item in manifest['variables'])):
+        raise ValueError('Invalid recording manifest.')
+    return manifest, len(data)
+
+
+def read_rows(stream):
+    while line := stream.readline(MAX_ROW + 1):
+        if len(line) > MAX_ROW:
+            raise ValueError('Recording row exceeds the read limit.')
+        if not line.endswith(b'\n'):
+            break
+        row = json.loads(line)
+        if not isinstance(row, dict) or not isinstance(row.get('timestamp'), str):
+            raise ValueError('Invalid recording row.')
+        kind = row.get('type')
+        if kind == 'terminal':
+            valid = isinstance(row.get('reason'), str) and row['reason'] in REASONS
+        elif kind == 'event':
+            valid = (isinstance(row.get('event'), str) and isinstance(row.get('source'), str)
+                     and isinstance(row.get('transport'), (str, type(None))))
+        elif kind == 'sample':
+            valid = isinstance(row.get('variables'), list) and all(
+                isinstance(item, dict) and 'value' in item for item in row['variables'])
+        else:
+            valid = False
+        if not valid:
+            raise ValueError('Invalid recording row.')
+        yield row
 
 
 def line_sources(manifest):
@@ -75,10 +122,9 @@ def summary(manifest, outcome=None, stopping=False):
 
 
 class Recording:
-    def __init__(self, manifest, stream, remaining, read_state):
+    def __init__(self, manifest, stream, read_state):
         self.manifest = manifest
         self.stream = stream
-        self.remaining = remaining
         self.ids = {item['id'] for item in manifest['variables']}
         self.read_state = read_state
         self.started = monotonic()
@@ -199,6 +245,7 @@ class Recorder:
         self.agv_context = agv_context
         self.scene_simulation = scene_simulation
         self.lock = Lock()
+        self.event_lock = Lock()
         self.active = None
         self.history = {}
         self.closing = False
@@ -210,36 +257,36 @@ class Recorder:
                 if RECORD_ID.fullmatch(path.name):
                     try:
                         self.history[path.name] = self.recover(path)
-                    except (OSError, ValueError, TypeError, KeyError):
+                    except (OSError, ValueError, RecursionError):
+                        self.history[path.name] = dict(id=path.name, started_at=None, status='unreadable', outcome=None)
                         self.error = 'Some recordings could not be read. Check recording storage.'
         except OSError:
             self.error = STORAGE_ERROR
 
     def recover(self, path):
         check_directory(path)
-        with open_record(path / 'manifest.json', os.O_RDONLY) as stream:
-            manifest = json.loads(stream.read(MAX_ROW))
-        if manifest['id'] != path.name or manifest['schema_version'] != 1:
-            raise ValueError('Invalid recording manifest.')
-        with open_record(path / 'rows.jsonl', os.O_RDWR) as stream:
-            size = stream.seek(0, os.SEEK_END)
-            start = max(0, size - MAX_ROW - TERMINAL_BYTES)
-            stream.seek(start)
-            tail = stream.read()
-            end = tail.rfind(b'\n') + 1
-            if not end and start:
-                raise ValueError('Invalid recording tail.')
-            last = tail[:end].rstrip(b'\n').rsplit(b'\n', 1)[-1]
-            outcome = json.loads(last) if last else None
-            if outcome and outcome.get('type') == 'terminal':
+        manifest, size = read_manifest(path)
+        with open_record(path / 'rows.jsonl', os.O_RDWR, buffering=-1) as stream:
+            if os.fstat(stream.fileno()).st_size > MAX_BYTES:
+                raise ValueError('Recording exceeds its size limit.')
+            end = 0
+            outcome = None
+            for row in read_rows(stream):
+                if outcome is not None:
+                    raise ValueError('Unexpected row after recording outcome.')
+                end = stream.tell()
+                if row['type'] == 'terminal':
+                    outcome = row
+            if outcome is not None:
                 return summary(manifest, outcome)
             outcome = terminal('interrupted')
             data = (encode(outcome) + '\n').encode()
-            if end + start + len(data) + (path / 'manifest.json').stat().st_size <= MAX_BYTES:
-                stream.seek(start + end)
+            if end + len(data) + size <= MAX_BYTES:
+                stream.seek(end)
                 stream.truncate()
                 if stream.write(data) != len(data):
                     raise OSError('Short interruption write.')
+                stream.flush()
                 os.fsync(stream.fileno())
         return summary(manifest, outcome)
 
@@ -247,7 +294,7 @@ class Recorder:
         with self.lock:
             latest = self.active.info() if self.active else None
             records = [*self.history.values(), *([latest] if latest else [])]
-            records.sort(key=lambda item: item['started_at'], reverse=True)
+            records.sort(key=lambda item: item['started_at'] or '', reverse=True)
             return dict(active=latest if latest and latest['outcome'] is None else None,
                         records=records, error=self.error)
 
@@ -272,42 +319,53 @@ class Recorder:
             if not isinstance(value, str) or len(value) > limit:
                 raise ValueError(f'Check the {key} field length.')
             metadata[key] = value.strip()
-        context = self.agv_context() if self.agv_context else None
-        transport = context['settings']['mode'] if context else next(
-            (v['value'] for v in state['variables'] if v['id'] == 'agv.transport'), None)
+        transport = next((v['value'] for v in state['variables'] if v['id'] == 'agv.transport'), None)
         with self.lock:
-            if self.closing or (self.active and self.active.info()['outcome'] is None):
+            previous = self.active
+            if self.closing or (previous and previous.info()['outcome'] is None):
                 raise ValueError('Wait for the active recording to finish.')
             ident = uuid4().hex
-            manifest = dict(schema_version=1, id=ident, started_at=timestamp(), rate_hz=rate,
-                            variables=variables, agv_transport=transport, scene_simulation=self.scene_simulation,
-                            agv_at_start=context, limits={'seconds': MAX_SECONDS, 'bytes': MAX_BYTES}, **metadata)
-            remaining = MAX_BYTES - len(encode(manifest).encode())
-            if remaining <= TERMINAL_BYTES:
-                raise ValueError('The selected recording manifest is too large.')
+            manifest = dict(schema_version=1, id=ident, rate_hz=rate, variables=variables,
+                            scene_simulation=self.scene_simulation,
+                            limits={'seconds': MAX_SECONDS, 'bytes': MAX_BYTES}, **metadata)
             path = self.directory / ident
             stream = None
             try:
                 check_directory(self.directory)
                 path.mkdir(mode=0o700)
                 stream = open_record(path / 'rows.jsonl', os.O_RDWR | os.O_CREAT | os.O_EXCL)
+                # AGV producers already take the link lock before the recorder's event lock.
+                # Hold both only for the in-memory start boundary.
+                with (self.agv_context() if self.agv_context else nullcontext()) as context, self.event_lock:
+                    if self.agv_context:
+                        transport = context['settings']['mode'] if context else None
+                    manifest.update(started_at=timestamp(), agv_transport=transport, agv_at_start=context)
+                    session = self.active = Recording(manifest, stream, self.read_state)
+                manifest_bytes = len(encode(manifest).encode())
+                session.remaining = MAX_BYTES - manifest_bytes
+                if manifest_bytes > MAX_ROW or session.remaining <= TERMINAL_BYTES:
+                    raise ValueError('The selected recording manifest is too large.')
                 atomic_json(path / 'manifest.json', manifest)
-            except OSError:
+            except (OSError, TypeError, ValueError, RecursionError) as exc:
+                with self.event_lock:
+                    self.active = previous
                 if stream is not None:
                     stream.close()
-                raise ValueError(STORAGE_ERROR) from None
-            if self.active:
-                self.history[self.active.manifest['id']] = self.active.info()
-            self.active = Recording(manifest, stream, remaining, self.read_state)
-            self.active.thread.start()
-            return self.active.info()
+                if isinstance(exc, OSError):
+                    raise ValueError(STORAGE_ERROR) from None
+                raise
+            if previous:
+                self.history[previous.manifest['id']] = previous.info()
+            session.thread.start()
+            return session.info()
 
     def event(self, source, name, **fields):
-        session = self.active
-        if session is not None:
-            if 'timestamp' not in fields:
-                fields['timestamp'] = timestamp()
-            session.enqueue(dict(type='event', source=source, event=name, **fields))
+        with self.event_lock:
+            session = self.active
+            if session is not None:
+                if 'timestamp' not in fields:
+                    fields['timestamp'] = timestamp()
+                session.enqueue(dict(type='event', source=source, event=name, **fields))
 
     def stop(self, ident):
         with self.lock:
@@ -333,33 +391,27 @@ class Recorder:
                     else self.history.get(ident))
             if item is None:
                 raise KeyError(ident)
+            if item['status'] == 'unreadable':
+                raise ValueError('This recording is unreadable.')
             if item['outcome'] is None:
                 raise ValueError('Finish the recording before downloading.')
         path = self.directory / ident
         check_directory(self.directory)
         check_directory(path)
-        with open_record(path / 'manifest.json', os.O_RDONLY) as manifest_file:
-            manifest = json.loads(manifest_file.read(MAX_ROW))
+        manifest, _ = read_manifest(path)
         with open_record(path / 'rows.jsonl', os.O_RDONLY) as stream:
-            def rows():
-                while line := stream.readline(MAX_ROW):
-                    if not line.endswith(b'\n'):
-                        if stream.read(1):
-                            raise OSError('Recording row exceeds the read limit.')
-                        break
-                    yield json.loads(line)
-
+            rows = read_rows(stream)
             if format == 'json':
                 output.write('{"manifest":' + encode(manifest) + ',"outcome":' + encode(item['outcome']) + ',"rows":[')
-                for index, row in enumerate(rows()):
+                for index, row in enumerate(rows):
                     if index:
                         output.write(',')
                     output.write(encode(row))
                 output.write(']}\n')
             elif format == 'csv':
-                write_csv(rows(), output)
+                write_csv(rows, output)
             else:
-                write_summary(manifest, item['outcome'], rows(), output)
+                write_summary(manifest, item['outcome'], rows, output)
 
 
 def write_csv(rows, output):

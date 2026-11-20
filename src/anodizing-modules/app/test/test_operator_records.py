@@ -12,6 +12,7 @@ import pytest
 from anodizing_web import agv, operator_records, operator_state, server
 from anodizing_web.jobs import JobOwner
 from test_operator import request
+from test_agv_handler import open_simulator, send, session
 
 
 def until(check):
@@ -310,3 +311,101 @@ def test_symlink_storage_keeps_recorder_unavailable_without_writing_outside(tmp_
     with pytest.raises(ValueError, match='Check space and permissions'):
         records.start({'rate_hz': 1, 'variables': ['agv.speed']})
     assert not list(external.iterdir())
+
+
+@pytest.mark.parametrize('damage', ['row', 'earlier_row', 'manifest', 'variable'])
+def test_recovery_lists_unreadable_sessions_and_preserves_their_bytes(recording, tmp_path, damage):
+    records, _, _ = recording
+    settings = {'rate_hz': 1, 'variables': ['agv.speed']}
+    healthy = records.start(settings)['id']
+    records.stop(healthy)
+    until(lambda: records.catalog()['active'] is None)
+    damaged = records.start(settings)['id']
+    records.stop(damaged)
+    until(lambda: records.catalog()['active'] is None)
+    path = records.directory / damaged / ('rows.jsonl' if damage in ('row', 'earlier_row') else 'manifest.json')
+    if damage == 'row':
+        raw = b''.join(path.read_bytes().splitlines(keepends=True)[:-1]) + b'[1]\n'
+    elif damage == 'earlier_row':
+        raw = b'[1]\n' + path.read_bytes()
+    elif damage == 'manifest':
+        raw = b'[]'
+    else:
+        raw = json.dumps(dict(json.loads(path.read_bytes()), variables=[1])).encode()
+    path.write_bytes(raw)
+
+    restarted = operator_records.Recorder(tmp_path, records.read_state)
+    by_id = {item['id']: item for item in restarted.catalog()['records']}
+    assert by_id[damaged]['status'] == 'unreadable'
+    assert by_id[healthy]['status'] == 'finished'
+    assert restarted.catalog()['error']
+    assert path.read_bytes() == raw
+    with pytest.raises(ValueError, match='unreadable'):
+        document(restarted, damaged)
+
+
+def test_start_captures_native_halts_while_manifest_persistence_is_stalled(tmp_path, monkeypatch, session):
+    _, request_agv = session
+    link = request_agv.connection
+    connection_id = open_simulator(request_agv)
+    assert send(request_agv, 'query_status', connection_id)[0] == 200
+    records = operator_records.Recorder(tmp_path, lambda: operator_state.read(link),
+                                        agv_context=link.recording_context)
+    link.record_event = records.event
+    entered, resume = Event(), Event()
+    atomic_json = operator_records.atomic_json
+
+    def stall_manifest(path, manifest):
+        entered.set()
+        assert resume.wait(4)
+        return atomic_json(path, manifest)
+
+    monkeypatch.setattr(operator_records, 'atomic_json', stall_manifest)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        start = pool.submit(records.start, {'rate_hz': 1, 'variables': ['agv.speed']})
+        try:
+            assert entered.wait(2)
+            delivery = pool.submit(send, request_agv, 'stop', connection_id)
+            status, state = delivery.result(timeout=1)
+            assert status == 200 and state['urgent_command'] == 'pause'
+            tx_id = state['results']['pause']['tx_id']
+        finally:
+            resume.set()
+        ident = start.result(timeout=2)['id']
+    records.stop(ident)
+    until(lambda: records.catalog()['active'] is None)
+    data = document(records, ident)
+    assert data['manifest']['agv_at_start']['connection_id'] == connection_id
+    assert any(row.get('tx_id') == tx_id for row in data['rows'] if row.get('direction') == 'TX')
+
+
+def test_recorded_halt_evidence_distinguishes_stop_pause_and_joined_requests(tmp_path, session):
+    _, request_agv = session
+    link = request_agv.connection
+    connection_id = open_simulator(request_agv)
+    assert send(request_agv, 'query_status', connection_id)[0] == 200
+    records = operator_records.Recorder(tmp_path, lambda: operator_state.read(link))
+    link.record_event = records.event
+    ident = records.start({'rate_hz': 1, 'variables': ['agv.speed']})['id']
+    status, stop = send(request_agv, 'stop', connection_id)
+    assert status == 200
+    stop_tx = stop['results']['pause']['tx_id']
+    status, joined = send(request_agv, 'stop', connection_id)
+    assert status == 200 and joined['results']['pause']['tx_id'] == stop_tx
+    status, pause = send(request_agv, 'pause', connection_id)
+    assert status == 200
+    pause_tx = pause['results']['pause']['tx_id']
+    assert stop_tx != pause_tx
+    records.stop(ident)
+    until(lambda: records.catalog()['active'] is None)
+    rows = document(records, ident)['rows']
+    for action, tx in [('stop', stop_tx), ('pause', pause_tx)]:
+        frame, = [row for row in rows if row.get('direction') == 'TX' and row.get('tx_id') == tx]
+        assert (frame['requested_command'], frame['wire_command'], frame['connection_id']) == (
+            action, 'pause', connection_id)
+    joined, = [row for row in rows if row.get('event') == 'halt_request' and row.get('joined')]
+    assert (joined['requested_command'], joined['wire_command'], joined['connection_id'], joined['tx_id']) == (
+        'stop', 'pause', connection_id, stop_tx)
+    outcome = next(row for row in rows if row.get('event') == 'command_outcome' and row.get('tx_id') == stop_tx)
+    assert (outcome['requested_command'], outcome['wire_command'], outcome['connection_id']) == (
+        'stop', 'pause', connection_id)

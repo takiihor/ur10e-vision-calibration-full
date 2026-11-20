@@ -44,17 +44,21 @@ Start and ID-bound Stop. Closing the browser leaves the worker running. The
 server writes a manifest and append-only sample and event rows under
 `<data-dir>/records/<id>/`. The manifest records the selected variables and
 rate, optional session details and notes, starting AGV connection settings and
-transport, and whether Scene simulation was enabled. Event records pair the
-AGV connection ID with TX IDs and attempts, log raw TX/RX and alarms, and pair
-accepted jobs with their request IDs and outcomes. Job audit files stay in the
-native store.
+transport, and whether Scene simulation was enabled. The start time and AGV
+context are captured together. The server buffers events from that point while
+it writes the manifest. Event records pair the AGV connection ID with TX IDs
+and attempts, log raw TX/RX and alarms, and pair accepted jobs with their
+request IDs and outcomes. Halt entries include the requested command and the
+wire command. Repeated requests that join a pending delivery refer to its
+original TX ID. Job audit files stay in the native store.
 
 The first cap reached, 2 hours or 50 MiB including the manifest, ends the
 session. An event buffer fills only when the recorder cannot keep up. It ends
 the session visibly without blocking native producers on recorder storage.
 A service restart retains complete rows and marks an unfinished session
-Interrupted. Downloads are available after the session finishes. JSON carries
-the manifest and all retained rows. CSV lists samples with observation and
+Interrupted. The Recorder lists a damaged session by ID as unreadable and
+preserves its files. Healthy finished sessions remain available for download.
+JSON carries the manifest and all retained rows. CSV lists samples with observation and
 acquisition times and quality. The Markdown summary names the transports, shows
 counts and notes, and links to the full evidence.
 

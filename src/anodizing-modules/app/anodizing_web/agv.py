@@ -504,12 +504,13 @@ class Connection:
             self.record_event('agv', event, connection_id=self.id,
                               transport=(self.settings or {}).get('mode'), **detail)
 
-    def _record(self, direction, raw, decoded, *, tx_id=None):
+    def _record(self, direction, raw, decoded, *, tx_id=None, **audit):
         self.log_id += 1
         entry = {'id': self.log_id, 'timestamp': timestamp(),
                  'direction': direction, 'hex': hex_bytes(raw), 'decode': decoded}
         self.log.append(entry)
-        self._capture('frame', **entry, tx_id=(self.log_id if tx_id is None and direction == 'TX' else tx_id))
+        self._capture('frame', **entry, tx_id=(self.log_id if tx_id is None and direction == 'TX' else tx_id),
+                      **audit)
         return entry
 
     def _event(self, field, before, after, **detail):
@@ -529,8 +530,9 @@ class Connection:
         pending = self.pending.pop(name)
         result = self.results[name]
         result.update(state=state, completed_at=timestamp(), elapsed_s=monotonic() - pending.sent_at)
+        halt = {key: result[key] for key in ('requested_command', 'wire_command') if key in result}
         self._capture('command_outcome', command=name, tx_id=result['tx_id'], state=state,
-                      timestamp=result['completed_at'])
+                      timestamp=result['completed_at'], **halt)
         if self.resend is not None and self.resend.name == name:
             self.resend = None
 
@@ -809,11 +811,11 @@ class Connection:
                     (self.settings or {}).get('mode'), self.recipe_active, self.last_confirmed_station,
                     self.connected_iso, self.error, monotonic(), self.id, self.sequence)
 
+    @contextmanager
     def recording_context(self):
         with self.lock:
-            if self.transport is not None and self.settings:
-                return dict(connection_id=self.id, settings=dict(self.settings))
-            return None
+            yield (dict(connection_id=self.id, settings=dict(self.settings))
+                   if self.transport is not None and self.settings else None)
 
     def commissioning(self, *, ports=False):
         if ports:
@@ -981,7 +983,8 @@ class Connection:
             self.stop_generation += 1
             name = self._halt_command(recipe=True)
             try:
-                self._write(name, command_frame(name, None, self.splitter.prefix).encode(), None, 1)
+                self._write(name, command_frame(name, None, self.splitter.prefix).encode(), None, 1,
+                            requested_halt='stop')
             except OSError as write_error:
                 self._record('Link', b'', {'error': str(write_error), 'command': name})
             else:
@@ -991,7 +994,7 @@ class Connection:
         except OSError as close_error:
             self._record('Link', b'', {'error': str(close_error)})
 
-    def _write(self, name, raw, value, attempt, background=False, *, tx_id=None):
+    def _write(self, name, raw, value, attempt, background=False, *, tx_id=None, requested_halt=None):
         try:
             written = self.transport.write(raw)
         finally:
@@ -1008,7 +1011,8 @@ class Connection:
             detail['background'] = True
         self.link_quality['sent'] += 1
         self.link_quality['resent'] += attempt > 1
-        return sent_at, self._record('TX', raw, detail, tx_id=tx_id)
+        halt = dict(requested_command=requested_halt or name, wire_command=name) if name in URGENT else {}
+        return sent_at, self._record('TX', raw, detail, tx_id=tx_id, **halt)
 
     def _send(self, name, value, *, background=False, prewrite=None, recipe_check=None,
               status_hold_s=None, requested_halt=None, mode_unverified=False):
@@ -1023,7 +1027,7 @@ class Connection:
         if name not in READS and name not in URGENT:
             self._check_motion_status(name, value)
         raw = frame.encode()
-        sent_at, entry = self._write(name, raw, value, 1, background)
+        sent_at, entry = self._write(name, raw, value, 1, background, requested_halt=requested_halt)
         result = {'tx_id': entry['id'], 'sent_at': entry['timestamp'], 'value': value, 'tries': 1}
         if name in READS:
             if name == 'query_status':
@@ -1111,6 +1115,9 @@ class Connection:
                         if (retry is not None and retry.name in URGENT
                                 and self.results[retry.name]['requested_command'] == name):
                             halt = retry.name
+                            result = self.results[halt]
+                            self._capture('halt_request', requested_command=name, wire_command=result['wire_command'],
+                                          tx_id=result['tx_id'], joined=True)
                         else:
                             try:
                                 self._send(halt, None, status_hold_s=0 if held_at is None else now - held_at,
@@ -1243,7 +1250,9 @@ class Connection:
                 self.pending[name].halt_sample_seen = False
             result['wire_command'] = wire_name
             raw = command_frame(wire_name, None, self.splitter.prefix).encode()
-        retry.sent_at, entry = self._write(wire_name, raw, result['value'], attempt, tx_id=result['tx_id'])
+        retry.sent_at, entry = self._write(
+            wire_name, raw, result['value'], attempt, tx_id=result['tx_id'],
+            requested_halt=result.get('requested_command'))
         retry.tries = result['tries'] = attempt
         result['last_sent_at'] = entry['timestamp']
         self.awaiting_ack[result['tx_id']] = (name, retry.sent_at, result, retry.sent_at + REPLY_TIMEOUT)
