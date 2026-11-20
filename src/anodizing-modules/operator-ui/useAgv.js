@@ -448,6 +448,7 @@ export function useAgv(isAgv, isScene) {
     state, capability, form, commands, ports, age, stale, freshReport, connectionLabel, alarms,
     connectionLocked, connectReason, armed, armReason, busy, stateError, portError,
     variableInfo,
+    variables: computed(() => [...(report.value?.variables.values() ?? [])]),
     variable: name => variableInfo('agv.' + name)?.value ?? null,
     session, journal, recordNote, sound, serviceError,
     currentFeedback: computed(() => feedback(latest.value)),

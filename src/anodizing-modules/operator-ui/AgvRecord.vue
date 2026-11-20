@@ -1,4 +1,5 @@
 <script setup>
+import { downloadBlob } from './api';
 import { computed, ref } from 'vue';
 import Accordion from 'primevue/accordion';
 import AccordionContent from 'primevue/accordioncontent';
@@ -94,12 +95,8 @@ function observed() {
 function download(format) {
   const record = exportRecord(agv.state, agv.session, agv.journal);
   const data = format === 'json' ? JSON.stringify(record, null, 2) : markdown(record, agv.commands);
-  const url = URL.createObjectURL(new Blob([data], { type: format === 'json' ? 'application/json' : 'text/markdown' }));
-  const link = Object.assign(document.createElement('a'), {
-    href: url, download: format === 'json' ? 'agv-test-record.json' : 'agv-test-report.md',
-  });
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadBlob(new Blob([data], { type: format === 'json' ? 'application/json' : 'text/markdown' }),
+    format === 'json' ? 'agv-test-record.json' : 'agv-test-report.md');
 }
 </script>
 

@@ -37,3 +37,15 @@ export function requestError(error, connected) {
   }
   return 'Refused. Check the connection and settings, then query status.';
 }
+
+export async function requestDownload(path) {
+  const response = await fetchLocal(path, null, 60000, 'no-store');
+  if (!response.ok) throw Object.assign(new Error('Download unavailable.'), { status: response.status });
+  return response.blob();
+}
+
+export function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  Object.assign(document.createElement('a'), { href: url, download: filename }).click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

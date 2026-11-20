@@ -119,9 +119,9 @@ it('keeps urgent controls outside the Sakai shell and routes between marked modu
   const menu = wrapper.get('nav[aria-label="Modules"]');
   const links = menu.findAll('a');
   expect(links.slice(1).map(link => link.attributes('href'))).toEqual([
-    '/calibration', '/teaching', '#/agv', '#/scene', '/pick-place',
+    '/calibration', '/teaching', '#/agv', '#/scene', '#/records', '/pick-place',
   ]);
-  expect(links.slice(1).map(link => link.findAll('.p-tag').map(tag => tag.text()).join(''))).toEqual(['Legacy', 'Legacy', '', '', 'Legacy']);
+  expect(links.slice(1).map(link => link.findAll('.p-tag').map(tag => tag.text()).join(''))).toEqual(['Legacy', 'Legacy', '', '', '', 'Legacy']);
   expect(wrapper.find('.stop-bar').exists()).toBe(false);
   expect(app.get('.stop-bar').find('#agv-stop').exists()).toBe(true);
   expect(wrapper.findAll('.home-grid .p-card')).toHaveLength(2);
@@ -234,4 +234,46 @@ it('identifies disconnected AGV transport and enabled manual pick/place capabili
   expect(app.text()).not.toMatch(/Simulation/);
   expect(app.text()).toMatch(/AGV.*(disconnected|no connection)/i);
   expect(app.text()).toMatch(/pick\/place.*enabled/i);
+});
+
+it('opens Recorder and its test alias, starts selected variables, and reattaches after navigation', async () => {
+  let active = null;
+  const changes = [];
+  open('#/records', async (path, body) => {
+    if (path === '/api/state') return { agv: { connection_id: 0, sequence: 1 }, variables: [{ id: 'agv.speed', name: 'Actual speed', unit: 'm/h' }] };
+    if (path === '/api/status') return { owner: {} };
+    if (path === '/api/records') {
+      if (body) changes.push(body);
+      if (body?.action === 'start') return (active = {
+        id: 'fixture', status: 'recording', started_at: '2026-11-21T00:00:00Z',
+        rate_hz: body.rate_hz, variables: [ { id: 'agv.speed' } ], agv_transport: 'simulator',
+      });
+      if (body?.action === 'stop') return (active = { ...active, status: 'stopping' });
+      return { active, records: active ? [active] : [], error: null };
+    }
+    return { connected: false, sequence: 1 };
+  });
+  await flushPromises();
+  expect(app.get('h1').text()).toBe('Recorder');
+  expect(app.get('#record-start').element.disabled).toBe(true);
+  expect(app.text()).toContain('Choose at least one variable.');
+  await app.get('input[type="checkbox"]').setValue(true);
+  await app.get('form').trigger('submit');
+  await flushPromises();
+  expect(changes).toEqual([expect.objectContaining({
+    action: 'start', rate_hz: 1, variables: ['agv.speed'],
+  })]);
+  expect(app.text()).toContain('AGV transport at start: Simulator');
+  location.hash = '#/';
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+  await flushPromises();
+  location.hash = '#/tests/records';
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+  await flushPromises();
+  expect(app.get('h1').text()).toBe('Recorder');
+  expect(app.get('nav a[href="#/records"]').attributes('aria-current')).toBe('page');
+  await app.get('#record-stop').trigger('click');
+  await flushPromises();
+  expect(changes[1]).toEqual({ action: 'stop', id: 'fixture' });
+  expect(app.text()).toContain('Finishing recording');
 });

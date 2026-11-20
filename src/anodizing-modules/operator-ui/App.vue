@@ -9,13 +9,15 @@ import AppLayout from './layout/AppLayout.vue';
 import StopBar from './StopBar.vue';
 import AgvPage from './AgvPage.vue';
 import ScenePage from './ScenePage.vue';
+import RecordsPage from './RecordsPage.vue';
 import { request } from './api';
 import { useAgv } from './useAgv';
 
 const route = ref(location.hash);
 const isAgv = computed(() => route.value === '#/agv');
 const isScene = computed(() => ['#/scene', '#/tests/scene'].includes(route.value));
-const title = computed(() => isAgv.value ? 'AGV commissioning' : isScene.value ? 'Scene' : 'Home');
+const isRecords = computed(() => ['#/records', '#/tests/records'].includes(route.value));
+const title = computed(() => isAgv.value ? 'AGV commissioning' : isScene.value ? 'Scene' : isRecords.value ? 'Recorder' : 'Home');
 const agv = useAgv(isAgv, isScene);
 const sceneConfig = ref(null);
 const sceneError = ref('');
@@ -133,6 +135,8 @@ onUnmounted(() => {
     <AgvPage v-if="isAgv" :agv="agv" />
     <ScenePage v-else-if="isScene" :config="sceneConfig" :config-error="sceneError"
       :state-error="agv.stateError" :variable="agv.variableInfo" />
+    <RecordsPage v-else-if="isRecords" :variables="agv.variables" :state-error="agv.stateError"
+      @outcome="(outcome, choose) => agv.showOutcome('recorder', outcome, choose)" />
     <div v-else class="home-grid">
       <Card class="panel home-card" aria-labelledby="service-heading">
         <template #title><h2 id="service-heading">Service</h2></template>

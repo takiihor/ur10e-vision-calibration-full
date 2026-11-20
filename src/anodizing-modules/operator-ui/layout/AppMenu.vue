@@ -11,6 +11,7 @@ const model = [
     { label: 'Teaching', url: '/teaching', icon: 'pi pi-fw pi-book', legacy: true },
     { label: 'AGV', url: '#/agv', icon: 'pi pi-fw pi-truck' },
     { label: 'Scene', url: '#/scene', icon: 'pi pi-fw pi-map' },
+    { label: 'Recorder', url: '#/records', icon: 'pi pi-fw pi-file' },
     { label: 'Pick/place', url: '/pick-place', icon: 'pi pi-fw pi-box', legacy: true },
 ];
 </script>
@@ -22,7 +23,7 @@ const model = [
                 <div class="layout-menuitem-root-text">Modules</div>
                 <ul class="layout-submenu">
                     <AppMenuItem v-for="item in model" :key="item.url" :item="item"
-                        :active="item.url === (route === '#/tests/scene' ? '#/scene' : route || '#/')" @navigate="$emit('navigate')" />
+                        :active="item.url === (route?.replace(/^#\/tests\//, '#/') || '#/')" @navigate="$emit('navigate')" />
                 </ul>
             </li>
         </ul>

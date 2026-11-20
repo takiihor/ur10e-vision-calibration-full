@@ -52,3 +52,16 @@ Add a `scene` section to `<data-dir>/site-profile.json` and restart the service 
 - Enter the saved Teaching project directory relative to the data directory and choose **Load project**. Only the selected project's saved tank ID marks a label. The local GLB and project are served at runtime and stay out of the bundle.
 
 The Scene's lazy WebGL chunk uses the same pinned three.js version as the legacy robot preview. Bring the three.js package in the prepared offline npm cache when building. Legacy tool, camera and collision preview workflows remain at `/preview/tool-envelope.html`.
+
+## Recorder
+
+Open `/operator/#/records` (or `/operator/#/tests/records` for the same panel).
+Choose variables and a sample rate, add optional session details, then select
+**Start recording**. You can navigate away or close the tab. Return to Recorder
+and select **Stop recording** to finish and download the Markdown summary,
+CSV samples or full JSON. The AGV checklist and its commissioning exports are
+linked from Recorder.
+
+The service saves sessions under `<data-dir>/records/`. Keep the directory and
+downloads local because they contain operator notes and device evidence. Local
+simulation uses the existing AGV simulator and optional Scene fixtures.
