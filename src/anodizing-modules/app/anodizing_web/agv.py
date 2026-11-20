@@ -26,6 +26,7 @@ REPLY_TIMEOUT = 1.5
 STATUS_REPLY_EXPECTED = .95  # Observed query replies took .83–.88 s.
 WRITE_TIMEOUT = .5
 STALE_AFTER = 5
+TIMED_REPORT_LISTEN_S = 3.1  # Vendor timed reports are 1–3 seconds apart.
 PAGE_POLL_S = 1.2
 RECIPE_STALE_S = 3
 RECIPE_POLL_S = .9
@@ -60,6 +61,7 @@ ARGUMENTS = {
     'call_station': {'min': 1, 'max': 255, 'default': 1, 'label': 'Station number'},
 }
 URGENT = {'stop', 'pause'}
+REPEATABLE = {'set_speed', 'forward', 'reverse', 'call_station', 'attachment_stop'}
 READS = {'query_status', 'read_speed'}
 STATION_CALL_REQUIRED = ('Station call needs the station-call function, set in the XBOT app. '
                          'In standard mode, use Forward/Reverse.')
@@ -309,7 +311,8 @@ class Simulator:
             return len(raw)
         if frame.command == 0x23:
             operation, low, high = frame.data
-            if self.mode == 0 and operation == 0x9D:
+            if ((self.mode != 2 and operation in (0x5B, 0x9D))
+                    or (self.mode == 2 and operation == 0x87 and low == 4)):
                 return len(raw)
             if not self.silent:
                 self.acknowledgements.append(monotonic() + 1)
@@ -396,6 +399,11 @@ class Confirmation:
     sent_at: float
     status_seen: bool = False
     travelling: bool = False
+    earlier_query: bool = False
+
+
+class ReceiveError(OSError):
+    pass
 
 
 @dataclass
@@ -416,7 +424,9 @@ class Resend:
 
     @property
     def limit(self):
-        return 5 if self.name in URGENT else 4
+        if self.name in URGENT:
+            return 5
+        return 4 if self.name in REPEATABLE else 1
 
 
 class Connection:
@@ -426,10 +436,9 @@ class Connection:
         self.owner = owner
         self.recipe_active = False
         self.recipe_statuses = deque(maxlen=64)
-        self.recipe_urgent = False
         self.motion_poll_at = 0
         self.status_iso = None
-        self.urgent_generation = 0
+        self.stop_generation = 0
         self.urgent_waiters = 0
         self.lock = Lock()
         self.send_lock = Lock()
@@ -443,10 +452,13 @@ class Connection:
         self.pending = {}
         self.replaced = deque(maxlen=20)
         self.awaiting_ack = {}
+        self.unmatched_ack = False
+        self.unanswered_query = False
         self.resend = self.retry_worker = None
         self.last_write_at = float('-inf')
         self.link_quality = dict.fromkeys(('sent', 'acknowledged', 'resent', 'no_reply'), 0)
         self.passive_reports = deque(maxlen=4)
+        self.listen_until = 0
         self.timed_report_interval = None
         self.query_at = None
         self.events = deque(maxlen=200)
@@ -484,14 +496,14 @@ class Connection:
         if self.resend is not None and self.resend.name == name:
             self.resend = None
 
-    def _cancel_resend(self):
-        if self.resend is not None:
+    def _cancel_resend(self, *, keep_urgent=False):
+        if self.resend is not None and not (keep_urgent and self.resend.name in URGENT):
             self._finish_confirmation(self.resend.name, 'not checked')
 
     def _expire(self):
         now = monotonic()
         self._check_stale(now)
-        final_tx = None
+        active_tx = None
         for name, pending in list(self.pending.items()):
             remaining = max(0, STALE_AFTER - (now - pending.sent_at))
             result = self.results[name]
@@ -502,8 +514,7 @@ class Connection:
                     interval = self.timed_report_interval
                 result['remaining_s'] = max(0, retry.sent_at + interval * (retry.limit - retry.tries)
                                             + retry.reply_wait - now)
-                if retry.tries == retry.limit:
-                    final_tx = result['tx_id']
+                active_tx = result['tx_id']
                 continue
             result['remaining_s'] = remaining
             if remaining == 0 and not pending.travelling:
@@ -511,16 +522,25 @@ class Connection:
                     self._finish_confirmation(name, 'not confirmed')
                 else:
                     result['state'] = 'waiting for status'
+        if any(now > expires_at and tx != active_tx and 'ack_elapsed_s' not in result
+               for tx, (_, _, result, expires_at) in self.awaiting_ack.items()):
+            self.unmatched_ack = True
         self.awaiting_ack = {tx: item for tx, item in self.awaiting_ack.items()
-                             if now <= item[3] or tx == final_tx}
+                             if now <= item[3] or tx == active_tx}
 
     def _acknowledge(self, decoded):
-        # The ACK carries vehicle ID only. Keep superseded writes as candidates
-        # until their receive window closes so their ACK cannot cancel a Stop.
+        # The ACK carries only vehicle ID. The vendor specifies no maximum delay.
+        retry = self.resend
+        if retry is not None and retry.name in URGENT:
+            result = self.results[retry.name]
+            if len(self.awaiting_ack) > 1 or self.unmatched_ack or result['ambiguous_ack']:
+                result['unattributed_ack'] = True
+                return
         if len(self.awaiting_ack) == 1:
             name, sent_at, result, expires_at = next(iter(self.awaiting_ack.values()))
             if ('ack_elapsed_s' in result or self.results.get(name) is not result
-                    or result['state'] == 'not checked'):
+                    or result['state'] == 'not checked'
+                    or (name in URGENT and (self.unmatched_ack or result.get('ambiguous_ack')))):
                 return
             now = monotonic()
             elapsed = now - sent_at
@@ -533,14 +553,19 @@ class Connection:
                 result['recipe_ack_elapsed_s'] = sent_at - self.recipe_call_at + elapsed
             decoded.update(acknowledged_command=name, ack_elapsed_s=elapsed)
             self.link_quality['acknowledged'] += 1
-            if self.resend is not None and self.resend.name == name:
+            if (self.resend is not None and self.resend.name == name
+                    and not result.get('mode_unverified')):
                 self.resend = None
 
     def _passive_report(self, now):
         # A query reply and a timed report have the same wire format.
         if self.query_at is not None and now - self.query_at <= REPLY_TIMEOUT:
+            if not self.unanswered_query and not self._fresh_timed_reports(now):
+                # Two reports for one query indicate a timed stream may have started.
+                self.listen_until = now + TIMED_REPORT_LISTEN_S
             return
         self.passive_reports.append(now)
+        self.listen_until = now + TIMED_REPORT_LISTEN_S
         if len(self.passive_reports) == self.passive_reports.maxlen:
             gaps = [end - start for start, end in pairwise(self.passive_reports)]
             interval = median(gaps)
@@ -556,9 +581,9 @@ class Connection:
                 and now - self.passive_reports[-1] < 1.5 * self.timed_report_interval)
 
     def _send_slot(self, *, retry=False, urgent=False):
-        if not urgent and (self.reading is not None or self.urgent_waiters):
-            return False
         now = monotonic()
+        if not urgent and (self.reading is not None or self._urgent_pending(now)):
+            return False
         if not self._timed_reports_on_time(now):
             interval = FALLBACK_INTERVAL if retry or self._fresh_timed_reports(now) else ACK_WINDOW
             return now >= self.last_write_at + interval
@@ -570,7 +595,7 @@ class Connection:
         return (self.reading == 'query_status' and not self._fresh_timed_reports(now)
                 and now < self.read_sent_at + STATUS_REPLY_EXPECTED)
 
-    def _background_poll_blocked(self, now):
+    def _urgent_pending(self, now):
         return (self.urgent_waiters or (self.resend is not None and self.resend.name in URGENT)
                 or any(name in URGENT and 'ack_elapsed_s' not in result and now < expires_at
                        for name, _, result, expires_at in self.awaiting_ack.values()))
@@ -605,6 +630,7 @@ class Connection:
         if self.recipe_active:
             self.recipe_statuses.append((decoded, self.status_at))
         self._check_stale(self.status_at)
+        self.unanswered_query = False
         for name, pending in list(self.pending.items()):
             pending.status_seen = True
             if name == 'call_station':
@@ -619,20 +645,22 @@ class Connection:
                     if pending.travelling and self.resend is not None and self.resend.name == name:
                         self.resend = None
             elif name in URGENT:
+                if pending.earlier_query:
+                    pending.earlier_query = False
+                    continue
                 stopped = decoded.get('stopped') is True and decoded.get('actual_speed_m_h') == 0
-                flag = 'command_stop' if name == 'stop' else 'paused'
-                flag_active = decoded.get(flag) is True
                 result = self.results[name]
+                flag = 'command_stop' if result['wire_command'] == 'stop' else 'paused'
+                flag_active = decoded.get(flag) is True
                 was_stopped = pending.before.get('stopped') is True and pending.before.get('actual_speed_m_h') == 0
                 # A repeated parked report alone cannot confirm delivery of a new urgent command.
                 changed = (stopped and not was_stopped) or (flag_active and pending.before.get(flag) is not True)
-                earlier_query = (self.query_at is not None and self.query_at <= pending.sent_at
-                                 and self.status_at - self.query_at <= REPLY_TIMEOUT)
-                if (stopped or flag_active) and (
-                        changed or 'ack_elapsed_s' in result
-                        or (self.timed_report_interval is None and not earlier_query)):
-                    result['confirmed_stopped'] = stopped
+                if stopped and (changed or 'ack_elapsed_s' in result
+                                or (self.query_at is not None and self.query_at > pending.sent_at)):
+                    result['confirmed_stopped'] = True
                     self._finish_confirmation(name, 'confirmed by status')
+                elif flag_active and changed:
+                    result.update(confirmed_stopped=False, state='confirmed by status')
             elif pending.expected and all(decoded.get(key) == value for key, value in pending.expected.items()) and (
                     not pending.before or any(key in pending.before and pending.before[key] != value
                                               for key, value in pending.expected.items())):
@@ -640,7 +668,10 @@ class Connection:
         self._expire()
 
     def _receive(self):
-        chunk = self.transport.read(min(4096, self.transport.in_waiting))
+        try:
+            chunk = self.transport.read(min(4096, self.transport.in_waiting))
+        except OSError as exc:
+            raise ReceiveError(str(exc)) from exc
         for raw, error in self.splitter.feed(chunk):
             if error:
                 self._record('RX', raw, {'error': error})
@@ -695,7 +726,7 @@ class Connection:
             self.results[self.reading]['remaining_s'] = max(0, REPLY_TIMEOUT - (now - self.read_sent_at))
         robot_configured = getattr(self.owner, 'robot_configured', False)
         return dict(robot_interlock=robot_configured, recipe_active=self.recipe_active, connected=self.transport is not None, connection_id=self.id, sequence=self.sequence, settings=self.settings,
-                    connection_started_at=self.connected_iso,
+                    connection_started_at=self.connected_iso, stop_generation=self.stop_generation,
                     armed=self.armed, motion_block=motion_block(self.owner), status=self.status,
                     status_hex=self.status_hex, status_age_s=age,
                     stale=self.stale, events=list(self.events),
@@ -710,7 +741,8 @@ class Connection:
         with self.lock:
             now = monotonic()
             last = self.status_at if self.status_at is not None else self.connected_at
-            return {'connected': self.transport is not None,
+            return {'connected': self.transport is not None, 'connection_id': self.id,
+                    'stop_generation': self.stop_generation,
                     'mode': self.settings['mode'] if self.transport is not None else None,
                     'stale': last is not None and now-last >= RECIPE_STALE_S,
                     'status_age_s': None if self.status_at is None else now-self.status_at,
@@ -730,7 +762,7 @@ class Connection:
                     self._expire()
                     if acquired and not self.recipe_active:
                         if (self.reading is None and self.resend is None and now >= self.motion_poll_at
-                                and not self._background_poll_blocked(now)
+                                and not self._urgent_pending(now)
                                 and not self._fresh_timed_reports(now)
                                 and (self.status_at is None or now-self.status_at >= MOTION_POLL_S)
                                 and self._send_slot()):
@@ -740,7 +772,7 @@ class Connection:
                     self._transport_error(exc)
                     return {}
                 return dict(status=self.status, status_time=self.status_iso, mode=self.settings['mode'],
-                            connection_id=self.id, status_age_s=None if self.status_at is None else monotonic()-self.status_at,
+                            connection_id=self.id, stop_generation=self.stop_generation, status_age_s=None if self.status_at is None else monotonic()-self.status_at,
                             movement_pending=any(name not in URGENT and name != 'set_speed' for name in self.pending))
         finally:
             if acquired:
@@ -808,6 +840,7 @@ class Connection:
         self.id += 1
         self.connected_at = monotonic()
         self.connected_iso = timestamp()
+        self.listen_until = self.connected_at + TIMED_REPORT_LISTEN_S
         self.settings = dict(mode=mode, port=port, address=hex_bytes(prefix[:2]), channel=hex_bytes(prefix[2:]))
         self.status = self.status_at = self.status_hex = self.status_iso = self.error = None
         self.motion_poll_at = 0
@@ -816,6 +849,7 @@ class Connection:
         self.pending.clear()
         self.replaced.clear()
         self.awaiting_ack.clear()
+        self.unmatched_ack = self.unanswered_query = False
         self.last_write_at = float('-inf')
         self.link_quality = dict.fromkeys(self.link_quality, 0)
         self.passive_reports.clear()
@@ -855,6 +889,13 @@ class Connection:
         self.error = LINK_LOST
         self._event('transport_error', False, True)
         self._record('Link', b'', {'error': str(exc)})
+        if isinstance(exc, ReceiveError) and self.recipe_active and self.transport is self.recipe_transport:
+            self.stop_generation += 1
+            name = self._halt_command(recipe=True)
+            try:
+                self._write(name, command_frame(name, None, self.splitter.prefix).encode(), None, 1)
+            except OSError as write_error:
+                self._record('Link', b'', {'error': str(write_error), 'command': name})
         try:
             self._close()
         except OSError as close_error:
@@ -879,32 +920,25 @@ class Connection:
         self.link_quality['resent'] += attempt > 1
         return sent_at, self._record('TX', raw, detail)
 
-    def _send(self, name, value, *, background=False, prewrite=None, recipe_check=None, status_hold_s=None):
-        if name == 'stop' and self.resend is not None and self.resend.name == name:
-            return self.pending[name].sent_at
+    def _send(self, name, value, *, background=False, prewrite=None, recipe_check=None,
+              status_hold_s=None, mode_unverified=False):
         frame = command_frame(name, value, self.splitter.prefix)
         if name in URGENT:
             self._cancel_resend()
-        try:
+        else:
             self._receive()
-        except OSError as exc:
-            if name not in URGENT:
-                raise
-            self._record('RX', b'', {'error': str(exc)})
         before = self.status or {}
-        maximum = before.get('max_stations')
         if prewrite:
             prewrite()
-        if name == 'call_station' and before.get('mode') == 0:
-            raise ValueError(STATION_CALL_REQUIRED)
-        if name == 'call_station' and maximum and value > maximum:
-            raise ValueError(f'Choose a learned station from 1 to {maximum}.')
+        if name not in READS and name not in URGENT:
+            self._check_motion_status(name, value)
         raw = frame.encode()
         sent_at, entry = self._write(name, raw, value, 1, background)
         result = {'tx_id': entry['id'], 'sent_at': entry['timestamp'], 'value': value, 'tries': 1}
         if name in READS:
             if name == 'query_status':
                 self.query_at = sent_at
+                self.unanswered_query = True
             self.reading, self.read_sent_at = name, sent_at
             self.results[name] = dict(result, state='waiting for reply', background=background)
             return sent_at
@@ -912,9 +946,10 @@ class Connection:
         result['state'] = SENT
         if status_hold_s is not None:
             result['status_hold_s'] = status_hold_s
-        if name == 'call_station' and not maximum:
-            result['warning'] = ('Station learning is unverified.' if maximum is None
-                                 else f'Station {value} is above the last reported maximum (0).')
+        if name in URGENT:
+            result.update(wire_command=name, mode_unverified=mode_unverified,
+                          ambiguous_ack=any('ack_elapsed_s' not in candidate
+                                            for _, _, candidate, _ in self.awaiting_ack.values()))
         if name != 'set_speed':
             for pending in list(self.pending):
                 if pending not in ('set_speed', name):
@@ -927,26 +962,26 @@ class Connection:
         self._cancel_resend()
         self.results[name] = result
         self.awaiting_ack[entry['id']] = (name, sent_at, result, sent_at + REPLY_TIMEOUT)
-        self.pending[name] = Confirmation(expected_status(name, value), before, sent_at)
+        self.pending[name] = Confirmation(expected_status(name, value), before, sent_at,
+                                          earlier_query=name in URGENT and self.unanswered_query)
         self.resend = Resend(name, raw, sent_at, recipe_check)
         if recipe_check is None and self.settings is not None and self.retry_worker is None:
             self._start_worker()
         return sent_at
 
+    def _halt_command(self, *, recipe=False):
+        mode = (self.status or {}).get('mode')
+        return 'pause' if mode == 2 or (mode not in (0, 1) and recipe) else 'stop'
+
     def _send_urgent(self, name, *, recipe=False):
         with self.lock:
             transport = self.transport
-            if recipe and transport is not self.recipe_transport:
+            if recipe and (not self.recipe_active or transport is not self.recipe_transport):
                 return False
-            if recipe and self.recipe_urgent == 'stop' and not self.urgent_waiters:
-                return True
             if transport is None:
                 raise ValueError('Connect an AGV transport first.')
-            self.urgent_generation += 1
-            if self.recipe_active and not recipe:
-                self.recipe_urgent = name
-            if self.resend is not None and (name != 'stop' or self.resend.name != name):
-                self._cancel_resend()
+            self.stop_generation += 1
+            self._cancel_resend(keep_urgent=True)
             self.urgent_waiters += 1
         held_at = None
         try:
@@ -956,27 +991,31 @@ class Connection:
                         if recipe:
                             return False
                         raise ValueError('The AGV connection changed. Refresh before sending another command.')
+                    try:
+                        self._receive()
+                    except ReceiveError as exc:
+                        self._record('RX', b'', {'error': str(exc)})
+                        waiting = False
+                    else:
+                        waiting = self._status_reply_in_flight(monotonic())
                     now = monotonic()
-                    waiting = self._status_reply_in_flight(now)
-                    if waiting:
-                        try:
-                            self._receive()
-                        except OSError:
-                            waiting = False  # Still attempt the urgent write after a receive error.
-                        else:
-                            now = monotonic()
-                            waiting = self._status_reply_in_flight(now)
                     if not waiting:
-                        if self.recipe_active and not recipe:
-                            self.recipe_urgent = name
-                        try:
-                            self._send(name, None, status_hold_s=0 if held_at is None else now - held_at)
-                        except OSError as exc:
-                            self._transport_error(exc)
-                            if recipe:
-                                return False
-                            raise ValueError(self.error) from exc
-                        return True if recipe else self._snapshot()
+                        halt = self._halt_command(recipe=recipe) if name == 'stop' else name
+                        retry = self.resend
+                        mode = (self.status or {}).get('mode')
+                        if (retry is not None and retry.name in URGENT
+                                and (retry.name == halt or (mode == 0 and retry.name == 'stop'))):
+                            halt = retry.name
+                        else:
+                            try:
+                                self._send(halt, None, status_hold_s=0 if held_at is None else now - held_at,
+                                           mode_unverified=name == 'stop' and not recipe and mode not in (0, 1, 2))
+                            except OSError as exc:
+                                self._transport_error(exc)
+                                if recipe:
+                                    return False
+                                raise ValueError(self.error) from exc
+                        return True if recipe else dict(self._snapshot(), urgent_command=halt)
                     if held_at is None:
                         held_at = now
                 sleep(.01)
@@ -1019,14 +1058,9 @@ class Connection:
                         or self.resend is not None or self.reading is not None):
                     return
                 now = monotonic()
-                if self._background_poll_blocked(now):
+                if self._urgent_pending(now):
                     return
-                # Give the first reports time to establish a cadence before we query.
-                if self.timed_report_interval is None:
-                    listen_from = self.passive_reports[-1] if self.passive_reports else self.connected_at
-                    if now - listen_from < REPLY_TIMEOUT:
-                        return
-                if self._fresh_timed_reports(now) or not self._send_slot():
+                if now < self.listen_until or self._fresh_timed_reports(now) or not self._send_slot():
                     return
                 if self.query_at is not None and now - self.query_at < PAGE_POLL_S:
                     return
@@ -1053,9 +1087,23 @@ class Connection:
         name = retry.name
         result = self.results[name]
         if retry.tries == retry.limit:
+            if 'ack_elapsed_s' in result:
+                self.resend = None
+                return False
             self.link_quality['no_reply'] += 1
+            if name not in URGENT and retry.limit == 1:
+                result['warning'] = 'Delivery is uncertain. Check the AGV before trying again.'
             self._finish_confirmation(name, 'no reply')
             self.awaiting_ack[result['tx_id']] = (name, retry.sent_at, result, monotonic() + LATE_ACK_GRACE)
+            return False
+        if name in URGENT and retry.tries >= 2 and (
+                result.get('unattributed_ack') or (result['mode_unverified'] and not result.get('mode_checked')
+                                                   and 'ack_elapsed_s' in result)
+        ) and self.reading is None and not self._fresh_timed_reports(monotonic()):
+            # After a retry had its reply window, ask whether the halt took effect.
+            result.pop('unattributed_ack', None)
+            result['mode_checked'] = True
+            self._send('query_status', None, background=True)
             return False
         if name not in URGENT and not self._send_slot(retry=True):
             return False
@@ -1065,8 +1113,26 @@ class Connection:
             except ValueError:
                 self._cancel_resend()
                 raise
+        if name not in URGENT:
+            try:
+                self._check_motion_status(name, result['value'])
+            except ValueError as exc:
+                result['warning'] = str(exc)
+                self._cancel_resend()
+                if retry.recipe_check is not None:
+                    raise
+                return False
         attempt = retry.tries + 1
-        retry.sent_at, entry = self._write(name, retry.raw, result['value'], attempt)
+        wire_name, raw = name, retry.raw
+        if name in URGENT and result['mode_unverified']:
+            mode = (self.status or {}).get('mode')
+            if mode in (0, 1, 2):
+                wire_name = self._halt_command()
+            else:
+                wire_name = 'pause' if result['wire_command'] == 'stop' else 'stop'
+            result['wire_command'] = wire_name
+            raw = command_frame(wire_name, None, self.splitter.prefix).encode()
+        retry.sent_at, entry = self._write(wire_name, raw, result['value'], attempt)
         retry.tries = result['tries'] = attempt
         result['last_sent_at'] = entry['timestamp']
         self.awaiting_ack[result['tx_id']] = (name, retry.sent_at, result, retry.sent_at + REPLY_TIMEOUT)
@@ -1145,24 +1211,35 @@ class Connection:
         if action == 'send' and (not isinstance(name, str) or name not in COMMANDS):
             raise ValueError('Select a known AGV command.')
         if action != 'send':
-            return self._submit_locked(body, action, name, False, None)
+            return self._submit_locked(body, action, name, False)
         if name in URGENT:
             return self._send_urgent(name)
         motion = name not in READS
         with self.lock:
-            urgent_generation = self.urgent_generation if motion else None
+            if motion:
+                self._check_manual_motion(body)
             transport = self.transport
+            if self._urgent_pending(monotonic()) and transport is not None:
+                try:
+                    self._receive()
+                except ReceiveError as exc:
+                    self._transport_error(exc)
+                    raise ValueError(self.error) from exc
+            if self._urgent_pending(monotonic()):
+                if name == 'query_status' and body.get('background') is True:
+                    return self._snapshot()
+                raise ValueError('AGV Stop or Pause is awaiting delivery. Check the AGV before trying again.')
         with self.send_lock:
             deadline = monotonic() + 4
             while self._wait_send_slot(transport, deadline):
-                snapshot = self._submit(body, action, name, motion, urgent_generation)
+                snapshot = self._submit(body, action, name, motion)
                 if snapshot is not None:
                     return snapshot
                 if monotonic() >= deadline:
                     break
             raise ValueError('Could not find a gap in the AGV reports. Check the radio and try again.')
 
-    def _submit(self, body, action, name, motion, urgent_generation):
+    def _submit(self, body, action, name, motion):
         with self.owner.lock if motion else nullcontext():
             if motion and getattr(self.owner, 'robot_configured', False):
                 from . import travel_pose
@@ -1171,7 +1248,28 @@ class Connection:
                 reason = travel_pose.motion_block(self.owner)
                 if reason:
                     raise ValueError(reason)
-            return self._submit_locked(body, action, name, motion, urgent_generation)
+            return self._submit_locked(body, action, name, motion)
+
+    def _check_stop_generation(self, approved):
+        if type(approved) is not int or approved != self.stop_generation:
+            raise ValueError('Stop, Pause or disarming cancelled this movement. Refresh and review before trying again.')
+
+    def _check_motion_status(self, name, value):
+        status = self.status or {}
+        if (self.status_at is None or monotonic() - self.status_at >= STALE_AFTER
+                or status.get('mode') not in (0, 2) or type(status.get('stopped')) is not bool
+                or status.get('fault_code') != 0 or status.get('obstacle_stop') is not False):
+            raise ValueError('AGV movement needs fresh vehicle status with no fault or obstacle.')
+        if name == 'call_station':
+            if status['mode'] != 2:
+                raise ValueError(STATION_CALL_REQUIRED)
+            maximum = status.get('max_stations', 0)
+            if maximum == 0:
+                raise ValueError('AGV station learning is unverified. Learn the route before calling a station.')
+            if type(value) is int and value > maximum:
+                raise ValueError(f'Choose a learned station from 1 to {maximum}.')
+        if name == 'resume' and status['mode'] != 2:
+            raise ValueError('Resume needs the station-call function. In standard mode, use Forward/Reverse.')
 
     def _check_manual_motion(self, body):
         if self.transport is None:
@@ -1182,8 +1280,9 @@ class Connection:
             raise ValueError(reason)
         if not self.armed:
             raise ValueError('Tick Armed first.')
+        self._check_stop_generation(body.get('stop_generation'))
 
-    def _submit_locked(self, body, action, name, motion, urgent_generation):
+    def _submit_locked(self, body, action, name, motion):
         with self.lock:
             if action == 'connect':
                 self._connect(body)
@@ -1195,14 +1294,12 @@ class Connection:
                         background = name == 'query_status' and body.get('background') is True
                         if motion:
                             self._check_manual_motion(body)
-                            if urgent_generation is not None and self.urgent_generation != urgent_generation:
-                                raise ValueError('Stop, Pause or disarming cancelled this movement. Check the AGV before trying again.')
                         else:
                             if self.recipe_active:
                                 raise ValueError('The recipe is checking AGV status. Follow Current operation.')
                             if body.get('connection_id') is not None:
                                 self._check_connection(body['connection_id'])
-                            if background and self._background_poll_blocked(monotonic()):
+                            if background and self._urgent_pending(monotonic()):
                                 return self._snapshot()
                         if not self._send_slot():
                             return None
@@ -1216,8 +1313,8 @@ class Connection:
                         elif action == 'arm' and type(body.get('armed')) is bool:
                             self.armed = body['armed']
                             if not self.armed:
-                                self.urgent_generation += 1
-                                self._cancel_resend()
+                                self.stop_generation += 1
+                                self._cancel_resend(keep_urgent=True)
                         elif action == 'silence' and isinstance(self.transport, Simulator) and type(body.get('silent')) is bool:
                             self.transport.silent = body['silent']
                         else:
@@ -1231,17 +1328,18 @@ class Connection:
         return self._wait_for_reply(transport, sent_at + REPLY_TIMEOUT)
 
     @contextmanager
-    def recipe_link(self, connection_id=None):
+    def recipe_link(self, connection_id=None, *, stop_generation):
         # Wait for a foreground read. Recipe feedback drains an in-flight background read.
         with self.send_lock, self.lock:
             if self.transport is None or self.recipe_active:
                 raise ValueError('Connect the AGV on the AGV page before starting the recipe.')
             if connection_id is not None:
                 self._check_connection(connection_id)
+            self._check_stop_generation(stop_generation)
             self.recipe_active = True
-            self._cancel_resend()
+            self.recipe_generation = stop_generation
+            self._cancel_resend(keep_urgent=True)
             self.armed = False
-            self.recipe_urgent = False
             self.recipe_transport = self.transport
             self.recipe_statuses.clear()
             self.recipe_next_poll = self.recipe_ack_window = 0
@@ -1257,10 +1355,10 @@ class Connection:
                 self.recipe_statuses.clear()
 
     def _recipe_check_link(self):
-        if self.recipe_urgent:
-            raise ValueError('AGV Stop or Pause cancelled the recipe. Check the line and start a new reviewed run.')
         if self.transport is not self.recipe_transport:
             raise ValueError('AGV link lost. Check the radio and reconnect on the AGV page.')
+        if self.stop_generation != self.recipe_generation:
+            raise ValueError('AGV Stop or Pause cancelled the recipe. Check the line and start a new reviewed run.')
 
     def recipe_feedback(self):
         with self.lock:
@@ -1280,7 +1378,7 @@ class Connection:
                 # radio. Leave room for them on its half-duplex link.
                 if (self.reading is None and not self.recipe_call_waiting and now >= self.recipe_next_poll
                         and not self._fresh_timed_reports(now)
-                        and not self._background_poll_blocked(now)
+                        and not self._urgent_pending(now)
                         and (ack is not None or now >= self.recipe_ack_window) and self._send_slot()):
                     sent = self._send('query_status', None, background=True)
                     self.recipe_next_poll = sent + RECIPE_POLL_S
@@ -1296,8 +1394,12 @@ class Connection:
     def recipe_call(self, station, validate, *, retry_check=None):
         with self.lock:
             self._recipe_check_link()
-            self._receive()
-            if self.reading is not None:
+            try:
+                self._receive()
+            except ReceiveError as exc:
+                self._transport_error(exc)
+                raise ValueError(self.error) from exc
+            if self.reading is not None or self._urgent_pending(monotonic()):
                 self.recipe_call_waiting = True
                 return None
             self.recipe_call_waiting = True
