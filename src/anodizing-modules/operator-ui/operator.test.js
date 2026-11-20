@@ -128,3 +128,28 @@ it('keeps Manual and Teacher Stop bound to their jobs while Escape targets the A
   expect(element('teacher').text()).toMatch(/Teacher Stop/);
   expect(element('outcome').text()).toContain('(Esc)');
 });
+
+it('lets the operator disarm a stale link without re-enabling movement', async () => {
+  vi.useFakeTimers();
+  let armed = false, sequence = 0, age = 0;
+  const commands = [{ name: 'forward', label: 'Forward', motion: true }];
+  open('#/agv', async (path, body) => {
+    if (path === '/api/state') return { variables: [] };
+    if (path === '/api/status') return { owner: {} };
+    if (body?.action === 'arm') armed = body.armed;
+    return { ...connected, armed, sequence: ++sequence, status_age_s: age,
+      status: { mode: 2, max_stations: 3, stopped: true }, commands, results: {} };
+  });
+  await flushPromises();
+  await element('armed').setValue(true);
+  await flushPromises();
+  expect(armed).toBe(true);
+  age = 5;
+  await vi.advanceTimersByTimeAsync(800);
+  expect(element('forward').element.disabled).toBe(true);
+  expect(element('armed').element.disabled).toBe(false);
+  await element('armed').setValue(false);
+  await flushPromises();
+  expect(armed).toBe(false);
+  expect(element('armed').element.disabled).toBe(true);
+});

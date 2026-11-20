@@ -89,8 +89,12 @@ export function useAgv(isAgv) {
     return '';
   });
   const armed = computed(() => state.value.armed && armedHere.value);
-  const armReason = computed(() => !state.value.connected ? 'Connect first.' : busy.value || resetPending ? pendingWait :
-    state.value.motion_block || (stale.value ? 'Wait for a fresh status report.' : ''));
+  const armReason = computed(() => {
+    if (!state.value.connected) return 'Connect first.';
+    if (busy.value || resetPending) return pendingWait;
+    if (armed.value) return '';
+    return state.value.motion_block || (stale.value ? 'Wait for a fresh status report.' : '');
+  });
 
   function setServiceError(error) {
     if (serviceError.value === error) return;
