@@ -23,6 +23,8 @@ a { color: var(--p-operator-action); }
 ::selection { background: var(--p-operator-action); color: var(--p-operator-canvas); }
 :focus-visible { outline: 3px solid var(--p-operator-focus) !important; outline-offset: 3px !important; }
 a, summary, .check { min-height: 44px; }
+.p-select, .p-select-option, .p-accordionheader, .p-dialog-close-button { min-height: 44px; }
+.p-dialog-close-button { min-width: 44px; }
 input:not([type="checkbox"]), select, textarea {
   display: block; width: 100%; min-width: 0; min-height: 44px;
   padding: .45rem .6rem; border: 1px solid var(--p-operator-border); border-radius: 6px;

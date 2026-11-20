@@ -105,7 +105,7 @@ function download(format) {
   <div class="agv-workflow">
     <Panel class="panel agv-surface">
       <template #header><h2>Commissioning checklist</h2></template>
-      <Message severity="info">
+      <Message severity="secondary" :pt="{ root: { role: 'note', 'aria-live': 'off' } }">
         <strong>Before testing</strong> Confirm the robot is idle, the track is clear, a person is at the AGV’s e-stop, and fresh status is visible.
         The AGV may restart by itself in Auto mode or when automatic restart is enabled. Check both settings before moving.
       </Message>

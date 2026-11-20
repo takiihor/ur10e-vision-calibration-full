@@ -1,4 +1,7 @@
 Sakai Vue 5.0.0
+https://github.com/primefaces/sakai-vue/tree/5.0.0
+
+The operator UI adapts the Sakai layout components and stylesheet.
 
 The MIT License (MIT)
 
