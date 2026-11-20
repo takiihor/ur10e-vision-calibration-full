@@ -226,7 +226,7 @@ class TeachingService:
             if motion and getattr(motion, 'path_certificate', None):
                 result['path_certificate'] = motion.path_certificate
             if motion and getattr(motion, 'cleanup_uncertain', False):
-                result['execution_uncertain'] = True
+                result.update(status='failed', execution_uncertain=True)
             with self.lock:
                 try:
                     if returning:
@@ -272,7 +272,7 @@ class TeachingService:
             self.completed, self.error, self.failed = 'configure', '', None
             return self.state()
 
-    def submit(self, action, body, *, agv=None):
+    def submit(self, action, body, *, finish_station=None, tank_edit=None):
         if action not in ('capture', 'teach', 'locate', 'capture_validation'):
             raise ValueError('Unknown teaching step')
         with self.lock:
@@ -293,11 +293,11 @@ class TeachingService:
             self.project._persist()
             self.busy, self.error, self.completed, self.failed = action, '', None, None
             settings = dict(self.project.settings, project=str(self.project.directory))
-            self.worker_thread = threading.Thread(target=self._run, args=(action, settings, agv),
+            self.worker_thread = threading.Thread(target=self._run, args=(action, settings, finish_station, tank_edit),
                                                   daemon=True)
             self.worker_thread.start()
 
-    def _run(self, action, settings, agv=None):
+    def _run(self, action, settings, finish_station=None, tank_edit=None):
         exported = self.project.exported if self.project and action == 'capture_validation' else None
         try:
             # SDK/network calls run in a bounded child process. Timeout or app exit
@@ -307,8 +307,8 @@ class TeachingService:
                     return
                 command = [sys.executable, '-m', 'ur_pick_place.vision.teach_ui',
                            '--worker', action, '--project', settings['project']]
-                if action == 'capture' and agv is not None:
-                    command.extend(['--agv-capture', json.dumps(agv)])
+                if action == 'capture' and finish_station is not None:
+                    command.append('--defer-capture')
                 process = self.process = subprocess.Popen(
                     command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
@@ -319,8 +319,11 @@ class TeachingService:
                 raise ValueError('Step timed out after 90 seconds; connections closed. Check robot/network/camera and retry.')
             if process.returncode:
                 raise ValueError(stderr.strip() or stdout.strip() or 'Teaching step failed')
+            station = finish_station() if action == 'capture' and finish_station is not None else None
             with self.lock:
                 self.project = TeachingProject(settings)
+                if action == 'capture' and finish_station is not None:
+                    self.project.finish_capture(agv=station, tank_edit=tank_edit)
                 # Fresh export is only marked ready in the process that produced it.
                 if action == 'locate':
                     self.project.exported = read_json(self.project.directory / 'pick_target.json')
@@ -329,6 +332,8 @@ class TeachingService:
                     self.project.validation = read_json(self.project.directory / 'validation_capture.json')
                     self.project.exported = exported
                     self.project.flow['exported'] = exported is not None
+                if action in ('locate', 'capture_validation'):
+                    self.project._persist()
                 self.completed = action
         except Exception as exc:
             with self.lock:
@@ -491,7 +496,7 @@ def main(argv=None):
     parser.add_argument('--no-browser', action='store_true')
     parser.add_argument('--project', type=Path, help='Open a previously saved teaching project')
     parser.add_argument('--worker', choices=('capture', 'teach', 'locate', 'capture_validation'), help=argparse.SUPPRESS)
-    parser.add_argument('--agv-capture', type=json.loads, help=argparse.SUPPRESS)
+    parser.add_argument('--defer-capture', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.worker:
         try:
@@ -500,7 +505,7 @@ def main(argv=None):
             if args.worker == 'teach':
                 project.save_pick(marker_unchanged=True)
             elif args.worker == 'capture':
-                project.capture(agv=args.agv_capture)
+                project.capture(defer=args.defer_capture)
             else:
                 getattr(project, args.worker)()
             return 0

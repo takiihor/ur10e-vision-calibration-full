@@ -58,6 +58,7 @@ class JobOwner:
         self.storage_error = None
         self.closing = False
         self.teacher_service = None
+        self.teacher_stop = None
         self.teacher_job = self.teacher_project = self.teacher_settings = None
         for path in self.directory.glob('*.json'):
             try:
@@ -179,6 +180,7 @@ class JobOwner:
                 self.current_alignment = None
             self.jobs[request_id] = job
             self.active = request_id
+            self.teacher_stop = threading.Event() if teacher_move else None
             self.agv_visit = visit
             if self.record_event is not None:
                 self.record_event('job', 'accepted', job_id=request_id, request_id=request_id,
@@ -247,6 +249,7 @@ class JobOwner:
                 self.runner = None
                 self.motion_job = None
                 self.agv_visit = None
+                self.teacher_stop = None
                 if job['module'] == 'mcu' and self.mcu_pending == job['id']:
                     self.mcu_pending = None
                 self.active = None
@@ -319,8 +322,9 @@ class JobOwner:
     def status(self):
         with self.lock:
             stop_targets = []
-            if self.teacher_service is not None and self.teacher_job is not None:
-                stop_targets.append({'kind': 'teacher', 'job_id': self.teacher_job})
+            teacher_id = self.active if self.teacher_stop is not None else self.teacher_job
+            if teacher_id is not None:
+                stop_targets.append({'kind': 'teacher', 'job_id': teacher_id})
             manual = self.jobs.get(self.active, {})
             if manual.get('auto_action') in ('PICK', 'PLACE', 'REPEAT', 'vertical_descent', 'STEP'):
                 stop_targets.append({'kind': 'manual', 'job_id': self.active})

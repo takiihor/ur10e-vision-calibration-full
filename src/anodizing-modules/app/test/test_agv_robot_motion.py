@@ -372,3 +372,43 @@ def test_capture_station_requires_safe_arrival_evidence(tmp_path, field, value):
         assert result['source'] == 'operator'
     finally:
         link.close()
+
+
+def test_teaching_capture_refuses_transient_station_loss(tmp_path):
+    from anodizing_web.teaching import capture_station
+
+    owner = JobOwner(tmp_path)
+    link = agv.Connection(owner)
+    try:
+        connect_parked(link)
+        finish = capture_station(link, 7)
+        with link.lock:
+            parked = link.status
+            link._status_received(dict(parked, station_arrival=False, actual_speed_m_h=100), b'')
+            link._status_received(parked, b'')
+        with pytest.raises(ValueError, match='AGV.*changed'):
+            finish()
+    finally:
+        link.close()
+
+
+def test_teaching_capture_requires_report_after_image(tmp_path, monkeypatch):
+    from anodizing_web import teaching
+
+    owner = JobOwner(tmp_path)
+    link = agv.Connection(owner)
+    try:
+        connect_parked(link)
+        initial = link.status_at
+        waited = []
+        finish = teaching.capture_station(link, None)
+        def report(delay):
+            waited.append(delay)
+            with link.lock:
+                link._status_received(link.status, b'')
+        monkeypatch.setattr(teaching, '_capture_wait', report)
+        result = finish()
+        assert result['after_image'] is True and result['status_time'] == link.status_iso
+        assert link.status_at > initial and len(waited) == 1
+    finally:
+        link.close()

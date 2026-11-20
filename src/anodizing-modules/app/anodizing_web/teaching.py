@@ -1,10 +1,12 @@
 """Read-only teaching adapter and a separately labelled synthetic artifact chain."""
 import json
+import re
 import time
 from pathlib import Path
 
 from .jobs import atomic_json
 from .paths import check_tree, inside
+from .operator_scene import TANK_ID
 
 
 def checked_settings(root, settings):
@@ -161,6 +163,11 @@ def control(owner, job_id, action):
     if action not in ('heartbeat', 'stop'):
         raise ValueError('Unknown Teacher control.')
     with owner.lock:
+        if action == 'stop' and owner.active == job_id and owner.teacher_stop is not None:
+            owner.teacher_stop.set()
+            if owner.teacher_service:
+                owner.teacher_service.stop()
+            return {'ok': True}
         if not owner.teacher_service or owner.teacher_job != job_id:
             raise ValueError('This Teacher control belongs to an old session.')
         service = owner.teacher_service
@@ -178,6 +185,10 @@ def _identity(settings):
 def agv_capture(connection, station):
     from .recipe_agv import motion_state
     state = motion_state(connection)
+    return _station_record(state, station)
+
+
+def _station_record(state, station):
     reported = state['teaching_station']
     if reported is not None:
         station = reported
@@ -185,6 +196,87 @@ def agv_capture(connection, station):
         raise ValueError('AGV not reporting: enter the station this tank is at (1 to 255).')
     return dict(station=station, source='agv_status' if reported is not None else 'operator',
                 status_time=state['status_time'], transport=state['transport'])
+
+
+def _capture_wait(seconds):
+    time.sleep(seconds)
+
+
+def capture_station(connection, station):
+    from .agv import RECIPE_STALE_S
+    from .recipe_agv import motion_state
+
+    initial = motion_state(connection, cached=True)
+    selected = _station_record(initial, station)
+    keys = ('connection_id', 'stop_generation', 'teaching_generation', 'teaching_station', 'transport')
+    binding = tuple(initial[key] for key in keys)
+
+    def finish():
+        acquired = time.monotonic()
+        while True:
+            current = motion_state(connection, cached=True)
+            if tuple(current[key] for key in keys) != binding:
+                raise ValueError('AGV connection or station changed during capture. Park at the station and capture again.')
+            if selected['source'] == 'operator':
+                return selected
+            if current['status_monotonic'] is not None and current['status_monotonic'] > acquired:
+                return dict(_station_record(current, station), after_image=True)
+            remaining = acquired + RECIPE_STALE_S - time.monotonic()
+            if remaining <= 0:
+                raise ValueError('No fresh AGV report followed the image. Check the station and capture again.')
+            _capture_wait(min(.05, remaining))
+    return finish
+
+
+def tank_edit(body):
+    if 'tank' not in body:
+        return {}
+    tank = body['tank']
+    if tank is None:
+        return {'tank': None}
+    if type(tank) is int and 1 <= tank <= 99:
+        return {'tank': f'Tank{tank:02d}'}
+    if isinstance(tank, str) and TANK_ID.fullmatch(tank):
+        return {'tank': tank}
+    raise ValueError('Enter a tank number from 1 to 99, choose a catalog tank, or clear the tank.')
+
+
+def saved_evidence(root, directory, saved):
+    from ur_pick_place.vision.teaching import SNAPSHOT_KINDS
+    flow = dict(saved.get('flow') or {}, exported=False)
+    result = {'flow': flow, 'simulation': saved.get('simulation') is True,
+              'snapshots': {kind: None for kind in SNAPSHOT_KINDS}}
+    for kind in SNAPSHOT_KINDS:
+        path = directory / f'{kind}-snapshot.json'
+        if path.is_file():
+            result['snapshots'][kind] = json.loads(inside(root, str(path)).read_text())
+    history = directory / 'validation_history.json'
+    if history.is_file():
+        result['validation_history'] = json.loads(inside(root, str(history)).read_text())
+    if flow.get('captured'):
+        path = inside(root, str(directory / 'observation.json'))
+        from ur_pick_place.vision.observe import Observation
+        from ur_pick_place.vision.errors import VisionError
+        try:
+            observation = Observation.from_json(json.loads(path.read_text()))
+        except VisionError as exc:
+            raise ValueError('Saved observation is unreadable. Check the project artifacts.') from exc
+        result['observation'] = observation.summary()
+        result['observe_joints'] = observation.robot['joints_rad']
+    if flow.get('taught'):
+        path = inside(root, str(directory / 'grasp_pick.json'))
+        result['taught'] = json.loads(path.read_text())
+    return result
+
+
+def snapshot_image(root, project, kind, ident):
+    from ur_pick_place.vision.teaching import SNAPSHOT_KINDS
+    if kind not in SNAPSHOT_KINDS or not re.fullmatch(r'[0-9a-f]{32}', ident):
+        raise ValueError('Select one saved capture.')
+    image = inside(root, str(project / f'{kind}-{ident}.jpg'))
+    if not image.is_file() or image.stat().st_size > 5_000_000:
+        raise ValueError('Teaching image is unavailable or too large.')
+    return image.read_bytes()
 
 
 def run(owner, root, body, job_id, allow_teaching):
@@ -255,7 +347,14 @@ def run(owner, root, body, job_id, allow_teaching):
             if scene.model['nominal']:
                 raise ValueError('Teacher movement requires the factory robot model.')
             speed = number(body.get('joint_speed_deg_s'), 'Joint test speed (degrees/s)', low=1, high=6)
+            stop_requested = owner.teacher_stop
+
+            def check_stop():
+                if stop_requested is not None and stop_requested.is_set():
+                    raise ValueError('Teacher Stop cancelled the pending motion.')
+
             def check_binding():
+                check_stop()
                 owner.check_agv()
                 check(root, binding)
 
@@ -271,6 +370,7 @@ def run(owner, root, body, job_id, allow_teaching):
             if body.get('workspace_min_m') is None or body.get('workspace_max_m') is None:
                 raise ValueError('Enter reviewed workspace bounds; no workspace defaults are applied.')
             with owner.agv_start_lock:
+                check_stop()
                 owner.check_agv()
                 if action == 'return_observation':
                     service.return_observation(dict(body, joint_speed_deg_s=speed))
@@ -280,7 +380,10 @@ def run(owner, root, body, job_id, allow_teaching):
             if action == 'teach' and body.get('marker_unchanged') is not True:
                 raise ValueError('Confirm that the marker and object stayed fixed.')
             options = {'marker_unchanged': body.get('marker_unchanged')}
-            capture = {'agv': agv_capture(owner.agv, body.get('agv_station'))} if action == 'capture' else {}
+            capture = {}
+            if action == 'capture':
+                capture = {'tank_edit': tank_edit(body),
+                           'finish_station': capture_station(owner.agv, body.get('agv_station'))}
             started = True
             service.submit(action, options, **capture)
         last_status = None

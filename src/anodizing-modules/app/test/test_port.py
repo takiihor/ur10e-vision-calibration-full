@@ -178,8 +178,10 @@ class PortTests(unittest.TestCase):
             (self.root/'project/project.json').write_text(json.dumps({'settings':settings}))
             job = self.post_job('teaching', 'capture-readonly', {'action':'capture','project':'project','agv_station':4})
             self.assertEqual(job['state'], 'done', job['error'])
-            fake.submit.assert_called_once_with('capture', {'marker_unchanged':None},
-                agv={'station':4,'source':'operator','status_time':None,'transport':None})
+            self.assertEqual(fake.submit.call_args.args, ('capture', {'marker_unchanged': None}))
+            self.assertEqual(fake.submit.call_args.kwargs['tank_edit'], {})
+            self.assertEqual(fake.submit.call_args.kwargs['finish_station'](),
+                {'station':4,'source':'operator','status_time':None,'transport':None})
         self.assertEqual(fake.close.call_count, 0)
         self.server.owner.shutdown()
         self.assertEqual(fake.close.call_count, 1)

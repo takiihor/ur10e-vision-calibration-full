@@ -40,7 +40,8 @@ def motion_state(connection, *, poll=False, cached=False):
     return dict(parked=parked, reporting=reporting, detail=detail, station=station,
                 connection_id=link.get('connection_id'), stop_generation=link.get('stop_generation'), status_age_s=age,
                 status_time=link.get('status_time'), transport=link.get('mode'),
-                teaching_station=agv.arrived_station(status) if parked else None)
+                teaching_station=agv.arrived_station(status) if parked else None,
+                teaching_generation=link.get('teaching_generation'), status_monotonic=link.get('status_monotonic'))
 
 
 def admit(connection, body, *, require_approval=False, poll=False):

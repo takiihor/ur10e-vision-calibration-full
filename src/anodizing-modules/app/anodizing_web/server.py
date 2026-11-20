@@ -329,19 +329,23 @@ class Handler(BaseHTTPRequestHandler):
                     settings['target'] = target
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 return self.reply(400, {'error': f'Teacher site profile is invalid: {exc}'})
+            found['tanks'] = sorted(self.server.line.tanks.keys() | {
+                tank['id'] for tank in self.server.scene.config.get('tanks', [])})
             return self.reply(200, found)
         if path in ('/api/teacher-project', '/api/teacher-file'):
             try:
                 query = parse_qs(urlsplit(self.path).query, strict_parsing=True)
                 if path == '/api/teacher-project':
-                    if set(query) != {'project'} or len(query['project']) != 1:
+                    with_evidence = query.get('evidence') == ['1']
+                    if set(query) != ({'project', 'evidence'} if with_evidence else {'project'}) or len(query['project']) != 1:
                         raise ValueError('Select one project.')
                     project = check_tree(self.server.root, inside(self.server.root, query['project'][0]))
                     saved = json.loads(inside(self.server.root, str(project / 'project.json')).read_text())
                     settings = teaching.checked_settings(self.server.root, dict(saved['settings'], project=str(project)))
                     tank = saved.get('tank')
                     tank = tank if isinstance(tank, str) and TANK_ID.fullmatch(tank) else None
-                    return self.reply(200, dict(settings, agv=saved.get('agv'), tank=tank))
+                    evidence = teaching.saved_evidence(self.server.root, project, saved) if with_evidence else {}
+                    return self.reply(200, dict(settings, agv=saved.get('agv'), tank=tank, **evidence))
                 if set(query) != {'job', 'name'} or any(len(v) != 1 for v in query.values()):
                     raise ValueError('Select one result.')
                 job = self.server.owner.get(query['job'][0])
@@ -377,6 +381,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, content, 'text/plain; charset=utf-8' if name.endswith('.script') else 'application/json; charset=utf-8')
             except (ValueError, KeyError, TypeError, OSError) as exc:
                 return self.reply(404, {'error':str(exc)})
+        if path == '/api/teacher-snapshot':
+            try:
+                query = parse_qs(urlsplit(self.path).query, strict_parsing=True)
+                if set(query) != {'project', 'kind', 'capture_id', 'sha256'} or any(len(v) != 1 for v in query.values()):
+                    raise ValueError('Select one teaching project and capture.')
+                project = check_tree(self.server.root, inside(self.server.root, query['project'][0]))
+                content = teaching.snapshot_image(self.server.root, project, query['kind'][0], query['capture_id'][0])
+                if hashlib.sha256(content).hexdigest() != query['sha256'][0]:
+                    raise ValueError('Teaching image does not match the saved capture.')
+                return self.reply(200, content, 'image/jpeg')
+            except (ValueError, OSError) as exc:
+                return self.reply(404, {'error': str(exc)})
         if path == '/api/teaching-image':
             try:
                 query = parse_qs(urlsplit(self.path).query, strict_parsing=True)

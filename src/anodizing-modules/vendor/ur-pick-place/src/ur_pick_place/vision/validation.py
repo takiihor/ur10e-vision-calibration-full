@@ -121,7 +121,11 @@ class ValidationMotion(ManualService):
             motion = self._motion
         if motion and self.control:
             stop = self.control.stopJ if motion['mode'] == 'joint' else self.control.stopL
-            stop(1.0)
+            try:
+                stop(1.0)
+            except Exception:
+                self.cleanup_uncertain = True
+                raise
             with self._lock:
                 self._motion = None
                 self._message = 'Movement stopped'

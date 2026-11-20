@@ -468,6 +468,7 @@ class Connection:
         self.status_iso = None
         self.last_confirmed_station = None
         self.stop_generation = 0
+        self.teaching_generation = 0
         self.urgent_waiters = 0
         self.lock = Lock()
         self.send_lock = Lock()
@@ -676,10 +677,14 @@ class Connection:
             before = previous.get(field, False if field == 'obstacle_stop' else 0 if field == 'fault_code' else None)
             if field in decoded and before is not None and decoded[field] != before:
                 self._event(field, before, decoded[field])
-        self.status, self.status_hex, self.status_at = decoded, hex_bytes(raw), monotonic()
+        now = monotonic()
+        station = arrived_station(decoded)
+        if (self.status_at is None or now - self.status_at >= RECIPE_STALE_S
+                or station != arrived_station(previous)):
+            self.teaching_generation += 1
+        self.status, self.status_hex, self.status_at = decoded, hex_bytes(raw), now
         self._passive_report(self.status_at)
         self.status_iso = timestamp()
-        station = arrived_station(decoded)
         if station is not None:
             self.last_confirmed_station = (station, self.status_iso)
         if self.recipe_active:
@@ -857,6 +862,7 @@ class Connection:
         return dict(status=self.status, status_time=self.status_iso, mode=self.settings['mode'],
                     connection_id=self.id, stop_generation=self.stop_generation,
                     status_age_s=None if self.status_at is None else monotonic() - self.status_at,
+                    teaching_generation=self.teaching_generation, status_monotonic=self.status_at,
                     movement_pending=any(name not in URGENT and name != 'set_speed' for name in self.pending))
 
     def motion_feedback(self, *, poll=False):
@@ -1006,6 +1012,8 @@ class Connection:
             self._record('Link', b'', {'error': str(close_error)})
 
     def _write(self, name, raw, value, attempt, background=False, *, tx_id=None, requested_halt=None):
+        if name not in READS and name not in URGENT and name != 'set_speed':
+            self.teaching_generation += 1
         try:
             written = self.transport.write(raw)
         finally:

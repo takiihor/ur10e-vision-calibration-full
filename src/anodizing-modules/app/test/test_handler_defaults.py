@@ -16,7 +16,9 @@ class HandlerDefaultsTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.server = SimpleNamespace(root=self.root, token='first-start-token',
-            hosts={'localhost'}, model_source=None, asset_cache={}, check_model=lambda: None)
+            hosts={'localhost'}, model_source=None, asset_cache={}, check_model=lambda: None,
+            line=SimpleNamespace(tanks={'Tank03': {}}),
+            scene=SimpleNamespace(config={'tanks': [{'id': 'Tank03'}, {'id': 'Tank04'}]}))
         self.server.cached_asset = lambda path: Server.cached_asset(self.server, path)
 
     def get(self, path, extra=''):
@@ -72,7 +74,9 @@ class HandlerDefaultsTests(unittest.TestCase):
             'project': 'teaching/next-run'}}))
         status, _, raw = self.get('/api/teacher-defaults')
         self.assertEqual(status, 200, raw)
-        self.assertEqual(json.loads(raw)['settings']['project'], str(path))
+        result = json.loads(raw)
+        self.assertEqual(result['settings']['project'], str(path))
+        self.assertEqual(result['tanks'], ['Tank03', 'Tank04'])
         self.assertFalse(path.parent.exists())
 
     def test_teacher_defaults_reject_a_project_outside_the_data_directory(self):

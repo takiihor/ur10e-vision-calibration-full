@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import threading
+import time
 import unittest
 from test_port import PortTests
 from test_teacher_validation import FakeTeacher, TeacherSessionTests
@@ -28,6 +29,20 @@ class TeacherImageTests(unittest.TestCase):
         self.assertEqual(self.request('GET',path.replace('capture-1','stale-capture'))[0],404)
         self.assertEqual(self.request('GET',path.replace('project=project','project=..'))[0],404)
 
+
+    def test_immutable_snapshot_keeps_the_requested_bytes_and_requires_auth(self):
+        from hashlib import sha256
+        project = self.root / 'images'
+        project.mkdir()
+        older, newer = '1' * 32, '2' * 32
+        (project / f'reference-{older}.jpg').write_bytes(b'older')
+        (project / f'reference-{newer}.jpg').write_bytes(b'newer')
+        digest = sha256(b'older').hexdigest()
+        path = f'/api/teacher-snapshot?project=images&kind=reference&capture_id={older}&sha256={digest}'
+        self.assertEqual(self.request('GET', path), (200, b'older'))
+        self.assertEqual(self.request('GET', path, headers={'X-Module-Token': 'wrong'})[0], 403)
+        self.assertEqual(self.request('GET', path.replace(older, newer))[0], 404)
+        self.assertEqual(self.request('GET', path.replace('kind=reference', 'kind=..'))[0], 404)
 
     def test_slow_validation_image_reply_does_not_block_owner_or_controls(self):
         from unittest import mock
@@ -119,6 +134,49 @@ class TeacherProgressTests(unittest.TestCase):
         self.assertIn('Preflight',state['motion']['message'])
         self.assertEqual(self.joint_calls,[])
         release.set()
+
+
+    def test_stop_binds_to_accepted_teacher_motion_before_native_session_handoff(self):
+        from unittest import mock
+        from anodizing_web import teaching
+
+        self.prepare()
+        self.motion.close()
+        self.robot.connected = True
+        self.public_server()
+        entered, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        run = teaching.run
+
+        def delayed(*args):
+            entered.set()
+            if not release.wait(4):
+                raise AssertionError('Fixture did not release the Teacher adapter')
+            return run(*args)
+
+        with mock.patch.object(teaching, 'run', side_effect=delayed):
+            status, raw = self.request('POST', '/api/teaching', {
+                'request_id': 'teacher-early-stop', 'action': 'validate_move', 'project': 'project', 'agv_off': True,
+                'capture_id': self.record['id'], 'path_confirmed': True, 'joint_speed_deg_s': 3,
+                'collision_scene': 'selected-scene.json', 'workspace_min_m': [-.9, -.9, .02],
+                'workspace_max_m': [.9, .9, 1.2],
+            })
+            self.assertEqual(status, 202, raw)
+            try:
+                self.assertTrue(entered.wait(2))
+                self.assertIn({'kind': 'teacher', 'job_id': 'teacher-early-stop'}, self.server.owner.status()['stop_targets'])
+                self.assertEqual(self.request('POST', '/api/teacher-control', {
+                    'job_id': 'teacher-early-stop', 'action': 'stop',
+                })[0], 200)
+            finally:
+                release.set()
+            deadline = time.monotonic() + 3
+            while self.server.owner.active and time.monotonic() < deadline:
+                time.sleep(.02)
+            stopped = self.server.owner.get('teacher-early-stop')
+            self.assertEqual(stopped['state'], 'failed', stopped)
+            self.assertIn('Stop', stopped['error'])
+            self.assertEqual(self.joint_calls, [])
 
 
 class OfflineTeacherCapabilityTests(unittest.TestCase):
