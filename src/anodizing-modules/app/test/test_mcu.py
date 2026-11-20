@@ -10,7 +10,8 @@ import unittest
 from unittest import mock
 
 from anodizing_web.jobs import JobOwner
-from anodizing_web import mcu
+from anodizing_web import agv, mcu
+from test_agv_robot_motion import connect_parked
 
 
 class FakeSocket:
@@ -49,7 +50,7 @@ class MCUTests(unittest.TestCase):
         self.owner = JobOwner(self.root, allow_manual_pick_place=True)
 
     def submit(self, command='3', request_id='mcu-request-123'):
-        return mcu.submit(self.owner, dict(project='project', command=command, request_id=request_id))
+        return mcu.submit(self.owner, dict(project='project', command=command, request_id=request_id, agv_off=True))
 
     def finish(self, request_id='mcu-request-123'):
         deadline = time.monotonic()+2
@@ -99,6 +100,33 @@ class MCUTests(unittest.TestCase):
         for response in (b'Open',b'FSR1:x/FSR2:2',b'FSR1:1'):
             with self.assertRaises(ValueError): mcu.parse_reply('0',response)
 
+    def test_moving_agv_blocks_standalone_actuation_and_allows_sensor_read(self):
+        self.owner.agv = link = agv.Connection(self.owner)
+        self.addCleanup(link.close)
+        connect_parked(link)
+        with link.lock:
+            link.status = dict(link.status, stopped=False, actual_speed_m_h=500)
+        sock = FakeSocket(b'FSR1:1/FSR2:2')
+        with mock.patch.object(mcu.socket, 'create_connection', return_value=sock):
+            with self.assertRaisesRegex(ValueError, 'AGV state unknown'):
+                mcu.submit(self.owner, dict(project='project', command='3', request_id='mcu-actuation'))
+            self.submit('0', 'mcu-sensor-read')
+            self.assertEqual(self.finish('mcu-sensor-read')['state'], 'done')
+        self.assertEqual(sock.sent, [b'0'])
+
+    def test_serial_report_before_dispatch_cancels_declared_off_actuation(self):
+        self.owner.agv = link = agv.Connection(self.owner)
+        self.addCleanup(link.close)
+        sock = FakeSocket()
+        with (mock.patch.object(mcu.socket, 'create_connection', return_value=sock),
+              mock.patch.object(mcu, '_drain', side_effect=lambda _: connect_parked(link))):
+            self.submit()
+            job = self.finish()
+        self.assertEqual(job['state'], 'failed')
+        self.assertEqual(job['mcu']['status'], 'not_sent')
+        self.assertIn('AGV is reporting', job['error'])
+        self.assertEqual(sock.sent, [])
+
     def test_missing_status_reply_does_not_create_actuator_uncertainty_or_replay(self):
         sock=FakeSocket(b'')
         with mock.patch.object(mcu.socket,'create_connection',return_value=sock) as connect:
@@ -124,7 +152,7 @@ class MCUTests(unittest.TestCase):
         self.assertTrue(job['execution_uncertain'])
         restarted=JobOwner(self.root,allow_manual_pick_place=True)
         with mock.patch.object(mcu.socket,'create_connection',side_effect=AssertionError('replay')):
-            old=mcu.submit(restarted,dict(project='project',command='3',request_id=job['id']))
+            old=mcu.submit(restarted,dict(project='project',command='3',request_id=job['id'],agv_off=True))
         self.assertEqual(old['state'],'failed')
 
     def test_validation_and_all_owner_fences_prevent_hardware(self):

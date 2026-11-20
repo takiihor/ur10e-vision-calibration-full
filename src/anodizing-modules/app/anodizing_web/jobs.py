@@ -140,12 +140,14 @@ class JobOwner:
             auto_plan = module == 'calibration' and payload.get('action') == 'plan'
             if (auto_motion or auto_plan) and not self.allow_auto_calibration:
                 raise ValueError('Automatic calibration is disabled on this service.')
-            if manual_move or teacher_move or auto_motion:
+            actuator = module == 'mcu' and payload.get('command') in ('1', '2', '3')
+            if manual_move or teacher_move or auto_motion or actuator:
                 from .recipe_agv import admit, StationVisit
-                mode, connection_id = admit(self.agv, payload)
+                repeat = module == 'manual-pick-place' and payload.get('action') == 'REPEAT'
+                mode, connection_id, stop_generation = admit(self.agv, payload, require_approval=repeat)
                 visit = StationVisit(self.agv, lambda: self._stop_for_agv(request_id),
-                                     strict_station=payload.get('action') == 'REPEAT',
-                                     connection_id=connection_id) if mode == 'parked' else None
+                                     strict_station=repeat, connection_id=connection_id,
+                                     stop_generation=stop_generation, switched_off=mode == 'off')
             else:
                 mode, visit = None, None
             if manual_move or teacher_move or auto_motion or auto_plan:
@@ -196,9 +198,6 @@ class JobOwner:
                 if visit:
                     visit.ready.wait()
                     self.check_agv()
-                elif job.get('agv_motion') == 'off':
-                    from .recipe_agv import admit
-                    admit(self.agv, {'agv_off': True})
                 result = function(job['id'])
                 self.check_agv()
             self.check_agv()
@@ -214,16 +213,15 @@ class JobOwner:
             with self.lock:
                 job.update(state='failed', error=str(exc), pending=None)
                 if visit and visit.error:
-                    from .recipe_agv import ALARM
                     manual = job.get('manual')
                     repeat = (manual or {}).get('repeat')
                     reason = (repeat or {}).get('abort_reason') or visit.error
-                    job['error'] = f'{reason} {ALARM}'
-                    job['agv_interruption'] = dict(reason=reason, alarm=ALARM, agv_stop_sent=visit.stop_sent,
-                                                   stop_error=visit.stop_error)
+                    job['error'] = f'{reason} {visit.alarm}' if visit.alarm else reason
+                    job['agv_interruption'] = dict(reason=reason, alarm=visit.alarm, agv_stop_sent=visit.stop_sent,
+                                                   stop_error=visit.stop_error, robot_stop_error=visit.robot_stop_error)
                     if manual:
                         manual.update(stage='interrupted', prompt=None, item_state='unknown',
-                                      agv_alarm=ALARM, agv_stop_sent=visit.stop_sent)
+                                      agv_alarm=visit.alarm, agv_stop_sent=visit.stop_sent)
                         if repeat:
                             repeat.setdefault('abort_reason', reason)
         finally:

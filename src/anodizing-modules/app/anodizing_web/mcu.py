@@ -58,6 +58,13 @@ def _check(owner, body, project, host, digest):
             raise ValueError('MCU project and robot must match the active Pick/Place operation.')
     elif owner.active and owner.active != body['request_id']:
         raise ValueError('Another job owns the service.')
+    elif body['command'] != '0' and owner.active:
+        from .recipe_agv import admit
+        owner.check_agv()
+        mode, connection_id, stop_generation = admit(owner.agv, body)
+        visit = owner.agv_visit
+        if mode == 'parked' and (connection_id, stop_generation) != (visit.connection_id, visit.stop_generation):
+            raise ValueError('AGV connection changed or was stopped before MCU dispatch.')
 
 
 def _record(owner, job, evidence, uncertain):
@@ -167,11 +174,12 @@ def _child(owner, body, project, host, digest):
 
 def submit(owner, body):
     """Use only after the existing authenticated HTTP boundary checks."""
-    if (not isinstance(body, dict) or set(body) not in (
-            {'project', 'command', 'request_id'}, {'project', 'command', 'request_id', 'parent'}) or
+    if (not isinstance(body, dict) or set(body) - {'project', 'command', 'request_id', 'parent', 'agv_off'} or
             not isinstance(body.get('project'), str) or
             not isinstance(body.get('command'), str) or body['command'] not in COMMANDS):
-        raise ValueError('MCU accepts a saved project, command 0/1/2/3, request_id and optional parent prompt.')
+        raise ValueError('MCU accepts a saved project, command 0/1/2/3, request_id, optional agv_off and parent prompt.')
+    if 'agv_off' in body and type(body['agv_off']) is not bool:
+        raise ValueError('AGV switched off must be an explicit on/off declaration.')
     body = dict(body)
     body.setdefault('parent', None)
     if body['parent'] is not None and (not isinstance(body['parent'], dict) or

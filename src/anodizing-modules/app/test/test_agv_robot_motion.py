@@ -33,6 +33,8 @@ def test_each_motion_requires_parked_or_explicitly_off(tmp_path, monkeypatch, mo
     monkeypatch.setattr('anodizing_web.auto_scene.prepare', lambda *args: {'snapshot': 'fixture'})
     finished = threading.Event()
     body = {'action': action, 'agv_off': off}
+    if reporting:
+        body.update(connection_id=link.id, stop_generation=link.stop_generation)
     try:
         if accepted:
             job = owner.submit('offline-motion', module, body, lambda _: finished.set())
@@ -50,6 +52,7 @@ def test_each_motion_requires_parked_or_explicitly_off(tmp_path, monkeypatch, mo
 def connect_parked(link):
     connected = link.submit({'action': 'connect', 'mode': 'simulator'})
     link.transport.station = link.transport.target = 2
+    link.transport.arrival = True
     link.settings['mode'] = 'serial'  # Fake serial reporting without opening a device.
     link.submit({'action': 'send', 'command': 'query_status', 'connection_id': connected['connection_id']})
     return link.transport
@@ -66,8 +69,115 @@ def test_hold_attempts_agv_stop_and_releases_waiter_when_robot_stop_raises():
     link.recipe_stop.assert_called_once()
 
 
+def test_watchdog_latches_cancel_and_halts_agv_while_robot_stop_blocks():
+    robot_entered, release_robot, agv_halted = (threading.Event() for _ in range(3))
+    link = Mock()
+    link.recipe_stop.side_effect = lambda: agv_halted.set() or True
+
+    def blocked_robot_stop():
+        robot_entered.set()
+        release_robot.wait(2)
+
+    visit = StationVisit(link, blocked_robot_stop)
+    visit._sample = Mock(side_effect=ValueError('lost hold'))
+    thread = threading.Thread(target=visit._watch)
+    thread.start()
+    try:
+        assert robot_entered.wait(1)
+        assert agv_halted.wait(.5)
+        assert visit.cancelled.is_set()
+    finally:
+        release_robot.set()
+        thread.join(2)
+
+
+def test_off_motion_is_interrupted_by_a_serial_report(tmp_path, monkeypatch):
+    owner = JobOwner(tmp_path, allow_auto_calibration=True)
+    owner.agv = link = agv.Connection(owner)
+    running, stopped = threading.Event(), threading.Event()
+    monkeypatch.setattr('anodizing_web.auto_scene.prepare', lambda *args: {'snapshot': 'fixture'})
+    monkeypatch.setattr(owner, '_stop_for_agv', lambda _: stopped.set())
+
+    def job(_):
+        running.set()
+        stopped.wait(2)
+
+    try:
+        owner.submit('late-serial-report', 'calibration', {'action':'collect','agv_off':True}, job)
+        assert running.wait(1)
+        connect_parked(link)
+        assert stopped.wait(1)
+        owner.shutdown()
+        assert owner.get('late-serial-report')['state'] == 'failed'
+        assert 'AGV is reporting' in owner.get('late-serial-report')['error']
+    finally:
+        stopped.set()
+        owner.shutdown()
+        link.close()
+
+
+def test_stop_between_job_admission_and_recipe_handoff_prevents_work(tmp_path, monkeypatch):
+    owner = JobOwner(tmp_path, allow_manual_pick_place=True, robot_model=object())
+    owner.agv = link = agv.Connection(owner)
+    admitted, handoff, worked = (threading.Event() for _ in range(3))
+    run = owner._run
+
+    def defer_handoff(*args):
+        admitted.set()
+        if handoff.wait(2):
+            run(*args)
+
+    monkeypatch.setattr('anodizing_web.auto_scene.prepare', lambda *args: {'snapshot': 'fixture'})
+    monkeypatch.setattr(owner, '_run', defer_handoff)
+    try:
+        connect_parked(link)
+        state = link.link_state()
+        owner.submit('agv-stale-handoff', 'manual-pick-place',
+                     dict(action='REPEAT', connection_id=link.id, stop_generation=state.get('stop_generation', 0)),
+                     lambda _: worked.set())
+        assert admitted.wait(1)
+        link.submit({'action':'send', 'command':'stop'})
+        handoff.set()
+        owner.shutdown()
+        assert not worked.is_set()
+        assert 'cancelled' in owner.get('agv-stale-handoff')['error']
+    finally:
+        handoff.set()
+        owner.shutdown()
+        link.close()
+
+
+def test_parked_recipe_approval_expires_after_stop():
+    from anodizing_web.recipe_agv import admit
+
+    link = Mock()
+    link.motion_feedback.return_value = dict(mode='serial', status_age_s=.1, movement_pending=False,
+        connection_id=10, stop_generation=2, status=dict(stopped=True, actual_speed_m_h=0, fault_code=0,
+                                                        obstacle_stop=False))
+    with pytest.raises(ValueError, match='approval expired'):
+        admit(link, dict(connection_id=10, stop_generation=1), require_approval=True)
+    assert admit(link, dict(connection_id=10, stop_generation=2), require_approval=True) == ('parked', 10, 2)
+
+
+def test_obstacle_stopped_status_is_not_a_robot_hold(tmp_path):
+    from anodizing_web.recipe_agv import motion_state
+
+    owner = JobOwner(tmp_path)
+    link = agv.Connection(owner)
+    try:
+        connect_parked(link)
+        with link.lock:
+            link.status = dict(link.status, obstacle_stop=True)
+        assert not motion_state(link)['parked']
+        with pytest.raises(ValueError, match='obstacle'):
+            StationVisit(link, None)._check_hold(link.status, time.monotonic())
+    finally:
+        link.close()
+
+
 def test_pick_place_station_hold_explains_standard_mode_refusal():
-    status = dict(mode=0, fault_code=0, paused=False, stopped=True, actual_speed_m_h=0, current_station=1)
+    status = dict(mode=0, fault_code=0, paused=False, stopped=True, actual_speed_m_h=0, current_station=1,
+                  obstacle_stop=False)
     with pytest.raises(ValueError, match='Pick/place needs station-call mode to verify and call learned stations.*XBOT app'):
         StationVisit(None, None)._check_hold(status, time.monotonic())
     assert StationVisit(None, None, strict_station=False)._check_hold(status, time.monotonic()) == 1
@@ -109,7 +219,7 @@ def assert_stopped(job, vehicle, violation):
     assert job['state'] == 'failed', job
     assert ('moved during robot work' if violation == 'moving' else 'status is stale') in job['error']
     assert job['agv_interruption']['agv_stop_sent'] is True
-    assert vehicle.command_stop
+    assert vehicle.paused
 
 
 @pytest.mark.parametrize('violation', ['moving', 'stale'])
@@ -220,8 +330,10 @@ def test_agv_page_blocks_motion_during_a_switched_off_job(tmp_path, monkeypatch)
         connection_id = link.submit({'action':'connect', 'mode':'simulator'})['connection_id']
         link.submit({'action':'arm', 'armed':True, 'connection_id':connection_id})
         with pytest.raises(ValueError, match='A robot job is running'):
-            link.submit({'action':'send', 'command':'call_station', 'value':2, 'connection_id':connection_id})
-        assert link.submit({'action':'send', 'command':'stop'})['results']['stop']['state'] == agv.SENT
+            link.submit({'action':'send', 'command':'call_station', 'value':2, 'connection_id':connection_id,
+                         'stop_generation':link.stop_generation})
+        halt = link.submit({'action':'send', 'command':'stop'})
+        assert halt['results'][halt['urgent_command']]['state'] == agv.SENT
     finally:
         release.set()
         owner.shutdown()

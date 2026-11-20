@@ -67,7 +67,7 @@ def load_recipe(root, body, *, require_approval=True):
         context.check_inputs = check_inputs
     selected = {key:value for key,value in body.items() if key not in (
         'request_id','action','automatic_test_approved','recipe_sha256','agv_manual_confirmed',
-        'station_a','station_b','agv_timeout_s','agv_speed_cap_m_h','agv_off')}
+        'station_a','station_b','agv_timeout_s','agv_speed_cap_m_h','agv_off','connection_id','stop_generation')}
     selected.update(agv_motion='off' if off else 'parked', stations=stations, agv_timeout_s=timeout, agv_speed_cap_m_h=speed_cap, travel_pose=pose)
     inputs = {path:digest for context in contexts.values() for path,digest in context.hashes.items()}
     scene = inside(root,body.get('collision_scene'))
@@ -90,14 +90,14 @@ class RepeatExecution(ManualExecution):
     def __init__(self,*args,recipe,owner,parent_job_id,**kwargs):
         self.recipe, self.owner, self.parent_job_id = recipe, owner, parent_job_id
         self.step = 'preflight'
-        self.station_visit = owner.agv_visit
+        visit = owner.agv_visit
+        self.station_visit = visit if visit and not visit.switched_off else None
         self.drive_agv = bool(self.station_visit and owner.allow_agv_in_recipe and recipe.agv_approved)
         self.transfers = []
         self.agv_legs = []
         self.completed_transfers = 0
+        self.agv_interruption = {}
         super().__init__(*args,**kwargs)
-        if self.station_visit:
-            self.station_visit.cancelled = self.cancelled
         self.joint_bounds_rad = self.context.joint_bounds_rad
         self.joint_bounds_source = self.context.joint_bounds_source
         self.run_evidence = self.base_evidence
@@ -244,16 +244,21 @@ class RepeatExecution(ManualExecution):
             self._publish(stage='done',prompt=None,item_state='open_acknowledged_unverified',operation='REPEAT')
         except BaseException as exc:
             reason = (visit.error if visit else None) or str(exc)
-            try:
-                # Native Stop precedes AGV abort and result persistence.
-                self._stop_motion()
-            finally:
-                if visit:
-                    visit.abort()
             repeat = dict(self.manual['repeat'], abort_reason=reason, records=self.transfers,
                           unfinished_agv_legs=self.agv_legs + ([dict(visit.leg)] if visit and visit.leg else []))
-            self.agv_interruption = dict(repeat=repeat, agv_alarm=visit.alarm if visit else None,
-                                         agv_stop_sent=visit.stop_sent if visit else None)
+            self.agv_interruption = dict(repeat=repeat)
+            try:
+                self._stop_motion()
+            except BaseException as stop_error:
+                self.cleanup_uncertain = True
+                self.agv_interruption['robot_stop_error'] = str(stop_error)
+            if visit:
+                try:
+                    visit.abort()
+                except BaseException as stop_error:
+                    self.agv_interruption['agv_stop_error'] = str(stop_error)
+                self.agv_interruption.setdefault('agv_stop_error', visit.stop_error)
+                self.agv_interruption.update(agv_alarm=visit.alarm, agv_stop_sent=visit.stop_sent)
             raise ValueError(f'{reason} {ALARM}' if visit and visit.alarm else reason) from exc
 
     def _repeat_transfers(self, generation):
@@ -278,6 +283,7 @@ class RepeatExecution(ManualExecution):
                 station = self.recipe.stations[endpoint]
                 if self.station_visit:
                     self._visit(station, generation)
+                    self.station_visit.require_endpoint(station)
                 self._publish(agv_robot_station=station)
                 if index == 0 and operation == 'PICK':
                     self.step = 'preflight'

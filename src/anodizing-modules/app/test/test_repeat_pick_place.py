@@ -68,6 +68,7 @@ class RepeatTests(unittest.TestCase):
             return {'command':command,'status':'replied','rx_text':{'0':'FSR1:0/FSR2:0','1':'Tight','3':'Open'}[command]}
         mock.patch('anodizing_web.mcu.run_automatic',side_effect=command).start()
         self.public_body.update(action='REPEAT',agv_off=False,project='A',place_project='B',transfers=transfers,
+            connection_id=self.link.id,stop_generation=self.link.stop_generation,
             automatic_test_approved=True,settle_s=0)
         return owner
 
@@ -120,7 +121,7 @@ class RepeatTests(unittest.TestCase):
                 self.vehicle.acknowledgements[-1]=time.monotonic()+.10
                 self.vehicle.arrives_at=time.monotonic()+.35
                 self.on_call()
-            if frame.command==0x23 and frame.data[0]==0x87 and frame.data[1]==4:
+            if frame.command==0x23 and (frame.data[:2] in (bytes((0x87,4)), bytes((0x5B,1)))):
                 self.agv_stops.append(time.monotonic())
             return result
         self.vehicle.write=send
@@ -224,6 +225,67 @@ class RepeatTests(unittest.TestCase):
         self.vehicle.write=report_obstacle
         with mock.patch('anodizing_web.recipe_agv.OBSTACLE_S', .25):
             self.assert_agv_abort('obstacle stop exceeded')
+
+    def test_endpoint_requires_a_fresh_arrival_at_requested_station(self):
+        visit, report, now = self.travel_report()
+        visit.status = dict(report, stopped=True, actual_speed_m_h=0, station_arrival=True, obstacle_stop=False)
+        visit.status_at = now
+        visit.station = 2
+        with self.assertRaisesRegex(ValueError, 'Park the AGV at station 3'):
+            visit.require_endpoint(3)
+        visit.require_endpoint(2)
+
+    def travel_report(self, **changes):
+        from anodizing_web.recipe_agv import StationVisit
+
+        visit = StationVisit(None, None)
+        now = time.monotonic()
+        visit.sent = visit.pose_at = now - .1
+        visit.travel_deadline = now + 2
+        visit.speed_cap = 1000
+        visit.first_travel_report = True
+        visit.leg = {'to_station': 3}
+        report = dict(mode=2, target_station=3, set_speed_m_h=500, fault_code=0, paused=False,
+                      current_station=2, max_stations=3, stopped=False, actual_speed_m_h=500)
+        report.update(changes)
+        return visit, report, now
+
+    def test_changed_target_during_travel_aborts(self):
+        visit, report, now = self.travel_report(target_station=1)
+        visit._check_travel(report, now, [(report, now)], .05, now)
+        with self.assertRaisesRegex(ValueError, 'reported target station 1'):
+            visit._check_travel(report, now + .01, [(report, now + .01)], .05, now + .01)
+
+    def test_changed_mode_during_travel_aborts(self):
+        visit, report, now = self.travel_report(mode=0)
+        with self.assertRaisesRegex(ValueError, 'station-call mode'):
+            visit._check_travel(report, now, [(report, now)], .05, now)
+
+    def test_speed_increase_during_travel_aborts(self):
+        visit, report, now = self.travel_report(set_speed_m_h=1200)
+        with self.assertRaisesRegex(ValueError, 'above the recipe cap'):
+            visit._check_travel(report, now, [(report, now)], .05, now)
+
+    def test_repeat_keeps_interruption_record_when_both_stop_attempts_raise(self):
+        from anodizing_web.repeat_pick_place import RepeatExecution
+
+        worker = RepeatExecution.__new__(RepeatExecution)
+        worker.station_visit = None
+        worker._repeat_transfers = mock.Mock(side_effect=ValueError('original interruption'))
+        worker._stop_motion = mock.Mock(side_effect=RuntimeError('native Stop failed'))
+        worker.manual = {'repeat': {}}
+        worker.transfers = worker.agv_legs = []
+        visit = worker.station_visit = mock.Mock(error=None, alarm=None, stop_sent=False, leg=None, station=2)
+        worker.recipe = SimpleNamespace(stations={'A': 2, 'B': 2})
+        worker.drive_agv = False
+        worker._tick = worker._publish = mock.Mock()
+        visit.abort.side_effect = OSError('radio Stop failed')
+        with self.assertRaisesRegex(ValueError, 'original interruption'):
+            worker._manual_sequence(1)
+        record = worker._interruption_details()
+        self.assertEqual(record['repeat']['abort_reason'], 'original interruption')
+        self.assertEqual(record['robot_stop_error'], 'native Stop failed')
+        self.assertEqual(record['agv_stop_error'], 'radio Stop failed')
 
     def test_travel_times_out(self):
         self.configure_travel()

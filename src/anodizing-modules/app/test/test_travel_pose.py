@@ -27,7 +27,8 @@ def robot(tmp_path, monkeypatch):
         assert host == '192.0.2.1'
         return receive
     monkeypatch.setattr(travel_pose.Runtime,'receive',open_receive)
-    return owner, feedback
+    yield owner, feedback
+    owner.agv.close()
 
 
 def test_save_binds_live_robot_joints_confirmation_and_timestamp(robot):
@@ -61,9 +62,10 @@ def test_live_check_checks_every_joint_and_requires_stillness(robot):
 def test_robot_job_blocks_manual_move_but_travel_pose_allows_armed_move(robot):
     owner, _ = robot
     connection = owner.agv
-    connection_id = connection.submit({'action':'connect'})['connection_id']
+    connection_id = connection.submit({'action':'connect', 'agv_mode':0})['connection_id']
     connection.submit(dict(action='arm',armed=True,connection_id=connection_id))
-    body = dict(action='send',command='forward',connection_id=connection_id)
+    connection.submit(dict(action='send',command='query_status',connection_id=connection_id))
+    body = dict(action='send',command='forward',connection_id=connection_id,stop_generation=connection.stop_generation)
     with pytest.raises(ValueError,match='Save the AGV travel pose'):
         connection.submit(body)
     travel_pose.save(owner, {'confirmed':True})

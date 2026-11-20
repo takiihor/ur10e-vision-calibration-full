@@ -82,7 +82,8 @@ def load_context(root, body):
         robot={'active_tcp_offset':settings['tcp']}, base_dir=str(project))
     return SimpleNamespace(settings=settings, config=config, calibration=calibration,
         model=replace(load_taught(project/'grasp_pick.json'), role=role), target=target_from_config(settings['target']),
-        provenance=provenance, check_inputs=check_inputs, role=role, approach_mm=settings['approach_mm'], hashes=hashes)
+        provenance=provenance, check_inputs=check_inputs, role=role, approach_mm=settings['approach_mm'], hashes=hashes,
+        agv_station=(saved.get('agv') or {}).get('station'))
 
 
 def observe_role(context, control, receive, tick):
@@ -542,6 +543,10 @@ def run(owner, root, body, job_id):
         context = recipe.contexts['A','PICK']
     else:
         context = load_context(root,context_body)
+        visit = owner.agv_visit
+        station = getattr(context, 'agv_station', None)
+        if station is not None and visit and not visit.switched_off:
+            visit.require_endpoint(station)
     if descent:
         with owner.lock:
             aligned_job = owner.jobs.get(body.get('alignment_job_id')) or {}

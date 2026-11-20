@@ -1,5 +1,5 @@
 """Stationary AGV admission, hold and supervised recipe travel."""
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import threading
 import time
 
@@ -21,34 +21,38 @@ def motion_state(connection, *, poll=False):
     link = connection.motion_feedback(poll=poll) if connection else {}
     status = link.get('status')
     age = link.get('status_age_s')
-    reporting = status is not None and age is not None and age < agv.RECIPE_STALE_S
-    parked = (reporting and link['mode'] == 'serial' and stopped(status)
+    reporting = (link.get('mode') == 'serial' and status is not None
+                 and age is not None and age < agv.RECIPE_STALE_S)
+    parked = (reporting and stopped(status) and status.get('obstacle_stop') is False
               and status.get('fault_code') == 0 and not link['movement_pending'])
     station = status.get('current_station') if reporting else None
     if parked:
         position = f' · station {station}' if station else ''
         detail = f'AGV parked{position} · {age:.1f} s ago'
     elif reporting:
-        detail = f'AGV state unknown · last report {age:.1f} s ago. Check that the serial AGV is parked without a fault.'
+        detail = f'AGV state unknown · last report {age:.1f} s ago. Check that the AGV is parked without a fault or obstacle stop.'
     elif age is not None:
         detail = f'{UNKNOWN} · last report {age:.1f} s ago'
     else:
         detail = UNKNOWN
     return dict(parked=parked, reporting=reporting, detail=detail, station=station,
-                connection_id=link.get('connection_id'), status_age_s=age,
+                connection_id=link.get('connection_id'), stop_generation=link.get('stop_generation'), status_age_s=age,
                 status_time=link.get('status_time'), transport=link.get('mode'),
                 teaching_station=station if parked and station and learned(status, station) else None)
 
 
-def admit(connection, body):
-    state = motion_state(connection)
+def admit(connection, body, *, require_approval=False, poll=False):
+    state = motion_state(connection, poll=poll)
     if body.get('agv_off') is True:
         if state['reporting']:
             raise ValueError(REPORTING)
-        return 'off', None
+        return 'off', None, None
     if not state['parked']:
         raise ValueError(state['detail'])
-    return 'parked', state['connection_id']
+    if require_approval and any(type(body.get(key)) is not int or body[key] != state[key]
+                                for key in ('connection_id', 'stop_generation')):
+        raise ValueError('AGV approval expired. Review the link and approve the recipe again.')
+    return 'parked', state['connection_id'], state['stop_generation']
 
 
 def stopped(status):
@@ -81,12 +85,16 @@ def learned(status, station):
 
 
 class StationVisit:
-    def __init__(self, connection, robot_stop, *, strict_station=True, connection_id=None):
+    def __init__(self, connection, robot_stop, *, strict_station=True, connection_id=None,
+                 stop_generation=None, switched_off=False):
         self.connection = connection
         self.robot_stop = robot_stop
         self.strict_station = strict_station
         self.connection_id = connection_id
+        self.stop_generation = stop_generation
+        self.switched_off = switched_off
         self.stop_error = None
+        self.robot_stop_error = None
         self.cancelled = threading.Event()
         self.lock = threading.Lock()
         self.finished = threading.Event()
@@ -94,17 +102,18 @@ class StationVisit:
         self.error = None
         self.alarm = None
         self.stop_sent = None
-        self.station = self.status = None
+        self.station = self.status = self.status_at = None
         self.leg = None
         self.sent = self.travel_deadline = self.pose_at = self.obstacle_at = None
         self.arrivals = 0
 
     @contextmanager
     def watch(self):
-        if self.connection is None:
-            raise ValueError('Connect the AGV on the AGV page before starting the recipe.')
-        with self.connection.recipe_link(self.connection_id) as transport:
-            require_serial(transport)
+        link = (nullcontext() if self.switched_off else
+                self.connection.recipe_link(self.connection_id, stop_generation=self.stop_generation))
+        with link as transport:
+            if not self.switched_off:
+                require_serial(transport)
             self.transport = transport
             self.started = time.monotonic()
             thread = threading.Thread(target=self._watch, name='recipe-agv-watch')
@@ -122,23 +131,31 @@ class StationVisit:
                     self._sample()
                 except Exception as exc:
                     self.error = str(exc)
+                    self.cancelled.set()
             if self.error:
-                # Neither Stop depends on the outcome of the other.
+                self.ready.set()
+                robot = threading.Thread(target=self._stop_robot, name='recipe-robot-stop')
+                robot.start()
                 try:
-                    try:
-                        self.robot_stop()
-                    finally:
+                    if not self.switched_off:
                         with self.lock:
-                            if self.alarm is None:
-                                self._stop()
-                except Exception as stop_error:
-                    self.stop_error = str(stop_error)
+                            self._stop()
                 finally:
-                    self.ready.set()
+                    robot.join()
                 return
             self.finished.wait(WATCH_S)
 
+    def _stop_robot(self):
+        try:
+            self.robot_stop()
+        except Exception as exc:
+            self.robot_stop_error = str(exc)
+
     def _sample(self):
+        if self.switched_off:
+            admit(self.connection, {'agv_off': True}, poll=True)
+            self.ready.set()
+            return
         status, stamp, updates, ack_s = self.connection.recipe_feedback()
         now = time.monotonic()
         if not self.ready.is_set() and (stamp is None or stamp < self.started):
@@ -150,21 +167,35 @@ class StationVisit:
             return
         for current, received in updates or ((status, stamp),):
             self.station = self._check_hold(current, received)
-        self.status = status
+        self.status, self.status_at = status, stamp
         self.ready.set()
 
     def _check_hold(self, status, stamp):
         check_status(status, stamp, require_unpaused=self.strict_station)
-        if self.strict_station and status.get('mode') == 0:
+        if self.strict_station and status.get('mode') != 2:
             raise ValueError(STANDARD_MODE)
+        if status.get('obstacle_stop') is not False:
+            raise ValueError('AGV obstacle stop is active or unavailable. Park the AGV before robot work.')
         actual = status.get('current_station', 0)
         if not stopped(status) or (self.station is not None and actual != self.station):
             raise ValueError('AGV moved during robot work or was already moving. Check the AGV before a new run.')
-        if self.strict_station and not learned(status, actual):
+        if self.strict_station and (not learned(status, actual) or status.get('station_arrival') is not True):
             raise ValueError('AGV station is unconfirmed. Check route learning and station-call mode on the AGV page.')
         return actual
 
+    def require_endpoint(self, target):
+        if type(target) is not int or not 1 <= target <= 255:
+            raise ValueError('The saved AGV station must be an integer from 1 to 255.')
+        with self.lock:
+            if self.error:
+                raise ValueError(self.error)
+            status = self.status
+            actual = self._check_hold(status, self.status_at)
+            if actual != target or status.get('station_arrival') is not True or not learned(status, target):
+                raise ValueError(f'Park the AGV at station {target} before starting robot work there.')
+
     def _check_travel(self, status, stamp, updates, ack_s, now):
+        sent = self.sent
         if self.cancelled.is_set():
             raise ValueError('Recipe stopped during AGV travel. Check the AGV before starting a new run.')
         check_status(status, stamp)
@@ -177,7 +208,20 @@ class StationVisit:
         if now >= self.travel_deadline:
             raise ValueError('AGV travel timed out. Check the line and target station.')
         for report, received in updates:
+            if received < sent:
+                continue
             check_status(report, received)
+            target = self.leg['to_station']
+            if not learned(report, target):
+                raise ValueError('AGV left station-call mode or the reviewed station is unavailable.')
+            check_speed(report, self.speed_cap)
+            reported_target = report.get('target_station')
+            first_report = self.first_travel_report
+            self.first_travel_report = False
+            if reported_target != target:
+                if not first_report:
+                    raise ValueError(f'AGV reported target station {reported_target}. Expected station {target}.')
+                continue  # One older status reply may still have been in flight at dispatch.
             if report.get('obstacle_stop'):
                 if self.obstacle_at is None:
                     self.obstacle_at = received
@@ -185,13 +229,13 @@ class StationVisit:
                     raise ValueError('AGV obstacle stop exceeded 30 s. Clear the line before starting a new run.')
             else:
                 self.obstacle_at = None
-            target = self.leg['to_station']
             arrived = (report.get('current_station') == target and stopped(report)
-                       and report.get('station_arrival') is True and learned(report, target))
+                       and report.get('station_arrival') is True and report.get('obstacle_stop') is False)
             self.arrivals = self.arrivals+1 if arrived else 0
             if self.arrivals >= 2 and 'ack_s' in self.leg and self.sent is not None:
                 self.leg['arrival_s'] = received-self.sent
                 self.station, self.sent = target, None
+                self.status, self.status_at = report, received
             if self.sent is None and not arrived:
                 raise ValueError('AGV moved after arrival. Check the AGV before a new run.')
 
@@ -223,12 +267,12 @@ class StationVisit:
                 if not learned(status, target):
                     raise ValueError(f'AGV station {target} is not learned. Check the AGV route.')
                 check_speed(status, speed_cap)
-                if cancelled.is_set() or time.monotonic()-pose_at >= POSE_FRESH_S:
+                if self.cancelled.is_set() or cancelled.is_set() or time.monotonic()-pose_at >= POSE_FRESH_S:
                     raise ValueError('Robot travel-pose check expired or was stopped. Start a new run.')
 
             def retry_check(status, stamp, updates):
                 now = time.monotonic()
-                if cancelled.is_set() or now-self.pose_at >= POSE_FRESH_S:
+                if self.cancelled.is_set() or cancelled.is_set() or now-self.pose_at >= POSE_FRESH_S:
                     raise ValueError('Robot travel-pose check expired or was stopped. Start a new run.')
                 if now >= self.travel_deadline or now-self.sent >= ACK_S:
                     raise ValueError('No AGV acknowledgement within 3 s. Check the radio before starting a new run.')
@@ -249,9 +293,11 @@ class StationVisit:
             if self.sent is None:
                 return False
             self.pose_at = pose_at
+            self.speed_cap = speed_cap
             self.travel_deadline = self.sent+timeout
             self.obstacle_at = None
             self.arrivals = 0
+            self.first_travel_report = True
             self.leg = dict(from_station=self.station, to_station=target, sent_at=agv.timestamp(),
                             deadline_epoch=time.time()+timeout, ack_deadline_epoch=time.time()+ACK_S)
             return True
@@ -264,10 +310,18 @@ class StationVisit:
             return dict(self.leg)
 
     def abort(self):
+        self.cancelled.set()
         with self.lock:
-            if self.sent is not None and self.alarm is None:
+            if self.sent is not None:
                 self._stop()
 
     def _stop(self):
+        if self.alarm is not None:
+            return
+        self.cancelled.set()
         self.alarm = ALARM
-        self.stop_sent = self.connection.recipe_stop()
+        try:
+            self.stop_sent = self.connection.recipe_stop()
+        except Exception as exc:
+            self.stop_sent = False
+            self.stop_error = str(exc)
