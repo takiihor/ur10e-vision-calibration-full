@@ -185,7 +185,7 @@ def agv(_, token, __):
             and queried['status_hex'].startswith('00 FF 04 A5 5A 1D 25 '),
             'Expected a fresh 29-byte AGV600 reply with radio prefix 00 FF 04.')
     require(status['obstacle_input'] == 0xCC and not {'attachment_active', 'roller_speed'} & status.keys(),
-            'Expected the captured obstacle input and absent attachment fields.')
+            'Expected the simulator obstacle input and absent attachment fields.')
     require(queried['results']['query_status']['state'] == 'status received',
             'The valid status report did not complete the query.')
     speed = action('read-speed', action='send', command='read_speed')
@@ -196,8 +196,9 @@ def agv(_, token, __):
             'The valid speed reply did not complete the read.')
     connection_id = connected['connection_id']
     require(status['max_stations'] == 3 and status['current_station'] == 1, 'Expected three learned stations.')
-    action('arm', action='arm', connection_id=connection_id, armed=True)
-    action('reverse', action='send', command='reverse', connection_id=connection_id)
+    armed = action('arm', action='arm', connection_id=connection_id, armed=True)
+    approval = dict(connection_id=connection_id, stop_generation=armed['stop_generation'])
+    action('reverse', action='send', command='reverse', **approval)
     reversed_state = action('check-reverse', action='send', command='query_status')
     require(reversed_state['status']['actual_speed_m_h'] == -1500, 'Reverse speed must be signed.')
     time.sleep(1.1)
@@ -205,7 +206,7 @@ def agv(_, token, __):
     require(acknowledged['results']['reverse']['ack_elapsed_s'] >= 1 and any(
         entry['decode'].get('acknowledged_command') == 'reverse' for entry in acknowledged['log']),
         'Expected an acknowledged reverse command.')
-    action('station-call', action='send', command='call_station', value=2, connection_id=connection_id)
+    action('station-call', action='send', command='call_station', value=2, **approval)
     moving = action('check-station-target', action='send', command='query_status')
     require(moving['status']['target_station'] == 2 and not moving['status']['stopped'],
             'Expected travel toward station 2.')
@@ -214,14 +215,29 @@ def agv(_, token, __):
     require(arrived['status']['current_station'] == 2 and arrived['status']['stopped']
             and arrived['results']['call_station']['state'] == 'arrived', 'Expected stopped arrival at station 2.')
     action('disarm', action='arm', connection_id=connection_id, armed=False)
-    stopped = action('stop', action='send', command='stop')
-    require(stopped['log'][-1]['hex'] == '00 01 04 A5 5A 08 23 87 04 00 B5',
-            'Stop did not send the expected vendor frame.')
-    checked = action('check-stop', action='send', command='query_status')
-    require(checked['status']['stopped'] and checked['results']['stop']['state'] == 'confirmed by status',
-            'The next simulator report did not corroborate the Stop.')
-    disconnected = action('disconnect', action='disconnect', connection_id=connected['connection_id'])
+    station_stop = action('station-stop', action='send', command='stop')
+    require(station_stop['urgent_command'] == 'pause'
+            and station_stop['log'][-1]['hex'] == '00 01 04 A5 5A 08 23 5B 01 00 86',
+            'Station-call software Stop did not send Pause.')
+    time.sleep(1.1)
+    checked = action('check-station-stop', action='send', command='query_status')
+    require(checked['status']['paused'] and checked['results']['pause'].get('confirmed_stopped') is True,
+            'The simulator report did not show a stopped and paused AGV.')
+    disconnected = action('disconnect', action='disconnect', connection_id=connection_id)
     require(not disconnected['connected'], 'Simulator did not disconnect.')
+
+    standard = action('connect-standard', action='connect', mode='simulator', agv_mode=0)
+    action('query-standard', action='send', command='query_status')
+    basic_stop = action('standard-stop', action='send', command='stop')
+    require(basic_stop['urgent_command'] == 'stop'
+            and basic_stop['log'][-1]['hex'] == '00 01 04 A5 5A 08 23 87 04 00 B5',
+            'Standard-mode software Stop did not send basic Stop.')
+    time.sleep(1.1)
+    checked = action('check-standard-stop', action='send', command='query_status')
+    require(checked['status']['command_stop'] and checked['results']['stop'].get('confirmed_stopped') is True,
+            'The simulator report did not corroborate basic Stop.')
+    disconnected = action('disconnect-standard', action='disconnect', connection_id=standard['connection_id'])
+    require(not disconnected['connected'], 'Standard-mode simulator did not disconnect.')
 
 
 def check_trace(trace):
