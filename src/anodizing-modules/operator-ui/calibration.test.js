@@ -67,3 +67,24 @@ it('clears the AGV switched-off declaration on a link change and keeps it throug
   await flushPromises();
   expect(declaration.element.checked).toBe(false);
 });
+
+it('keeps the checked calibration selected when handoff storage is blocked', async () => {
+  const fit = { id: 'fit-fixture', module: 'calibration', state: 'done', result: {
+    path: 'calibration/fixture.json', result: { type: 'eye_in_hand', verdict: 'good' },
+  } };
+  localStorage.setItem('ano-vue-calibration-fit', fit.id);
+  localStorage.setItem('ano-calibration-form', JSON.stringify({ calibration: fit.result.path }));
+  await open({}, (path) => path.startsWith('/api/calibration-handoff?') ?
+    { calibration: fit.result.path } : path === '/api/jobs/' + fit.id ? fit : {});
+  location.hash = '#/calibration';
+  const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied'); });
+  try {
+    await button('step-results').trigger('click');
+    await button('teach').trigger('click');
+    await flushPromises();
+    expect(location.hash).toBe('#/calibration');
+    expect(button('teach-outcome').text()).toContain('Browser storage');
+  } finally {
+    storage.mockRestore();
+  }
+});

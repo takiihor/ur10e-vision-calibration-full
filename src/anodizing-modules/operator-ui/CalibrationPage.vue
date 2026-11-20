@@ -115,7 +115,7 @@ const logs = computed(() => events.value.flatMap(event => {
 const nativeError = computed(() => {
   for (const event of [...events.value].reverse()) {
     if (['request', 'result', 'verification'].includes(event.type) || event.type === 'observation' && event.status === 'ok') break;
-    if (/^\s*(?:error:|RTDEControlInterface exception:|RTDEReceiveInterface boost system exception:|RTDEControlInterface: could not receive data)/im.test(event.message || '')) return true;
+    if (event.type === 'error' || /^\s*(?:error:|RTDEControlInterface exception:|RTDEReceiveInterface boost system exception:|RTDEControlInterface: could not receive data)/im.test(event.message || '')) return true;
   }
   return false;
 });
@@ -250,7 +250,7 @@ async function send(id, run) {
     display(id, outcome, 'done');
   } catch (error) {
     notice.value = error.message;
-    display(id, publicError(error), 'failed');
+    display(id, error.operatorMessage || publicError(error), 'failed');
   } finally {
     clearInterval(wait);
     control.value = '';
@@ -368,7 +368,10 @@ function handoff() {
     const query = new URLSearchParams({ job: fitted.value.id, selection: form.calibration.trim() });
     const value = await request('/api/calibration-handoff?' + query);
     if (alive) {
-      store('ano-handoff-teaching', JSON.stringify(value));
+      if (!store('ano-handoff-teaching', JSON.stringify(value))) {
+        const message = 'Browser storage is unavailable. Enable it and select Continue to Teaching again.';
+        throw Object.assign(new Error(message), { operatorMessage: message });
+      }
       location.hash = '#/teaching';
     }
     return 'Calibration selected for Teaching.';
@@ -618,7 +621,9 @@ onUnmounted(() => {
           <p v-if="job.result?.calibration_sha256" class="calibration-path">SHA-256 {{ job.result.calibration_sha256 }}</p>
         </template>
         <p v-if="intrinsic?.path" class="calibration-path">Intrinsics JSON · {{ intrinsic.path }}</p>
-        <p v-if="verification?.report" role="status">Verification {{ verification.report.passed ? 'PASS' : 'FAIL' }}</p>
+        <p v-if="verification?.report" role="status">
+          Verification {{ verification.report.passed ? 'PASS' : 'FAIL' }}{{ verification.report.simulated ? ' · Simulation' : '' }}
+        </p>
         <p v-if="verification?.path" class="calibration-path">Verification JSON · {{ verification.path }}</p>
         <p v-if="job.result?.session" class="calibration-path">Session · {{ job.result.session }}</p>
         <p v-if="terminal(job) && stopOutcomes?.['calibration/' + job.id]" role="status">{{ stopOutcomes['calibration/' + job.id].text }}</p>

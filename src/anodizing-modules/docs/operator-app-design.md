@@ -1,6 +1,6 @@
 # Operator app stage 1
 
-The opt-in operator app provides Home at `/operator/#/` and AGV commissioning at `/operator/#/agv`. Calibration, Teaching and Pick/place keep their standalone pages and native module cores. The IPC owns hardware work, connection state and job admission. The browser uses the existing same-origin APIs and does not open a device connection.
+The opt-in operator app provides Home at `/operator/#/` and AGV commissioning at `/operator/#/agv` and `/operator/#/tests/agv`. Calibration, Teaching and Pick/place keep their standalone pages and native module cores. The IPC owns hardware work, connection state and job admission. The browser uses the existing same-origin APIs and does not open a device connection.
 
 Home reads `GET /api/state`, a protected, cache-only projection. Each item has a stable ID, typed value, source, acquisition time, freshness and quality. Expired values become unknown and retain their acquisition time for historical display. The AGV connection worker receives timed reports and polls when necessary. Both commissioning pages use its cache, with explicit port discovery and inquiry controls.
 
@@ -33,11 +33,14 @@ exports. That checklist, operator observations and link-quality summary use the
 same browser session as legacy commissioning.
 
 Start with a selection of stable variable IDs and 0.2, 1 or 5 Hz. The worker and
-`GET /api/state` use the same AGV, Scene and line projections. Reads
-use existing acquisitions and keep their source time. A missing or expired
-value is null with its quality and reason. Recording does not enumerate ports,
-poll devices, start jobs or acquire an idle robot session. The available variable
-catalogue grows as the later modules are ported.
+`GET /api/state` use the same AGV, Scene, Line, job and module projections.
+Those projections include the active recipe phase and completed transfers, MCU
+reply and outcome, tool-voltage readback, Calibration artifact and snapshot,
+and Teaching project, taught state, tank and snapshot. Cached observations
+retain their original times and their job or capture IDs. MCU acknowledgements
+describe protocol replies. The last tool readback is historical and has an age.
+A missing or expired value is null with its quality and reason. Recording
+does not enumerate ports, poll devices, start jobs or acquire an idle robot session.
 
 The loopback, token-protected `/api/records` endpoint lists sessions and accepts
 Start and ID-bound Stop. Closing the browser leaves the worker running. The
@@ -189,8 +192,11 @@ MCU sensor replies and tool-power reads are historical, timestamped
 evidence. Check request reads the saved job. If a tool submission loses
 its acknowledgement, the page can explicitly retry the same ID with its
 exact payload. Tool off requires the Released declaration. An ambiguous
-motion submission stays fenced in the browser until the request ID can
-be inspected. Native owner, TCP, model, swept-path, AGV and device checks
+motion submission stays fenced in the browser until the service confirms
+acceptance or closes the unaccepted request ID. Closure shares the admission
+lock and leaves a terminal record that rejects late submissions after restart.
+The browser clears motion approvals before the operator starts new work.
+Native owner, TCP, model, swept-path, AGV and device checks
 remain authoritative for all dispatches.
 
 See [Pick/place routes and operation](../operator-ui/README.md#pickplace-and-recipe).
@@ -203,8 +209,9 @@ legacy service entry remains the default. The protected read-only project
 lookup can include saved evidence with `evidence=1`. Reading a project
 opens no camera or robot receiver. The browser stores the selected project
 and request ID for inspection. Path and AGV approvals require new input
-after a reload. The browser sends a heartbeat while supervising its own
-checked move on the visible Teaching page. The service owns heartbeat
+after a reload. The browser sends a heartbeat independently of display
+polls while supervising its own checked move on the visible Teaching page.
+The service owns heartbeat
 expiry and job-bound Stop, including the handoff before the native
 motion worker starts. The manual descent uses its own operation ID and
 existing exact prompt.

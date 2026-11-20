@@ -19,7 +19,7 @@ import { request } from './api';
 import { useAgv } from './useAgv';
 
 const route = ref(location.hash);
-const isAgv = computed(() => route.value === '#/agv');
+const isAgv = computed(() => ['#/agv', '#/tests/agv'].includes(route.value));
 const isScene = computed(() => ['#/scene', '#/tests/scene'].includes(route.value));
 const isRecords = computed(() => ['#/records', '#/tests/records'].includes(route.value));
 const lineRoute = computed(() => /^#\/(line|tests\/line-api)(?:\/(tank|signals|alarms|catalog|diagnostics))?$/.exec(route.value));

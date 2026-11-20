@@ -15,8 +15,9 @@ export function store(key, value) {
   try {
     if (value == null) localStorage.removeItem(key);
     else localStorage.setItem(key, value);
+    return localStorage.getItem(key) === value;
   } catch {
-    // The server keeps the operation record even when browser storage is blocked.
+    return false;
   }
 }
 

@@ -72,7 +72,8 @@ const downloads = [
   ['grasp_pick.json', 'Marker-to-pick relationship'], ['vision.json', 'Vision configuration'],
   ['target.json', 'Pick pose JSON'], ['target.script', 'URScript variables'], ['pick_target.json', 'Full report'],
 ];
-let alive = true, timer, polling = false, supervisedId = '';
+let alive = true, timer, heartbeatTimer, polling = false, supervisedId = '', supervisionRevision = 0;
+let heartbeatPending = null;
 const formRevision = ref(0);
 
 const project = computed(() => native.value?.project || saved.value);
@@ -295,6 +296,7 @@ async function syncJob(id, restore = false) {
     return;
   }
   job.value = found;
+  if (terminal(found) && supervisedId === id) supervisedId = '';
   const active = await syncSession(id);
   if (restore && active) {
     editing.value = false;
@@ -324,7 +326,19 @@ async function inspectTeacher() {
 function heartbeat(id) {
   return request('/api/teacher-control', { job_id: id, action: 'heartbeat' }, 1400);
 }
+async function keepSupervised() {
+  if (!supervisedId || document.hidden || heartbeatPending) return;
+  heartbeatPending = heartbeat(supervisedId);
+  try {
+    await heartbeatPending;
+  } catch {
+    // The native watchdog stops motion if fresh heartbeats stop reaching it.
+  } finally {
+    heartbeatPending = null;
+  }
+}
 function stopSupervision() {
+  supervisionRevision++;
   if (supervisedId) {
     const id = supervisedId;
     supervisedId = '';
@@ -346,12 +360,15 @@ function submit(action, body = {}) {
   void feedback('teacher-' + action, isTeacherMotion(action) ? 130 : 100, async () => {
     const requestBody = { action, request_id: id, ...body };
     const manualAction = action === 'vertical_descent';
+    const supervised = isTeacherMotion(action);
+    const supervision = supervisionRevision;
     if (action !== 'configure' && action !== 'simulate') requestBody.project = project.value.project;
-    if (isTeacherMotion(action)) {
+    if (supervised) {
       const stop = props.stopId;
       if (document.hidden) throw Object.assign(new Error('Keep Teaching visible while supervising motion.'), { status: 400 });
+      await heartbeatPending?.catch(() => {});
       await heartbeat(sessionId.value);
-      if (!alive || document.hidden || props.stopId !== stop) {
+      if (!alive || document.hidden || props.stopId !== stop || supervision !== supervisionRevision) {
         throw Object.assign(new Error('Teacher supervision ended before submission.'), {
           operatorMessage: 'Motion cancelled. Review the path and approve again.',
         });
@@ -373,6 +390,11 @@ function submit(action, body = {}) {
       throw error;
     }
     pendingId.value = '';
+    if (supervised && !terminal(response)) {
+      supervisedId = id;
+      if (!alive || document.hidden || supervision !== supervisionRevision) stopSupervision();
+      else void keepSupervised();
+    }
     if (!alive) return 'Request accepted.';
     if (manualAction) {
       manual.value = response;
@@ -380,10 +402,9 @@ function submit(action, body = {}) {
       return 'Separate descent requested. Inspect and approve the checked plan below.';
     }
     job.value = response;
-    if (isTeacherMotion(action) && !document.hidden) supervisedId = id;
     emit('changed');
     const finished = await finishJob(response, () => alive);
-    if (supervisedId === id) supervisedId = '';
+    if (terminal(finished) && supervisedId === id) supervisedId = '';
     if (!alive) return 'Request accepted.';
     job.value = finished;
     const current = await syncSession(id);
@@ -423,10 +444,14 @@ function simulate() {
 }
 function handoff() {
   const value = project.value;
-  store('ano-handoff-pick-place', JSON.stringify({
+  const saved = store('ano-handoff-pick-place', JSON.stringify({
     project: value.project, calibration: value.settings?.calibration || value.calibration,
     manifest: value.settings?.target?.board_manifest || value.target?.board_manifest || '', simulation: value.simulation === true,
   }));
+  if (!saved) {
+    show('teacher-handoff', 'Browser storage is unavailable. Enable it and select Continue to Pick/place again.', 'failed', true);
+    return;
+  }
   location.hash = '#/pick-place';
 }
 function download(name) {
@@ -446,6 +471,7 @@ function saveTravel() {
 }
 function checkTravel() {
   void feedback('teacher-travel-check', 8, async () => {
+    live.value = { at_pose: null };
     live.value = await request('/api/agv-travel-pose');
     return live.value.at_pose ? 'Robot reported still at the saved pose.' : 'Travel pose unconfirmed. Check Current travel pose.';
   });
@@ -486,7 +512,6 @@ async function tick() {
     const link = request('/api/agv-robot-motion?cached=1', null, 2500).then(value => { agvMotion.value = { ...value, requested }; });
     const travels = request('/api/agv-travel-pose?cached=1', null, 2500).then(value => { travel.value = value; });
     const updates = [link, travels];
-    if (supervisedId && !document.hidden) updates.push(heartbeat(supervisedId));
     if (tracked.value && (!terminal(job.value) || !editing.value)) updates.push(syncJob(tracked.value));
     const activeManual = owner.value?.stop_targets?.find(target => target.kind === 'manual')?.job_id;
     if (activeManual || manual.value && !terminal(manual.value)) updates.push(inspectManual(activeManual || manualId.value));
@@ -497,6 +522,7 @@ async function tick() {
 }
 onMounted(async () => {
   timer = setInterval(tick, 600);
+  heartbeatTimer = setInterval(keepSupervised, 500);
   document.addEventListener('visibilitychange', hidden);
   void tick();
   const revision = formRevision.value;
@@ -536,6 +562,7 @@ onMounted(async () => {
 onUnmounted(() => {
   alive = false;
   clearInterval(timer);
+  clearInterval(heartbeatTimer);
   document.removeEventListener('visibilitychange', hidden);
   stopSupervision();
 });
@@ -671,6 +698,7 @@ onUnmounted(() => {
           <OperatorButton id="teacher-locate" label="Read marker and export poses" :why="ready || (!flow.taught ? 'Save the picking position first.' : '')"
             :outcome="outcomes['teacher-locate']" @press="submit('locate')" />
           <OperatorButton id="teacher-handoff" label="Continue to Pick/place" :why="running || (!flow.taught ? 'Open or teach a saved picking project.' : '')"
+            :outcome="outcomes['teacher-handoff']"
             @press="handoff" />
         </div>
         <p v-if="project?.simulation" data-state="waiting">Simulated project · Offline evidence only.</p>
@@ -749,8 +777,11 @@ onUnmounted(() => {
         <h2 id="teacher-travel-heading">AGV travel pose</h2>
         <p v-if="travel?.pose">Saved joints · {{ degrees(travel.pose.joints_rad) }} degrees · {{ new Date(travel.pose.saved_at).toLocaleString() }}.</p>
         <p v-else>No travel pose available.</p>
-        <p v-if="live" role="status">{{ live.at_pose ? 'Live check · Robot reported still at the travel pose.' :
-          'Live check unconfirmed. Fold the arm, stop it and check the robot connection.' }}</p>
+        <p v-if="live" role="status">
+          {{ live.at_pose ? 'Live check · Robot reported still at the travel pose.' :
+            'Live check unconfirmed. Fold the arm, stop it and check the robot connection.' }}
+          <time v-if="live.checked_at" :datetime="live.checked_at">{{ new Date(live.checked_at).toLocaleString() }}</time>
+        </p>
         <label for="teacher-folded" class="pick-check"><Checkbox v-model="folded" input-id="teacher-folded" binary />
           The arm is folded inside the AGV footprint, with and without a rod.</label>
         <div class="controls">

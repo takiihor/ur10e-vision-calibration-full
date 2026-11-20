@@ -64,6 +64,7 @@ function confirm() {
     <h2 id="pick-operation-heading">Current operation</h2>
     <Message v-if="manual?.agv_alarm" severity="error" role="alert">{{ manual.agv_alarm }}</Message>
     <p v-if="problem" role="status" data-state="failed">{{ problem }}</p>
+    <p v-else-if="job?.cancelled_before_acceptance" role="status">Request cancelled before acceptance. Review and approve a new operation.</p>
     <div v-else-if="job" role="status" aria-live="polite">
       <strong :data-state="terminal(job) ? (job.state === 'done' ? 'done' : 'failed') : 'running'">
         {{ operationName }} · {{ jobState }}
@@ -84,6 +85,7 @@ function confirm() {
       <p v-if="job.error">Check the saved details and physical state before starting new work.</p>
     </div>
     <p v-else role="status">No operation selected. Item state unknown.</p>
+    <slot name="recovery" />
     <div v-if="manual?.robot_step" class="pick-readout">
       <p>Exact step · {{ manual.robot_step.axis.length === 1 ? 'Base ' + manual.robot_step.axis.toUpperCase()
         : 'Tool-local ' + manual.robot_step.axis[1].toUpperCase() + ' rotation' }}

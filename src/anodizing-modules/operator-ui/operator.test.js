@@ -17,8 +17,13 @@ function open(route, respond) {
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
   vi.stubGlobal('fetch', vi.fn(async (path, options) => {
     const body = options.body && JSON.parse(options.body);
-    const response = await respond(path, body);
-    return { ok: true, json: async () => response };
+    try {
+      const response = await respond(path, body);
+      return { ok: true, json: async () => response };
+    } catch (error) {
+      if (!error.status) throw error;
+      return { ok: false, status: error.status, json: async () => ({ error: error.message }) };
+    }
   }));
   app = mount(App, { attachTo: document.body, global: { plugins: [PrimeVue, ConfirmationService, ToastService] } });
 }
@@ -526,4 +531,229 @@ it('opens the same Teacher workspace at both Vue routes and keeps the legacy lin
   window.dispatchEvent(new HashChangeEvent('hashchange'));
   await flushPromises();
   expect(app.get('#teacher-project').element.value).toBe('teaching/fixture');
+});
+
+it.each(['#/tests/agv', '#/'])('opens the AGV test bookmark with entry disarming from %s', async initial => {
+  let sequence = 0;
+  const disarms = [];
+  open(initial, async (path, body) => {
+    if (path === '/api/state') return { variables: [] };
+    if (path === '/api/status') return { owner: {} };
+    if (body?.action === 'arm') disarms.push(body);
+    return { ...connected, armed: !disarms.length, sequence: ++sequence, commands: [] };
+  });
+  await flushPromises();
+  if (initial === '#/') {
+    expect(disarms).toHaveLength(0);
+    await navigate('#/tests/agv');
+  }
+  expect(app.get('h1').text()).toBe('AGV commissioning');
+  expect(app.get('a[href="#/agv"]').attributes('aria-current')).toBe('page');
+  expect(disarms).toEqual([{ action: 'arm', armed: false, connection_id: 2 }]);
+});
+
+it('charges delayed AGV snapshots against freshness in polls, ports and command replies', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'Date', 'performance'] });
+  let sequence = 0, receiveFirst, receivePorts, receiveStop, polls = 0;
+  const post = [];
+  const report = overrides => ({ ...connected, armed: false, sequence: ++sequence, commands: [],
+    status: { mode: 2 }, status_time: '2026-11-21T01:00:00Z', status_age_s: 2.6, ...overrides });
+  open('#/pick-place', async (path, body) => {
+    if (path === '/api/status') return { owner: {} };
+    if (path === '/api/agv?cached=1') {
+      if (++polls === 1) return new Promise(resolve => { receiveFirst = resolve; });
+      return new Promise(() => {});
+    }
+    if (path === '/api/agv?ports=1') return new Promise(resolve => { receivePorts = resolve; });
+    if (body?.command === 'stop') {
+      post.push(body.command);
+      return new Promise(resolve => { receiveStop = resolve; });
+    }
+    return { variables: [] };
+  });
+  await vi.advanceTimersByTimeAsync(850);
+  receiveFirst(report());
+  await flushPromises();
+  expect(element('link').text()).toMatch(/Link stale · last status report 3\.4|Link stale · last status report 3\.5/);
+  expect(element('stop').element.disabled).toBe(false);
+  await element('stop').trigger('click');
+  await vi.advanceTimersByTimeAsync(850);
+  receiveStop(report({ status_time: '2026-11-21T01:00:01Z', results: {
+    stop: { tx_id: 4, state: 'confirmed by status', confirmed_stopped: true, sent_at: '2026-11-21T01:00:01Z' },
+  } }));
+  await flushPromises();
+  expect(post).toEqual(['stop']);
+  expect(element('link').text()).toContain('Link stale');
+  await navigate('#/tests/agv');
+  receivePorts(report({ status_time: '2026-11-21T01:00:01Z', status_age_s: .01 }));
+  await flushPromises();
+  await navigate('#/pick-place');
+  expect(element('link').text()).toContain('Link stale');
+});
+
+const teacherProject = {
+  project: 'teaching/fixture', settings: { calibration: 'calibration/fixture.json', target: { kind: 'aruco' } },
+  flow: { captured: true, taught: true },
+};
+
+it('keeps Teacher supervision alive while a travel status read stalls and stops on hide', async () => {
+  vi.useFakeTimers();
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+  localStorage.setItem('ano-vue-teacher-request', JSON.stringify({ id: 'teacher-session' }));
+  const controls = [];
+  const start = Date.now();
+  let jobId, holdTravel = false, releaseTravel;
+  open('#/teaching', async (path, body) => {
+    if (path === '/api/status') return { owner: {}, allow_teaching: true };
+    if (path === '/api/teacher-defaults') return { settings: teacherProject.settings };
+    if (path.startsWith('/api/teacher-state')) return { project: teacherProject, motion_available: true };
+    if (path.startsWith('/api/jobs/')) return { id: path.split('/').at(-1), module: 'teaching', state: jobId ? 'running' : 'done' };
+    if (path === '/api/robot-control') return { defaults: { collision_scene: 'fixture-scene.json' } };
+    if (path === '/api/agv-travel-pose?cached=1' && holdTravel) return new Promise(resolve => { releaseTravel = resolve; });
+    if (path === '/api/teacher-control') {
+      controls.push({ ...body, time: Date.now() - start });
+      return { ok: true };
+    }
+    if (path === '/api/teaching' && body?.action === 'return_observation') {
+      jobId = body.request_id;
+      return { id: jobId, state: 'running', module: 'teaching' };
+    }
+    return { variables: [] };
+  });
+  await flushPromises();
+  await app.get('#teacher-off-return_observation').setValue(true);
+  await app.get('#teacher-approve-return_observation').setValue(true);
+  const move = element('teacher-return_observation');
+  expect(move.element.disabled).toBe(false);
+  await move.trigger('click');
+  await flushPromises();
+  holdTravel = true;
+  await vi.advanceTimersByTimeAsync(2300);
+  expect(releaseTravel).toBeTypeOf('function');
+  const heartbeats = controls.filter(entry => entry.job_id === jobId && entry.action === 'heartbeat');
+  expect(heartbeats.at(-1)?.time).toBeGreaterThanOrEqual(1500);
+  expect(heartbeats.every((entry, index) => index === 0 || entry.time - heartbeats[index - 1].time < 2000)).toBe(true);
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+  document.dispatchEvent(new Event('visibilitychange'));
+  await flushPromises();
+  expect(controls.at(-1)).toMatchObject({ job_id: jobId, action: 'stop' });
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(controls.at(-1).action).toBe('stop');
+  releaseTravel({});
+});
+
+it('labels a successful Teacher travel check with its time and clears it on a failed recheck', async () => {
+  const checkedAt = '2026-11-21T01:00:00Z';
+  let attempts = 0;
+  open('#/teaching', async path => {
+    if (path === '/api/status') return { owner: {}, allow_teaching: true };
+    if (path === '/api/agv-travel-pose?cached=1') return { pose: { saved_at: checkedAt, joints_rad: Array(6).fill(0) } };
+    if (path === '/api/agv-travel-pose') {
+      if (++attempts === 1) return { at_pose: true, checked_at: checkedAt };
+      throw new Error('Network unavailable');
+    }
+    return { variables: [] };
+  });
+  await flushPromises();
+  await element('teacher-travel-check').trigger('click');
+  await flushPromises();
+  expect(app.text()).toContain('Robot reported still at the travel pose.');
+  expect(app.get('time[datetime="' + checkedAt + '"]').exists()).toBe(true);
+  await element('teacher-travel-check').trigger('click');
+  await flushPromises();
+  expect(app.text()).not.toContain('Robot reported still at the travel pose.');
+  expect(app.text()).toContain('Live check unconfirmed');
+});
+
+it('keeps the taught project selected on the source page when handoff storage is blocked', async () => {
+  open('#/teaching', async path => {
+    if (path === '/api/status') return { owner: {}, allow_teaching: true };
+    if (path === '/api/teacher-defaults') return { settings: { project: teacherProject.project, ...teacherProject.settings } };
+    if (path.startsWith('/api/teacher-project')) return teacherProject;
+    return { variables: [] };
+  });
+  await flushPromises();
+  await element('teacher-open').trigger('click');
+  await flushPromises();
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied'); });
+  await element('teacher-handoff').trigger('click');
+  await flushPromises();
+  expect(location.hash).toBe('#/teaching');
+  expect(app.get('#teacher-project').element.value).toBe(teacherProject.project);
+  expect(element('teacher-handoff-outcome').text()).toContain('Browser storage');
+});
+
+it.each([false, true])('recovers a lost Pick/place reply without replaying motion (accepted %s)', async accepted => {
+  let attempted, cancelled = false;
+  const moves = [];
+  const recovery = [];
+  open('#/tests/robot', async (path, body) => {
+    if (path === '/api/status') return { owner: {} };
+    if (path === '/api/robot-control' && !body) return { enabled: true, defaults: { robot_ip: 'fixture', tcp: Array(6).fill(0),
+      collision_scene: 'fixture-scene.json', joint_bounds_rad: Array.from({ length: 6 }, () => [-2, 2]),
+      joint_bounds_source: 'Fixture bounds' } };
+    if (body?.action === 'STEP') {
+      moves.push(body);
+      attempted = body.request_id;
+      throw new Error('Network unavailable');
+    }
+    if (path === '/api/jobs/' + attempted) {
+      if (accepted) return { id: attempted, state: 'running', auto_action: 'STEP' };
+      if (cancelled) return { id: attempted, state: 'interrupted', cancelled_before_acceptance: true };
+      throw Object.assign(new Error('Job not found'), { status: 404 });
+    }
+    if (body?.action === 'cancel-unconfirmed') {
+      recovery.push(body);
+      cancelled = true;
+      return { id: attempted, state: 'interrupted', cancelled_before_acceptance: true };
+    }
+    return { variables: [] };
+  });
+  await flushPromises();
+  await app.get('#step-off').setValue(true);
+  await element('step-x-1').trigger('click');
+  await flushPromises();
+  expect(moves).toHaveLength(1);
+  await navigate('#/');
+  await navigate('#/tests/robot');
+  if (accepted) {
+    expect(app.text()).toContain('Robot step · Running');
+    expect(app.find('#agv-pick-cancel-unconfirmed').exists()).toBe(false);
+    expect(recovery).toHaveLength(0);
+  } else {
+    await element('pick-cancel-unconfirmed').trigger('click');
+    await flushPromises();
+    expect(recovery).toEqual([{ action: 'cancel-unconfirmed', job_id: attempted }]);
+    expect(app.get('.pick-operation').text()).toContain('Review and approve a new operation');
+    expect(app.get('#step-off').element.checked).toBe(false);
+    expect(element('step-x-1').element.disabled).toBe(true);
+    await app.get('#step-off').setValue(true);
+    expect(element('step-x-1').element.disabled).toBe(false);
+  }
+  expect(moves).toHaveLength(1);
+});
+
+it('keeps a completed Pick/place job when an older recovery response arrives', async () => {
+  vi.useFakeTimers();
+  const id = 'pending-fixture';
+  localStorage.setItem('ano-pick-place-unconfirmed', id);
+  let accepted = false;
+  let reply;
+  open('#/tests/robot', async (path, body) => {
+    if (path === '/api/status') return { owner: {} };
+    if (path === '/api/jobs/' + id) {
+      if (accepted) return { id, state: 'done', auto_action: 'STEP' };
+      throw Object.assign(new Error('Job not found'), { status: 404 });
+    }
+    if (body?.action === 'cancel-unconfirmed') return new Promise(resolve => { reply = resolve; });
+    return { variables: [] };
+  });
+  await flushPromises();
+  await element('pick-cancel-unconfirmed').trigger('click');
+  accepted = true;
+  await vi.advanceTimersByTimeAsync(300);
+  expect(app.get('.pick-operation strong').text()).toContain('Completed');
+  reply({ id, state: 'running', auto_action: 'STEP' });
+  await flushPromises();
+  expect(app.get('.pick-operation strong').text()).toContain('Completed');
 });

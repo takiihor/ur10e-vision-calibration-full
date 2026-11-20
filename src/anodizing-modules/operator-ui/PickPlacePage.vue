@@ -74,9 +74,9 @@ const rawEvidence = ref('');
 const prepareResult = ref(null);
 const revision = ref(0);
 const clock = ref(Date.now());
-const inspected = ref(stored(inspectKey));
-const followed = ref(inspected.value);
 const lost = ref(stored(lostKey));
+const inspected = ref(lost.value || stored(inspectKey));
+const followed = ref(inspected.value);
 const job = ref(null);
 const jobProblem = ref('');
 const mcuBlocked = ref('Wait for MCU status.');
@@ -293,10 +293,16 @@ function acceptJob(value) {
   jobProblem.value = '';
   if (lost.value === value.id) {
     lost.value = '';
-    store(lostKey, null);
+    if (stored(lostKey) === value.id) store(lostKey, null);
+    if (value.cancelled_before_acceptance) {
+      setup.value = singleOff.value = repeatOff.value = robotOff.value = false;
+      form.item = '';
+      invalidateReview();
+    }
   }
 }
 function jobOutcome(value) {
+  if (value.cancelled_before_acceptance) return { text: 'Request cancelled before acceptance.', tone: 'done' };
   if (value.error?.includes('Automatic recipe or saved inputs changed')) {
     return { text: 'Recipe inputs changed. Review and approve again.', tone: 'failed' };
   }
@@ -350,6 +356,20 @@ function inspect(id) {
     }
   });
 }
+function cancelUnconfirmed() {
+  const id = lost.value;
+  if (!id) return;
+  void perform('pick-cancel-unconfirmed', async () => {
+    const value = await request('/api/manual-control', { action: 'cancel-unconfirmed', job_id: id });
+    if (value.id !== id) throw new Error('Wrong operation identity');
+    if (pageOpen && lost.value === id) {
+      selectJob(id);
+      acceptJob(value);
+    }
+    return value.cancelled_before_acceptance ? 'Request cancelled before acceptance. Review and approve a new operation.' :
+      'The service already accepted the request. Follow Current operation.';
+  });
+}
 watch(() => props.owner?.stop_targets?.find(target => target.kind === 'manual')?.job_id, id => {
   if (id && id !== followed.value) {
     selectJob(id);
@@ -399,7 +419,7 @@ function submitMotion(button, path, body) {
     } catch (error) {
       if (error.status >= 400 && error.status < 500 && lost.value === id) {
         lost.value = '';
-        store(lostKey, null);
+        if (stored(lostKey) === id) store(lostKey, null);
       }
       if (pageOpen && followed.value === id) jobProblem.value = publicError(error);
       throw error;
@@ -658,7 +678,15 @@ onUnmounted(() => {
     <aside class="operation">
       <PickPlaceJob v-model:id="inspected" :owner="owner" :job="job" :problem="jobProblem" :running="busy"
         :mcu-blocked="mcuBlocked" :revision="revision" :stop-id="stopId" :outcomes="outcomes" :clock="clock" :evidence="rawEvidence"
-        @inspect="inspect" @confirm="confirm" />
+        @inspect="inspect" @confirm="confirm">
+        <template #recovery>
+          <div v-if="lost" class="controls">
+            <OperatorButton id="pick-cancel-unconfirmed" label="Cancel unaccepted request"
+              :why="busy ? 'Wait for the current request.' : ''" :outcome="outcomes['pick-cancel-unconfirmed']"
+              @press="cancelUnconfirmed" />
+          </div>
+        </template>
+      </PickPlaceJob>
     </aside>
   </div>
 </template>

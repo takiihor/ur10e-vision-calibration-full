@@ -22,6 +22,11 @@ The app sends the injected `X-Module-Token` header on same-origin API requests. 
 
 The commissioning view uses the same connection, checklist, notes and record storage keys as the legacy AGV page. Open the AGV route to use the simulator, then choose **Simulator** and **Connect**. The fixed StopBar stays above the Sakai sidebar and overlays. Escape requests one AGV software Stop. Movement requests carry the current server Stop generation. The UI follows the returned urgent command result and reports stopped only when the server confirms zero speed. Robot stops for active Manual and Teacher sessions display their own buttons and use their own bound job IDs. Opening the AGV route on an armed link requests disarm. Inspect the link before issuing any new request after a failure.
 
+The commissioning bookmark `/operator/#/tests/agv` opens the same page as
+`/operator/#/agv`. The shared AGV banner includes request time in the report age.
+Reading the same report again preserves its elapsed age. AGV Stop stays
+available on a connected link with a stale report.
+
 The AGV reports learned legs. Station calls include the start as station 1, up to station 255. A report of zero learned legs disables station calls. The simulator input counts physical stations, so setting it to two produces a report of one learned leg.
 
 The Sakai follow-up was verified with fake ports, software tests and the in-process simulator. Field serial, radio timing, physical e-stop and site acceptance require hardware verification.
@@ -65,6 +70,12 @@ linked from Recorder.
 The service saves sessions under `<data-dir>/records/`. Keep the directory and
 downloads local because they contain operator notes and device evidence. Local
 simulation uses the existing AGV simulator and optional Scene fixtures.
+
+The variable list includes job and recipe progress, MCU reply and command
+outcome, the latest controller tool-port readback, and saved Calibration and
+Teaching evidence. The Recorder uses the service cache. Historical readings
+keep their timestamps and job or capture IDs in exports. Fields such as a
+Teaching project's tank stay unknown until that project has a recorded value.
 
 ## Line reads
 
@@ -182,8 +193,9 @@ exact tags, baseline and observation limit before approving. There is one
 active test. **Line Stop · clear command** requests immediate same-command
 cleanup. On the test route, Escape does the same while a test is active.
 **Use the line’s physical e-stop in an emergency.** The server starts cleanup
-if the approving page loses contact. Reload to see the active or saved test
-and arm again for a new run.
+if the approving page loses contact after dispatch. If the page lease expires
+before the first dispatch, the server saves a refusal with zero dispatches.
+Reload to see the active or saved test and arm again for a new run.
 
 Check the separately labelled API disposition and human result. The API
 disposition includes qualifying readback and cleanup. Record a human result
@@ -191,8 +203,9 @@ and notes in the saved test. The history filter selects API dispositions.
 Open **Baseline, receipts and readback** for details and earlier judgments.
 Download the Markdown summary, CSV or full JSON for the selected run.
 If **Restore unconfirmed** persists, keep the service data for investigation.
-Restart preserves the fence, and this stage supplies no real-line
-reconciliation workflow.
+On restart, damaged records appear under **Unresolved test** by ID. The line
+test remains fenced, the original files are preserved, and the shared Stop
+controls remain available.
 
 ### Import legacy evidence locally
 
@@ -216,10 +229,12 @@ Additional explicitly named JSON, JSONL, CSV, HTML, Markdown or text reports
 and browser-only exports stay available as original attachments. Without an
 archived catalog the import uses the signatures in the evidence. Contexts
 that cannot be matched remain available through the original files. Repeating
-an import with the same source content and catalog produces the same archive
-ID. Import folders and files are owner-only. Keep them and all downloads outside
-Git and release artifacts. Select the archive in the test view to see the
-historical API and human totals, provenance and individual original downloads.
+an import with the same source content and catalog returns the same archive ID
+after checking the saved originals. Each download also verifies the saved
+checksum. If either operation reports damaged evidence, preserve the archive
+for inspection. Import folders and files are owner-only. Keep them and all
+downloads outside Git and release artifacts. Select the archive in the test
+view to see the historical API and human totals, provenance and original downloads.
 
 ## Pick/place and Recipe
 
@@ -241,7 +256,10 @@ operator declaration for the selected operation.
 
 Escape sends **AGV Stop**. Use **Pick/place Stop (software)** to stop the
 active robot operation. Keep the physical e-stops accessible. Inspect a
-request by its ID after a disconnect. Complete automatic transfer counts
+request by its ID after a disconnect. **Cancel unaccepted request** closes
+the ID if the service has no accepted job for it. If the service already
+accepted the request, the action shows that job in **Current operation**.
+Work after a cancellation requires fresh approvals. Complete automatic transfer counts
 describe commanded work. MCU replies and controller voltage readings are
 recorded observations. Check the item physically before confirming a
 manual grip or release.
@@ -296,7 +314,9 @@ executor and its own checks.
 For an enabled factory model and reviewed collision scene, the operator
 can separately approve a checked return or planar joint validation. Keep
 the page visible during the move. The service expires supervision after
-two seconds without a heartbeat. **Teacher Stop (software)** targets the
+two seconds without a heartbeat. Display reads and supervision run independently.
+Hiding or leaving the page stops supervision and requests Stop for the accepted job.
+**Teacher Stop (software)** targets the
 accepted Teacher job, and Escape sends AGV Stop. Use the robot's physical
 e-stop when needed. Inspect saved results and record visual alignment or
 an independent TCP measurement. A separate vertical descent requires the
@@ -310,7 +330,9 @@ respective native workflows. **Create simulated project** requires a
 simulated calibration and an empty project folder. **Save current joints
 as travel pose** needs an explicit fold confirmation and a stopped
 robot read. Cached travel evidence is shown on entry. **Check live travel
-pose** requests a new checked read.
+pose** requests a new checked read and shows its observation time. An
+unavailable recheck clears the previous indication. **Continue to Pick/place**
+keeps the selected project open on Teaching if browser storage is unavailable.
 
 ## Calibration
 
@@ -344,7 +366,9 @@ on reload. Simulator datasets and verification sessions need separate folders.
 - **Results** fits hand-eye, intrinsics or both from a saved session, or
   generates a simulated calibration. **Continue to Teaching** requests the
   selected usable result and checks its recorded file identity on the IPC.
-  Simulated output can seed an offline Teaching project.
+  Simulated output can seed an offline Teaching project. Enable browser storage
+  to carry the selected result across. If it is blocked, the result stays open
+  in Calibration.
 - **Verify** checks the calibration against an independent recorded session. Pendant and
   automatic verification capture require a usable real calibration. The
   results panel shows PASS or FAIL and the saved report path. Open **Saved

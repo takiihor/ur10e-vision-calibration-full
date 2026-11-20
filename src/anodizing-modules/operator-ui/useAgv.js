@@ -15,7 +15,7 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
   const capability = shallowRef(null);
   const report = shallowRef(null);
   const clock = ref(performance.now());
-  let receivedAt = clock.value;
+  let snapshotRequestedAt = clock.value;
   const stateError = ref('');
   const serviceError = ref('');
   const portError = ref('');
@@ -54,9 +54,9 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     return linked && !found.some(port => port.device === linked) ? [{ device: linked }, ...found] : found;
   });
   const age = computed(() => state.value.status_age_s == null ? null :
-    state.value.status_age_s + Math.max(0, clock.value - receivedAt) / 1000);
+    state.value.status_age_s + Math.max(0, clock.value - snapshotRequestedAt) / 1000);
   const stale = computed(() => Boolean(state.value.connected && (
-    state.value.stale || (age.value ?? (state.value.connection_age_s ?? 0) + Math.max(0, clock.value - receivedAt) / 1000) >=
+    state.value.stale || (age.value ?? (state.value.connection_age_s ?? 0) + Math.max(0, clock.value - snapshotRequestedAt) / 1000) >=
       (state.value.recipe_active || pickRoute?.value ? 3 : 5))));
   const freshReport = computed(() => state.value.connected && !stale.value ? state.value.status : null);
   const connectionLabel = computed(() => {
@@ -126,7 +126,7 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     }
   }
 
-  function apply(next) {
+  function apply(next, requestedAt) {
     if (retired || next.connection_id < state.value.connection_id || next.sequence <= state.value.sequence) return false;
     const changed = next.connection_id !== state.value.connection_id;
     if (changed || !next.connected || !next.armed) armedHere.value = false;
@@ -136,8 +136,18 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     }
     const wasStale = stale.value;
     const fault = state.value.status?.fault_code;
-    receivedAt = performance.now();
-    clock.value = receivedAt;
+    if (!changed && next.connected) {
+      const elapsed = (requestedAt - snapshotRequestedAt) / 1000;
+      if (next.status_time && next.status_time === state.value.status_time &&
+          next.status_age_s != null && state.value.status_age_s != null) {
+        next = { ...next, status_age_s: Math.max(next.status_age_s, state.value.status_age_s + elapsed) };
+      }
+      if (next.connection_age_s != null && state.value.connection_age_s != null) {
+        next = { ...next, connection_age_s: Math.max(next.connection_age_s, state.value.connection_age_s + elapsed) };
+      }
+    }
+    snapshotRequestedAt = requestedAt;
+    clock.value = performance.now();
     state.value = next;
     if (isAgv.value) ingest(next);
     if ((!wasStale && stale.value) || (next.status?.fault_code && fault !== next.status.fault_code)) playAlarm();
@@ -164,13 +174,14 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
   }
 
   async function refreshPorts() {
+    const requestedAt = performance.now();
     try {
       const next = await request('/api/agv?ports=1');
       if (retired) return;
       if (!capability.value || next.sequence > capability.value.sequence) {
         capability.value = next;
         portError.value = next.port_error ? 'Ports could not be listed. Reseat the USB plug, then refresh ports.' : '';
-        apply(next);
+        apply(next, requestedAt);
         pickPort();
       }
       setServiceError('');
@@ -203,7 +214,7 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     outcomes.set(id, pending);
     try {
       const next = await request('/api/agv', { connection_id: generation, ...body }, timeout);
-      const applied = apply(next);
+      const applied = apply(next, pending.started);
       const current = state.value;
       if (retired || outcomes.get(id) !== pending) return;
       if (next.connection_id !== current.connection_id || (body.action !== 'connect' && generation !== current.connection_id)) {
@@ -320,9 +331,10 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     if (fetching || clock.value - lastPoll < 500) return;
     fetching = true;
     lastPoll = clock.value;
+    const requestedAt = performance.now();
     try {
       const next = await request('/api/agv?cached=1', null, 3000);
-      apply(next);
+      apply(next, requestedAt);
       setServiceError('');
       if (!retired && isAgv.value && firstAgvRead) {
         firstAgvRead = false;
