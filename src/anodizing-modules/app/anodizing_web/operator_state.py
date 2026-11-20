@@ -55,9 +55,9 @@ def agv_state(sample):
         yield reported(key, name, report.get(field), unit)
 
 
-def read(connection):
+def read(connection, extra_variables=()):
     sample = connection.state_sample()
     connection_id, sequence = sample[-2:]
     return dict(schema_version=1, generated_at=agv.timestamp(),
                 agv=dict(connection_id=connection_id, sequence=sequence),
-                variables=sorted(agv_state(sample), key=lambda variable: variable['id']))
+                variables=sorted((*agv_state(sample), *extra_variables), key=lambda variable: variable['id']))

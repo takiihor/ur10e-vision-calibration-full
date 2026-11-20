@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import calibration, teaching, pick_place, manual_pick_place, tool_power, mcu, robot_control, agv, travel_pose, operator_state
 from .jobs import JobOwner
+from .operator_scene import Scene as OperatorScene, TANK_ID
 from .paths import check_tree, inside
 
 WEB = Path(__file__).parent / 'web'
@@ -29,7 +30,7 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, port, root, *, allow_camera=False, allow_teaching=False, allow_manual=False, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False, allow_agv_in_recipe=False):
+    def __init__(self, port, root, *, allow_camera=False, allow_teaching=False, allow_manual=False, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False, allow_agv_in_recipe=False, simulate_scene=False):
         lock_path = Path(tempfile.gettempdir()) / f'anodizing-modules-{os.getuid()}.lock'
         self.lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         self.data_lock_fd = None
@@ -88,6 +89,7 @@ class Server(ThreadingHTTPServer):
             self.owner = JobOwner(self.root, allow_auto_calibration=allow_auto_calibration, robot_model=self.model_spec, allow_teacher_motion=allow_teacher_motion, allow_manual_pick_place=allow_manual_pick_place,
                                   allow_agv_in_recipe=allow_agv_in_recipe, robot_read_access=allow_manual or allow_teaching)
             self.agv = self.owner.agv = agv.Connection(self.owner)
+            self.scene = OperatorScene(self.root, simulate=simulate_scene)
             self.token = secrets.token_urlsafe(32)
             self.allow_camera, self.allow_teaching, self.allow_manual = allow_camera, allow_teaching, allow_manual
             super().__init__(('127.0.0.1', port), Handler)
@@ -213,7 +215,18 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith('/operator/'):
             return self.operator_asset(path)
         if path == '/api/state':
-            return self.reply(200, operator_state.read(self.server.agv))
+            scene = getattr(self.server, 'scene', None)
+            variables = scene.variables(self.server.owner, self.server) if scene else ()
+            return self.reply(200, operator_state.read(self.server.agv, variables))
+        if path == '/api/scene':
+            return self.reply(200, self.server.scene.config)
+        if path.startswith('/api/scene/drawing/'):
+            drawing = self.server.scene.config['drawing']
+            if drawing and path == drawing['url']:
+                return self.send_asset(self.server.scene.data, 'model/gltf-binary',
+                                       etag='"' + drawing['sha256'] + '"',
+                                       cache_control='private, max-age=31536000, immutable')
+            return self.reply(404, {'error': 'Drawing is unavailable.'})
         if path == '/api/status':
             try:
                 self.server.check_model()
@@ -294,7 +307,9 @@ class Handler(BaseHTTPRequestHandler):
                     project = check_tree(self.server.root, inside(self.server.root, query['project'][0]))
                     saved = json.loads(inside(self.server.root, str(project / 'project.json')).read_text())
                     settings = teaching.checked_settings(self.server.root, dict(saved['settings'], project=str(project)))
-                    return self.reply(200, dict(settings, agv=saved.get('agv')))
+                    tank = saved.get('tank')
+                    tank = tank if isinstance(tank, str) and TANK_ID.fullmatch(tank) else None
+                    return self.reply(200, dict(settings, agv=saved.get('agv'), tank=tank))
                 if set(query) != {'job', 'name'} or any(len(v) != 1 for v in query.values()):
                     raise ValueError('Select one result.')
                 job = self.server.owner.get(query['job'][0])
@@ -507,11 +522,12 @@ def main():
     parser.add_argument('--allow-manual-pick-place', action='store_true', help='Allow reviewed manual Pick/Place, Teacher descent and finite robot-card joint steps')
     parser.add_argument('--allow-agv-in-recipe', action='store_true', help='Allow approved AGV station calls in Pick/place repeat recipes')
     parser.add_argument('--allow-teacher-motion', action='store_true', help='Allow reviewed planar-endpoint checked joint tests')
+    parser.add_argument('--simulate-scene', action='store_true', help='Display fake joints and scripted tank status')
     parser.add_argument('--robot-model', help='Robot model JSON inside the data directory')
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error('Port must be 1 to 65535.')
-    server = Server(args.port, args.data_dir, allow_camera=args.allow_camera, allow_teaching=args.allow_teaching, allow_manual=args.allow_manual, allow_auto_calibration=args.allow_auto_calibration, robot_model=args.robot_model, allow_teacher_motion=args.allow_teacher_motion, allow_manual_pick_place=args.allow_manual_pick_place, allow_agv_in_recipe=args.allow_agv_in_recipe)
+    server = Server(args.port, args.data_dir, allow_camera=args.allow_camera, allow_teaching=args.allow_teaching, allow_manual=args.allow_manual, allow_auto_calibration=args.allow_auto_calibration, robot_model=args.robot_model, allow_teacher_motion=args.allow_teacher_motion, allow_manual_pick_place=args.allow_manual_pick_place, allow_agv_in_recipe=args.allow_agv_in_recipe, simulate_scene=args.simulate_scene)
     print(f'Anodizing modules: http://127.0.0.1:{args.port}/  data: {server.root}', flush=True)
     try:
         server.serve_forever(poll_interval=.2)

@@ -19,6 +19,18 @@ class TeacherJointMotion(ValidationMotion):
         self._stop_attempted = False
         super().__init__(*args, **kwargs)
 
+    def cached_joint_sample(self):
+        """Copy already acquired feedback without waiting for the native worker."""
+        if not self._lock.acquire(blocking=False):
+            return None
+        try:
+            if self._connected and self._feedback:
+                received_at = min(self._fresh_at, self._feedback['received_at'])
+                return list(self._feedback['joints_rad']), received_at, self.demo
+            return None
+        finally:
+            self._lock.release()
+
     def _execute(self, command, payload, generation):
         if command in ('move_tcp', 'move_saved'):
             with self._lock:
