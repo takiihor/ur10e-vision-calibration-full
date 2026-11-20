@@ -5,6 +5,7 @@ html:root {
   font: 16px/1.48 system-ui, sans-serif;
   color: var(--p-operator-text);
   background: var(--p-operator-canvas);
+  scrollbar-color: var(--p-operator-border) var(--p-operator-canvas);
   scroll-padding-top: calc(var(--stop-height) + 12px);
 }
 *, *::before, *::after { box-sizing: border-box; }
@@ -40,7 +41,7 @@ button.p-button:disabled {
   opacity: 1;
 }
 button.p-button.urgent { min-height: 64px; padding-inline: 1.1rem; }
-button.p-button.stop { border-width: 2px; font-weight: 800; }
+button.p-button.stop { border-width: 2px; --p-button-label-font-weight: 800; }
 button.p-button.stop:disabled { color: var(--p-operator-critical); border-color: var(--p-operator-critical); }
 button.p-button[aria-current="true"] { box-shadow: inset 0 0 0 2px currentColor; }
 .check { display: flex; align-items: center; gap: .7rem; width: fit-content; padding: .4rem .25rem; cursor: pointer; }
@@ -116,7 +117,7 @@ button.p-button[aria-current="true"] { box-shadow: inset 0 0 0 2px currentColor;
   margin: .65rem 0;
 }
 .control { display: grid; gap: .2rem; align-content: start; justify-items: start; min-width: 0; }
-.control small:empty, .control span:empty, #agv-armed-outcome:empty, #agv-armed-why:empty, #agv-record-note:empty { display: none; }
+.control > small:empty, .control > span:empty, #agv-armed-outcome:empty, #agv-armed-why:empty, #agv-record-note:empty { display: none; }
 .control small, .control > span { max-width: 17rem; }
 .field-row { align-items: end; }
 .field-row > label { flex: 1 1 11rem; }
