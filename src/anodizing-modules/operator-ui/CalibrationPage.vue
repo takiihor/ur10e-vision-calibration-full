@@ -439,7 +439,7 @@ watch(() => [editorReady.value, form.calibration], ([ready, path]) => {
 watch(() => [editorReady.value, form.robot_ip], ([ready, robot]) => {
   if (ready) postEditor('calibration-robot-select', { robot: robot.trim() });
 });
-watch(() => [props.agv?.state.connected, props.agv?.state.connection_id, props.agv?.state.stop_generation], () => {
+watch([() => props.agv?.state.connected, () => props.agv?.state.connection_id, () => props.agv?.state.stop_generation], () => {
   off.value = false;
   void loadAgv();
 });

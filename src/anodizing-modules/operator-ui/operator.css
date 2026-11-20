@@ -302,6 +302,7 @@ button.p-button[aria-current="true"] { box-shadow: inset 0 0 0 2px currentColor;
   gap: 1rem;
 }
 .calibration-workflow, .calibration-operation { min-width: 0; }
+.calibration-workspace .actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem 0.75rem; }
 .calibration-steps { margin-bottom: 0.75rem; }
 .calibration-step, .calibration-operation, .calibration-details { padding: 1rem; }
 .calibration-operation { position: sticky; top: calc(var(--stop-height, 0px) + 1rem); }

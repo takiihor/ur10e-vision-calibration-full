@@ -2,6 +2,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
+import { reactive } from 'vue';
 import CalibrationPage from './CalibrationPage.vue';
 
 let page;
@@ -51,4 +52,18 @@ it('binds a manual answer to the active job and the current request', async () =
   await flushPromises();
   expect(sent).toEqual([{ job_id: active.id, request_id: 8, value: '' }]);
   expect(page.find('#agv-cal-capture-view').exists()).toBe(false);
+});
+
+it('clears the AGV switched-off declaration on a link change and keeps it through unchanged reports', async () => {
+  const agv = reactive({ state: { connected: false, connection_id: 4, stop_generation: 2, sequence: 1 } });
+  await open({ agv });
+  await button('step-capture').trigger('click');
+  const declaration = page.get('#cal-agv-off');
+  await declaration.setValue(true);
+  agv.state = { ...agv.state, sequence: 2 };
+  await flushPromises();
+  expect(declaration.element.checked).toBe(true);
+  agv.state = { ...agv.state, connected: true, connection_id: 5 };
+  await flushPromises();
+  expect(declaration.element.checked).toBe(false);
 });
