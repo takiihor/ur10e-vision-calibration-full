@@ -13,11 +13,15 @@ from importlib.resources import files
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import calibration, teaching, pick_place, manual_pick_place, tool_power, mcu, robot_control, agv, travel_pose
+from . import calibration, teaching, pick_place, manual_pick_place, tool_power, mcu, robot_control, agv, travel_pose, operator_state
 from .jobs import JobOwner
 from .paths import check_tree, inside
 
 WEB = Path(__file__).parent / 'web'
+OPERATOR_DIST = Path(__file__).parent / 'operator_dist'
+OPERATOR_TYPES = {'.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+                  '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf',
+                  '.eot': 'application/vnd.ms-fontobject', '.svg': 'image/svg+xml'}
 MAX_BODY = 32768
 
 
@@ -144,17 +148,18 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def reply(self, status, body, mime='application/json; charset=utf-8', *, editor_frame=False,
-              cache_control='no-store', etag=None, last_modified=None):
+              cache_control='no-store', etag=None, last_modified=None, style_nonce=None):
         if not isinstance(body, bytes):
             body = json.dumps(body, allow_nan=False).encode()
         if etag and status == 200 and self.headers.get('If-None-Match') == etag:
             status, body = 304, b''
+        style_src = "style-src 'self'" + (f" 'nonce-{style_nonce}'" if style_nonce else "")
         self.send_response(status)
         headers = {'Content-Type': mime, 'Content-Length': str(len(body)),
                    'Cache-Control': cache_control, 'X-Content-Type-Options': 'nosniff',
                    'Referrer-Policy': 'no-referrer', 'Connection': 'close',
                    'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; "
-                   "script-src 'self'; style-src 'self'; frame-ancestors " + ("'self'" if editor_frame else "'none'") + "; base-uri 'none'"}
+                   "script-src 'self'; " + style_src + "; frame-ancestors " + ("'self'" if editor_frame else "'none'") + "; base-uri 'none'"}
         if etag:
             headers['ETag'] = etag
         if last_modified:
@@ -174,6 +179,26 @@ class Handler(BaseHTTPRequestHandler):
                           cache_control=cache_control, etag=etag or f'"{hashlib.sha256(data).hexdigest()}"',
                           last_modified=formatdate(mtime, usegmt=True) if mtime is not None else None)
 
+    def operator_asset(self, path):
+        name = path.removeprefix('/operator/')
+        try:
+            if not name:
+                data, _, _ = self.server.cached_asset(OPERATOR_DIST / 'index.html')
+                nonce = secrets.token_urlsafe(24)
+                rendered = data.replace(b'__TOKEN__', self.server.token.encode()).replace(
+                    b'__STYLE_NONCE__', nonce.encode())
+                return self.reply(200, rendered, 'text/html; charset=utf-8', style_nonce=nonce)
+            mime = OPERATOR_TYPES.get(Path(name).suffix)
+            if mime and Path(name).parent == Path('assets') and '..' not in Path(name).parts:
+                allowlist, _, _ = self.server.cached_asset(OPERATOR_DIST / 'asset-allowlist.json')
+                if name in json.loads(allowlist):
+                    data, _, sha = self.server.cached_asset(OPERATOR_DIST / name)
+                    return self.send_asset(data, mime, etag=f'"{sha}"',
+                                           cache_control='public, max-age=31536000, immutable')
+        except FileNotFoundError:
+            pass
+        return self.reply(404, {'error': 'Not found.'})
+
     def authorized(self, *, token):
         host = self.headers.get('Host')
         origin = self.headers.get('Origin')
@@ -185,6 +210,10 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if not self.authorized(token=path.startswith('/api/')):
             return self.reply(403, {'error': 'Request is not authorized.'})
+        if path.startswith('/operator/'):
+            return self.operator_asset(path)
+        if path == '/api/state':
+            return self.reply(200, operator_state.read(self.server.agv))
         if path == '/api/status':
             try:
                 self.server.check_model()
@@ -202,6 +231,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/agv-travel-pose':
             return self.reply(200, travel_pose.state(self.server.owner))
         if path == '/api/agv':
+            query = urlsplit(self.path).query
+            if query in ('cached=1', 'ports=1'):
+                return self.reply(200, self.server.agv.commissioning(ports=query == 'ports=1'))
             return self.reply(200, self.server.agv.capability())
         if path == '/api/agv-link':
             return self.reply(200, self.server.agv.link_state())
@@ -380,6 +412,7 @@ class Handler(BaseHTTPRequestHandler):
                  '/agv': ('agv.html', 'text/html; charset=utf-8'),
                  '/agv-motion.js': ('agv-motion.js', 'text/javascript; charset=utf-8'),
                  '/teaching-travel-pose.js': ('teaching-travel-pose.js', 'text/javascript; charset=utf-8'),
+                 '/agv-record.mjs': ('agv-record.mjs', 'text/javascript; charset=utf-8'),
                  '/agv.js': ('agv.js', 'text/javascript; charset=utf-8'),
                  '/manual-job.js': ('manual-job.js', 'text/javascript; charset=utf-8'),
                  '/tool-power.js': ('tool-power.js', 'text/javascript; charset=utf-8'),

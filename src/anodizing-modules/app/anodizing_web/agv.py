@@ -449,6 +449,7 @@ class Connection:
         self.recipe_statuses = deque(maxlen=64)
         self.motion_poll_at = 0
         self.status_iso = None
+        self.last_confirmed_station = None
         self.stop_generation = 0
         self.urgent_waiters = 0
         self.lock = Lock()
@@ -638,6 +639,11 @@ class Connection:
         self.status, self.status_hex, self.status_at = decoded, hex_bytes(raw), monotonic()
         self._passive_report(self.status_at)
         self.status_iso = timestamp()
+        station = decoded.get('current_station')
+        if (type(station) is int and decoded.get('mode') == 2
+                and 1 <= station <= decoded.get('max_stations', 0)
+                and decoded.get('stopped') is True and decoded.get('actual_speed_m_h') == 0):
+            self.last_confirmed_station = (station, self.status_iso)
         if self.recipe_active:
             self.recipe_statuses.append((decoded, self.status_at))
         self._check_stale(self.status_at)
@@ -739,7 +745,8 @@ class Connection:
         return dict(robot_interlock=robot_configured, recipe_active=self.recipe_active, connected=self.transport is not None, connection_id=self.id, sequence=self.sequence, settings=self.settings,
                     connection_started_at=self.connected_iso, stop_generation=self.stop_generation,
                     armed=self.armed, motion_block=motion_block(self.owner), status=self.status,
-                    status_hex=self.status_hex, status_age_s=age,
+                    status_hex=self.status_hex, status_age_s=age, status_time=self.status_iso,
+                    connection_age_s=None if self.connected_at is None else now - self.connected_at,
                     stale=self.stale, events=list(self.events),
                     link_quality=dict(self.link_quality, timed_report_interval_s=(
                         self.timed_report_interval if self._fresh_timed_reports(now) else None)),
@@ -747,6 +754,29 @@ class Connection:
                     log=list(self.log), error=self.error,
                     log_truncated=self.log_id > self.log.maxlen,
                     silent=isinstance(self.transport, Simulator) and self.transport.silent)
+
+    def state_sample(self):
+        """Copy the acquired sample without servicing the link."""
+        with self.lock:
+            return (deepcopy(self.status), self.status_iso, self.status_at, self.transport is not None,
+                    (self.settings or {}).get('mode'), self.recipe_active, self.last_confirmed_station,
+                    self.connected_iso, self.error, monotonic(), self.id, self.sequence)
+
+    def commissioning(self, *, ports=False):
+        if ports:
+            try:
+                devices, error = serial_ports(), None
+            except OSError as exc:
+                devices, error = [], str(exc)
+        with self.lock:
+            snapshot = self._snapshot()
+        if ports:
+            snapshot.update(serial_available=serial is not None, ports=devices, port_error=error, commands=[
+                dict(name=name, label=label, payload=payload, argument=ARGUMENTS.get(name),
+                     motion=name not in URGENT and name not in READS)
+                for name, (label, payload) in COMMANDS.items()
+            ])
+        return snapshot
 
     def link_state(self):
         with self.lock:
@@ -783,18 +813,14 @@ class Connection:
                     self._transport_error(exc)
                     return {}
                 return dict(status=self.status, status_time=self.status_iso, mode=self.settings['mode'],
-                            connection_id=self.id, stop_generation=self.stop_generation, status_age_s=None if self.status_at is None else monotonic()-self.status_at,
+                            connection_id=self.id, stop_generation=self.stop_generation,
+                            status_age_s=None if self.status_at is None else monotonic() - self.status_at,
                             movement_pending=any(name not in URGENT and name != 'set_speed' for name in self.pending))
         finally:
             if acquired:
                 self.send_lock.release()
 
     def capability(self):
-        try:
-            ports = serial_ports()
-            port_error = None
-        except OSError as exc:
-            ports, port_error = [], str(exc)
         self._service_resend()
         with self.lock:
             if self.transport is not None:
@@ -802,12 +828,7 @@ class Connection:
                     self._receive()
                 except OSError as exc:
                     self._transport_error(exc)
-            return dict(self._snapshot(), serial_available=serial is not None, ports=ports,
-                        port_error=port_error, commands=[
-                            dict(name=name, label=label, payload=payload, argument=ARGUMENTS.get(name),
-                                 motion=name not in URGENT and name not in READS)
-                            for name, (label, payload) in COMMANDS.items()
-                        ])
+        return self.commissioning(ports=True)
 
     def _connect(self, body):
         if self.transport is not None:
@@ -854,6 +875,7 @@ class Connection:
         self.listen_until = self.connected_at + TIMED_REPORT_LISTEN_S
         self.settings = dict(mode=mode, port=port, address=hex_bytes(prefix[:2]), channel=hex_bytes(prefix[2:]))
         self.status = self.status_at = self.status_hex = self.status_iso = self.error = None
+        self.last_confirmed_station = None
         self.motion_poll_at = 0
         self.armed = False
         self.results.clear()
@@ -986,8 +1008,10 @@ class Connection:
         mode = (self.status or {}).get('mode')
         return 'pause' if mode == 2 or (mode not in (0, 1) and recipe) else 'stop'
 
-    def _send_urgent(self, name, *, recipe=False):
+    def _send_urgent(self, name, *, recipe=False, connection_id=None):
         with self.lock:
+            if connection_id is not None:
+                self._check_connection(connection_id)
             transport = self.transport
             if recipe:
                 if not self.recipe_active:
@@ -1233,7 +1257,7 @@ class Connection:
         if action != 'send':
             return self._submit_locked(body, action, name, False)
         if name in URGENT:
-            return self._send_urgent(name)
+            return self._send_urgent(name, connection_id=body.get('connection_id'))
         motion = name not in READS
         with self.lock:
             if motion:

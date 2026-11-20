@@ -4,7 +4,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const scenario = process.argv[2];
-const source = fs.readFileSync(path.join(__dirname, '../anodizing_web/web/agv.js'), 'utf8');
+const web = path.join(__dirname, '../anodizing_web/web');
+const source = fs.readFileSync(path.join(web, 'agv-record.mjs'), 'utf8').split(/^export /m)[0] +
+  fs.readFileSync(path.join(web, 'agv.js'), 'utf8').replace(/^import .*?;\n/s, '');
 const storage = new Map();
 const requests = [];
 const radio = {device: '/dev/ttyUSB0', description: 'CH340'};
@@ -60,7 +62,7 @@ async function load(ports) {
       },
     },
     fetch: async (route, options) => {
-      assert.equal(route, '/api/agv');
+      assert.match(route, /^\/api\/agv(?:\?(?:cached|ports)=1)?$/);
       const body = options.body && JSON.parse(options.body);
       if (body) requests.push(body);
       const response = {connection_id: 1, sequence: ++sequence, connected: false, armed: false, log: [], results: {}};

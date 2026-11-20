@@ -33,4 +33,4 @@ anodizing-modules = "anodizing_web.server:main"
 packages = ["anodizing_web"]
 
 [tool.setuptools.package-data]
-anodizing_web = ["web/*.html", "web/*.css", "web/*.js"]
+anodizing_web = ["web/*.html", "web/*.css", "web/*.js", "web/*.mjs", "operator_dist/*.html", "operator_dist/*.json", "operator_dist/*.txt", "operator_dist/assets/*"]

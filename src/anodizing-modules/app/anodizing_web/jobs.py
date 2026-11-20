@@ -303,7 +303,13 @@ class JobOwner:
 
     def status(self):
         with self.lock:
-            return {'active': self.active, 'mcu_pending': self.mcu_pending, 'storage_error': self.storage_error, 'closing': self.closing,
+            stop_targets = []
+            if self.teacher_service is not None and self.teacher_job is not None:
+                stop_targets.append({'kind': 'teacher', 'job_id': self.teacher_job})
+            manual = self.jobs.get(self.active, {})
+            if manual.get('auto_action') in ('PICK', 'PLACE', 'REPEAT', 'vertical_descent', 'STEP'):
+                stop_targets.append({'kind': 'manual', 'job_id': self.active})
+            return {'active': self.active, 'stop_targets': stop_targets, 'mcu_pending': self.mcu_pending, 'storage_error': self.storage_error, 'closing': self.closing,
                     'execution_uncertain': self.execution_uncertain,
                     'recovery': 'Review physical state, native worker cleanup and saved Teacher evidence before a reviewed service restart; no automatic motion replay or clear button.' if self.execution_uncertain else None, 'jobs': [
                 {k: job.get(k) for k in ('id', 'module', 'state', 'created', 'finished', 'error')}
