@@ -66,4 +66,10 @@ def read(connection, extra_variables=()):
 def server_state(server):
     scene = getattr(server, 'scene', None)
     variables = scene.variables(server.owner, server) if scene else ()
-    return read(server.agv, variables)
+    line = getattr(server, 'line', None)
+    if line is None:
+        return read(server.agv, variables)
+    snapshot = line.snapshot()
+    if line.mode != 'disabled':
+        variables = (item for item in variables if not item['id'].startswith('line.'))
+    return dict(read(server.agv, (*variables, *snapshot['variables'])), line=snapshot['line'])

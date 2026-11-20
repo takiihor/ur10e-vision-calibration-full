@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import calibration, teaching, pick_place, manual_pick_place, tool_power, mcu, robot_control, agv, travel_pose, operator_state, operator_records
 from .jobs import JobOwner
+from .operator_line import Line
 from .operator_scene import Scene as OperatorScene, TANK_ID
 from .paths import check_tree, inside
 
@@ -31,7 +32,7 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, port, root, *, allow_camera=False, allow_teaching=False, allow_manual=False, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False, allow_agv_in_recipe=False, simulate_scene=False):
+    def __init__(self, port, root, *, allow_camera=False, allow_teaching=False, allow_manual=False, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False, allow_agv_in_recipe=False, simulate_scene=False, line_mode='disabled'):
         lock_path = Path(tempfile.gettempdir()) / f'anodizing-modules-{os.getuid()}.lock'
         self.lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         self.data_lock_fd = None
@@ -91,6 +92,7 @@ class Server(ThreadingHTTPServer):
                                   allow_agv_in_recipe=allow_agv_in_recipe, robot_read_access=allow_manual or allow_teaching)
             self.agv = self.owner.agv = agv.Connection(self.owner)
             self.scene = OperatorScene(self.root, simulate=simulate_scene)
+            self.line = Line.configured(self.root, line_mode)
             self.records = operator_records.Recorder(self.root, lambda: operator_state.server_state(self),
                                                       agv_context=self.agv.recording_context, scene_simulation=simulate_scene)
             self.agv.record_event = self.owner.record_event = self.records.event
@@ -99,6 +101,7 @@ class Server(ThreadingHTTPServer):
             super().__init__(('127.0.0.1', port), Handler)
             port = self.server_address[1]
             self.hosts = {f'127.0.0.1:{port}', f'localhost:{port}'}
+            self.line.start()
         except BaseException:
             if self.data_lock_fd is not None:
                 os.close(self.data_lock_fd)
@@ -136,6 +139,7 @@ class Server(ThreadingHTTPServer):
         self.owner.shutdown()
         self.agv.close()
         self.records.close()
+        self.line.close()
         if self.data_lock_fd is not None:
             os.close(self.data_lock_fd)
             self.data_lock_fd = None
@@ -227,6 +231,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.operator_asset(path)
         if path == '/api/state':
             return self.reply(200, operator_state.server_state(self.server))
+        if path == '/api/line/catalog':
+            return self.reply(200, self.server.line.catalog())
+        if path == '/api/line/diagnostics':
+            return self.reply(200, {'events': self.server.line.log()})
         if path == '/api/records':
             return self.reply(200, self.server.records.catalog())
         if path.startswith('/api/records/'):
@@ -510,6 +518,10 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('Send a JSON object.')
             path = urlsplit(self.path).path
             owner = self.server.owner
+            if path == '/api/line/refresh':
+                if body != {'action': 'refresh'}:
+                    raise ValueError('Choose Refresh catalog.')
+                return self.reply(202, {'id': self.server.line.queue_refresh()})
             if path == '/api/records':
                 if body.get('action') == 'start':
                     return self.reply(201, self.server.records.start(body))
@@ -565,11 +577,13 @@ def main():
     parser.add_argument('--allow-agv-in-recipe', action='store_true', help='Allow approved AGV station calls in Pick/place repeat recipes')
     parser.add_argument('--allow-teacher-motion', action='store_true', help='Allow reviewed planar-endpoint checked joint tests')
     parser.add_argument('--simulate-scene', action='store_true', help='Display fake joints and scripted tank status')
+    parser.add_argument('--line-mode', choices=('disabled', 'simulation', 'live'), default='disabled',
+                        help='Use the configured read-only line source')
     parser.add_argument('--robot-model', help='Robot model JSON inside the data directory')
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error('Port must be 1 to 65535.')
-    server = Server(args.port, args.data_dir, allow_camera=args.allow_camera, allow_teaching=args.allow_teaching, allow_manual=args.allow_manual, allow_auto_calibration=args.allow_auto_calibration, robot_model=args.robot_model, allow_teacher_motion=args.allow_teacher_motion, allow_manual_pick_place=args.allow_manual_pick_place, allow_agv_in_recipe=args.allow_agv_in_recipe, simulate_scene=args.simulate_scene)
+    server = Server(args.port, args.data_dir, allow_camera=args.allow_camera, allow_teaching=args.allow_teaching, allow_manual=args.allow_manual, allow_auto_calibration=args.allow_auto_calibration, robot_model=args.robot_model, allow_teacher_motion=args.allow_teacher_motion, allow_manual_pick_place=args.allow_manual_pick_place, allow_agv_in_recipe=args.allow_agv_in_recipe, simulate_scene=args.simulate_scene, line_mode=args.line_mode)
     print(f'Anodizing modules: http://127.0.0.1:{args.port}/  data: {server.root}', flush=True)
     try:
         server.serve_forever(poll_interval=.2)

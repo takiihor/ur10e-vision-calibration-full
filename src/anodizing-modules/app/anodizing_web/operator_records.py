@@ -59,10 +59,16 @@ def check_directory(path):
         raise OSError('Recording directory must be a real directory.')
 
 
+def line_sources(manifest):
+    labels = {'line.simulator': 'Simulation', 'line.supplier': 'Supplier API', 'line.disabled': 'Disabled'}
+    return sorted({labels[item['source']] for item in manifest['variables'] if item.get('source') in labels})
+
+
 def summary(manifest, outcome=None, stopping=False):
     return {
         **{key: manifest[key] for key in ('id', 'started_at', 'rate_hz', 'agv_transport', 'scene_simulation')},
         'variable_count': len(manifest['variables']),
+        'line_sources': line_sources(manifest),
         'status': 'finished' if outcome else 'stopping' if stopping else 'recording',
         'outcome': outcome,
     }
@@ -357,7 +363,7 @@ class Recorder:
 
 
 def write_csv(rows, output):
-    fields = ('sample_at', 'id', 'name', 'value', 'unit', 'source', 'read_at', 'source_at', 'quality', 'age_ms', 'reason')
+    fields = ('sample_at', 'id', 'name', 'value', 'unit', 'source', 'read_at', 'source_at', 'row_id', 'quality', 'age_ms', 'reason')
     writer = csv.DictWriter(output, fields, extrasaction='ignore')
     writer.writeheader()
     for row in rows:
@@ -385,6 +391,8 @@ def write_summary(manifest, outcome, rows, output):
                  f"{manifest['rate_hz']} Hz | {counts['sample']} | {counts['event']} |\n\n"
                  f'AGV transport at start: {start_transport}\n\nAGV event transports: {observed}\n\n'
                  f"Scene simulation: {'Enabled' if manifest['scene_simulation'] else 'Disabled'}\n\n")
+    if sources := line_sources(manifest):
+        output.write('Line sources: ' + ', '.join(sources) + '\n\n')
     for key in ('site', 'operator', 'devices', 'notes'):
         if value := manifest[key]:
             # Keep operator-entered text literal even when a Markdown viewer renders the report.
