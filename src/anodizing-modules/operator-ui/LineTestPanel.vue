@@ -20,7 +20,6 @@ const session = ref('');
 const sessionUntil = ref(0);
 const now = ref(Date.now());
 const working = ref('');
-const error = ref('');
 const archiveError = ref('');
 const statusError = ref('');
 const feedback = ref(null);
@@ -63,7 +62,9 @@ const reviewReason = computed(() => armReason.value || (!armed.value ? 'Arm a si
     props.quality !== 'fresh' || !modeReady.value ? 'Wait for a complete fresh row with Remote = 1 and Local = 0.' : ''));
 const approvalSeconds = computed(() => Math.max(0, Math.ceil(((review.value?.until ?? 0) - now.value) / 1000)));
 const actionTitles = { arm: 'Session armed', disarm: 'Session disarmed', prepare: 'Approval ready', judge: 'Judgment saved' };
-const localTime = stamp => stamp ? new Date(stamp).toLocaleTimeString(undefined, { fractionalSecondDigits: 3 }) : 'Unknown';
+const localTime = stamp => stamp ? new Date(stamp).toLocaleTimeString(undefined, {
+  hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3,
+}) : 'Unknown';
 
 function show(text, tone, select = false) {
   if (feedback.value?.text === text && feedback.value?.tone === tone) return;
@@ -109,7 +110,6 @@ async function refresh() {
 async function perform(action, fields = {}, accept = () => {}) {
   if (working.value) return;
   working.value = action;
-  error.value = '';
   show('Sending…', 'running', true);
   const timeout = setTimeout(() => show('Waiting for the line test service… 3 s', 'waiting'), 1000);
   try {
@@ -124,10 +124,10 @@ async function perform(action, fields = {}, accept = () => {}) {
     void refresh();
   } catch (failure) {
     if (retired) return;
-    error.value = failure.status === 400 ? failure.message :
+    const error = failure.status === 400 ? failure.message :
       failure.status === 403 ? 'Page access expired. Reload to check the test status.' : unavailable;
     if (action === 'start' && failure.status !== 400 && failure.status !== 403) pendingRun = fields.request_id;
-    show(error.value, 'failed');
+    show(error, 'failed');
   } finally {
     clearTimeout(timeout);
     working.value = '';
@@ -153,7 +153,8 @@ function prepare() {
   const id = crypto.randomUUID();
   const item = mapping.value;
   void perform('prepare', { session: session.value, case: item.id, request_id: id }, result => {
-    review.value = { ...result, id, item, until: Date.now() + result.seconds * 1000 };
+    now.value = Date.now();
+    review.value = { ...result, id, item, until: now.value + result.seconds * 1000 };
   });
 }
 
@@ -296,7 +297,6 @@ defineExpose({
         </div>
       </section>
       <p v-if="feedback" :data-state="feedback.tone" role="status">{{ feedback.text }}</p>
-      <Message v-else-if="error" severity="error">{{ error }}</Message>
 
       <section v-if="active" aria-labelledby="line-active-heading">
         <h3 id="line-active-heading">Active simulator test</h3>

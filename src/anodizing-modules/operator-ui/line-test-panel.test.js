@@ -19,7 +19,7 @@ function open(state) {
   const send = vi.spyOn(api, 'request').mockImplementation(async (path, body) => {
     if (!body) return path.endsWith('/archives') ? { archives: [] } : state;
     if (body.action === 'arm') return { session: 'fixture-arm', seconds: 1800 };
-    if (body.action === 'prepare') return { approval: 'fixture-approval', baseline: { id: 12, values: {} }, seconds: 30, metadata: [] };
+    if (body.action === 'prepare') return { approval: 'fixture-approval', baseline: { id: 12, source_at: '2026-01-01T00:00:04.125Z', values: {} }, seconds: 30, metadata: [] };
     return { id: body.request_id };
   });
   page = mount(LineTestPanel, { props: { quality: 'fresh', variable: id => ({ value: id === 'line.Remote' ? 1 : 0 }) },
@@ -38,6 +38,8 @@ it('requires a new arm and one explicit test approval before starting', async ()
   await flushPromises();
   expect(page.text()).toContain('FixtureCommand');
   expect(page.text()).toContain('FixtureFeedback');
+  expect(page.get('.line-approval').text()).toMatch(/\d{2}:\d{2}:\d{2}[.,]125/);
+  expect(page.get('.line-approval').text()).toContain('Approval expires in 30 s');
   expect(send.mock.calls.some(([, body]) => body?.action === 'start')).toBe(false);
   await page.get('#line-confirm').trigger('click');
   await flushPromises();

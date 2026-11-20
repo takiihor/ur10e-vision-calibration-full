@@ -194,6 +194,10 @@ onUnmounted(() => {
         <Tag :value="'PLC sample · ' + ({fresh: 'Fresh', partial: 'Partial', stale: 'Stale'}[quality] ?? 'Unknown')"
           :severity="quality === 'stale' ? 'danger' : quality === 'partial' ? 'warn' : 'secondary'" />
         <span id="line-age">{{ sampleAge(sample) }}</span>
+        <template v-if="test">
+          <Tag severity="secondary" :value="'Remote · ' + (variable('line.Remote')?.value ?? 'Unknown')" />
+          <Tag severity="secondary" :value="'Local · ' + (variable('line.Local')?.value ?? 'Unknown')" />
+        </template>
       </div>
       <Message v-if="stateError || quality === 'stale' || quality === 'unknown'" role="alert"
         :severity="quality === 'stale' || stateError ? 'error' : 'warn'">
