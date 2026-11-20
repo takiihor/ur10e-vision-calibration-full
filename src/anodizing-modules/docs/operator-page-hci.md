@@ -31,9 +31,9 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 - **Shortcut.** Press Esc anywhere on the page to send one software Stop while connected. The Stop outcome shows `(Esc)` next to the send time. While disconnected, pressing Esc shows “Connect first” in the status line. Esc is the only command shortcut.
 
 ## 3. Movement is deliberate
-- **One press authorizes one command on AGV commissioning.** The first Stop or Pause write sends immediately. Stop and Pause can retry up to four times until an ACK or confirming status. Scheduled writes wait at least 0.75 s from the last write and use the 100–150 ms gap when timed reports are on schedule. Retries without timed reports wait at least 1.5 s. Ordinary commands wait for an open read to finish. A repeated Stop press joins the pending Stop. An unchanged parked status on a timed stream or from a query sent before the command only confirms the vehicle's current state.
+- **One press authorizes one command on AGV commissioning.** The page shows “Sending…” immediately. With a status query in flight and timed reports absent, the first Stop or Pause write waits for the reply or until 0.95 s after the query write, whichever comes first. Otherwise the first write sends immediately. Stop and Pause can retry up to four times until an ACK or confirming status. Scheduled writes wait at least 0.75 s from the last write and use the 100–150 ms gap when timed reports are on schedule. Retries without timed reports wait at least 1.5 s. Ordinary commands wait for an open read to finish. A repeated Stop press joins the pending Stop. An unchanged parked status on a timed stream or from a query sent before the command only confirms the vehicle's current state.
 - Other movement and setting commands get up to four tries at least 2 s apart. When timed reports are detected, their sends align with the measured 100–150 ms gap after a report. Stop and Pause supersede other pending retries. Disarm, disconnect and link changes cancel retries. Pick/place uses the same Stop retry timing and keeps its existing supervision and deadlines.
-- Automatic status polling waits while Stop or Pause is retrying. An unambiguous ACK within 0.3 s of a write command's no-reply outcome changes the message to “AGV acknowledged late” and updates the link counts.
+- Without timed reports, the page polls every 1.2 s and the recipe polls every 0.9 s, subject to the open reply window. Automatic polls yield to an urgent write waiting for a status reply, its pending ACK and its retries. An unambiguous ACK within 0.3 s of a write command's no-reply outcome changes the message to “AGV acknowledged late” and updates the link counts.
 - **Arming.**
   - Movement needs a visible Armed control.
   - Armed resets on reconnect and is never restored from storage.
@@ -116,7 +116,7 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 - **Simulator evidence is never presented as hardware evidence.** The record states the transport used.
 
 ## Review checklist (part of "done" for any operator page)
-- [ ] Stop and Pause never move, are never disabled while a link is open, never need confirmation, and are never queued.
+- [ ] Stop and Pause stay in place, stay enabled while a link is open, and show “Sending…” on press. An open query reply is the only reason the first write waits for a wire slot.
 - [ ] Every press shows "Sending…" within 0.1 s and ends in exactly one worded outcome, beside the control and in the status line.
 - [ ] Sent, replied, confirmed and observed are never conflated.
 - [ ] The link's age is always visible; stale shows as a red alarm with an action.

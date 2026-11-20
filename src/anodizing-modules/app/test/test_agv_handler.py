@@ -1,10 +1,13 @@
 """Exercise the authenticated HTTP handler with an in-process AGV, without sockets or devices."""
 import ast
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from email.message import Message
 from http.server import BaseHTTPRequestHandler
 from io import BytesIO
 import json
+import random
+import statistics
 from pathlib import Path
 import secrets
 from threading import Event, RLock
@@ -107,7 +110,7 @@ def test_owner_blocks_motion_but_allows_stop_and_pause_even_without_arm(session,
 
 
 @pytest.mark.parametrize('command', ['stop', 'pause'])
-def test_urgent_write_bypasses_silent_read_and_owner_lock(session, monkeypatch, command):
+def test_urgent_write_waits_for_silent_status_reply_cutoff_without_owner_lock(session, monkeypatch, command):
     read_written = Event()
     read_times, urgent_times = [], []
 
@@ -141,7 +144,7 @@ def test_urgent_write_bypasses_silent_read_and_owner_lock(session, monkeypatch, 
 
     latency = urgent_times[0] - started
     print(f'{command} reached transport.write in {latency * 1000:.2f} ms during a {read_elapsed:.3f} s read')
-    assert latency < .050
+    assert .90 <= latency <= 1.05
     assert read_elapsed >= agv.REPLY_TIMEOUT
     assert status == 200 and state['results']['query_status']['state'] == 'no reply'
 
@@ -930,7 +933,7 @@ def test_query_only_simulator_gets_background_status_without_page_requests(sessi
     assert not [event for event in state['events'] if event['field'] == 'link_stale' and event['after']]
 
 
-def test_one_missed_poll_keeps_status_age_below_two_and_a_half_seconds(agv_clock, monkeypatch):
+def test_one_missed_poll_keeps_status_age_below_three_seconds(agv_clock, monkeypatch):
     class DelayedReply(agv.Simulator):
         queries = 0
         reply_at = None
@@ -965,7 +968,7 @@ def test_one_missed_poll_keeps_status_age_below_two_and_a_half_seconds(agv_clock
                 link._receive()
             link._poll_status(link.transport)
         assert link.transport.queries >= 3
-        assert max_age < 2.5, f'maximum status age was {max_age:.3f} s'
+        assert max_age < 3, f'maximum status age was {max_age:.3f} s'
     finally:
         link.close()
 
@@ -995,7 +998,7 @@ def test_query_replies_do_not_extend_timed_report_presence(agv_clock, monkeypatc
         link.close()
 
 
-def test_background_read_protects_reply_window_but_not_stop(agv_clock, monkeypatch):
+def test_background_read_protects_reply_window_for_stop(agv_clock, monkeypatch):
     class NoStatusReply(agv.Simulator):
         def write(self, raw):
             if agv.parse_frame(raw, offset=3).command == 0x26:
@@ -1012,7 +1015,7 @@ def test_background_read_protects_reply_window_but_not_stop(agv_clock, monkeypat
         link._poll_status(link.transport)
         started = agv_clock.now
         link.submit(dict(action='send', command='stop'))
-        assert agv_clock.now == started
+        assert .90 <= agv_clock.now - started <= 1.05
         link.submit(dict(action='send', command='read_speed', connection_id=link.id))
         assert agv_clock.now - started >= agv.REPLY_TIMEOUT
     finally:
@@ -1283,5 +1286,163 @@ def test_recipe_stop_retries_in_the_next_report_gap_after_recipe_exit(agv_clock)
         state = link.capability()
         assert [tx['decode']['try'] for tx in command_writes(state, 'stop')] == [1, 2]
         assert link.transport.command_stop
+    finally:
+        link.close()
+
+
+@pytest.fixture
+def half_duplex(monkeypatch, agv_clock):
+    class HalfDuplex(agv.Simulator):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.pending_status = None
+            self.writes = []
+            self.delay = .85
+            self.ack_delay = .61
+
+        def write(self, raw):
+            now = agv_clock.now
+            frame = agv.parse_frame(raw, offset=3)
+            self.writes.append((frame.command, now))
+            if ((self.pending_status is not None and now < self.pending_status)
+                    or (self.acknowledgements and now < self.acknowledgements[0])):
+                self.pending_status = None
+                self.acknowledgements.clear()
+                return len(raw)
+            if frame.command == 0x26:
+                self.pending_status = now + self.delay
+                return len(raw)
+            result = super().write(raw)
+            if frame.command == 0x23 and self.acknowledgements:
+                self.acknowledgements[-1] = now + self.ack_delay
+            return result
+
+        @property
+        def in_waiting(self):
+            if self.pending_status is not None and agv_clock.now >= self.pending_status:
+                self.pending_status = None
+                self._report()
+            return super().in_waiting
+
+    monkeypatch.setattr(agv, 'Simulator', HalfDuplex)
+    monkeypatch.setattr(agv.Connection, '_start_worker', lambda *args, **kwargs: None)
+    return HalfDuplex
+
+
+def test_random_stop_phases_ack_within_latency_targets(agv_clock, half_duplex):
+    rng = random.Random(20261120)
+    latencies = []
+    for _ in range(30):
+        agv_clock.now = 10.0
+        link = agv.Connection(SimpleNamespace(lock=RLock(), closing=False, active=None,
+                                              storage_error=None, execution_uncertain=False))
+        try:
+            link.submit(dict(action='connect'))
+            agv_clock.now += agv.REPLY_TIMEOUT
+            link.transport.delay = rng.uniform(.83, .88)
+            link._poll_status(link.transport)
+            agv_clock.now += rng.uniform(0, agv.PAGE_POLL_S)
+            pressed = agv_clock.now
+            link.submit(dict(action='send', command='stop'))
+            for _ in range(400):
+                agv_clock.now += .01
+                with link.lock:
+                    link._receive()
+                link._service_resend()
+                link._poll_status(link.transport)
+                result = link.results['stop']
+                if result.get('acknowledged_at'):
+                    latencies.append(agv_clock.now - pressed)
+                    break
+            assert result.get('acknowledged_at'), result
+        finally:
+            link.close()
+    median, worst = statistics.median(latencies), max(latencies)
+    print(f'{len(latencies)}/30 ACKs, median {median:.3f} s, worst {worst:.3f} s')
+    assert median <= 1.2, latencies
+    assert worst <= 1.8, latencies
+
+
+@pytest.mark.parametrize('command', ['pause', 'recipe_stop'])
+@pytest.mark.parametrize(('delay', 'expected'), [(.83, .83), (2.0, .95)])
+def test_urgent_waits_for_status_or_cutoff(agv_clock, half_duplex, command, delay, expected):
+    link = agv.Connection(SimpleNamespace(lock=RLock(), closing=False, active=None,
+                                          storage_error=None, execution_uncertain=False))
+    try:
+        link.submit(dict(action='connect'))
+        link.transport.delay = delay
+        with link.recipe_link() if command == 'recipe_stop' else nullcontext():
+            if command == 'recipe_stop':
+                link.recipe_feedback()
+            else:
+                agv_clock.now += agv.REPLY_TIMEOUT
+                link._poll_status(link.transport)
+            started = agv_clock.now
+            if command == 'recipe_stop':
+                assert link.recipe_stop()
+            else:
+                link.submit(dict(action='send', command=command))
+            urgent_at = next(at for code, at in link.transport.writes if code == 0x23)
+            assert urgent_at - started == pytest.approx(expected, abs=.03)
+    finally:
+        link.close()
+
+
+def test_recipe_one_lost_poll_keeps_status_fresh(agv_clock, half_duplex):
+    link = agv.Connection(SimpleNamespace(lock=RLock(), closing=False, active=None,
+                                          storage_error=None, execution_uncertain=False))
+    try:
+        link.submit(dict(action='connect'))
+        max_age = 0
+        dropped = False
+        with link.recipe_link():
+            for step in range(80):
+                agv_clock.now = 10 + step / 10
+                if link.status_at is not None:
+                    max_age = max(max_age, agv_clock.now - link.status_at)
+                link.recipe_feedback()
+                if not dropped and len([code for code, _ in link.transport.writes if code == 0x26]) == 2:
+                    link.transport.pending_status = None
+                    dropped = True
+        assert dropped
+        print(f'Peak recipe status age with one missed poll: {max_age:.3f} s')
+        assert max_age < 2.8
+    finally:
+        link.close()
+
+
+@pytest.mark.parametrize('poll', ['worker', 'browser', 'motion', 'recipe'])
+def test_automatic_poll_waits_for_stop_ack_after_status_confirmation(agv_clock, half_duplex, poll):
+    link = agv.Connection(SimpleNamespace(lock=RLock(), closing=False, active=None,
+                                          storage_error=None, execution_uncertain=False))
+    try:
+        link.submit(dict(action='connect'))
+        agv_clock.now += agv.REPLY_TIMEOUT
+        link.transport.ack_delay = 1
+        with link.recipe_link() if poll == 'recipe' else nullcontext():
+            if poll == 'recipe':
+                link.recipe_feedback()
+            else:
+                link._poll_status(link.transport)
+            agv_clock.now += .86
+            if poll == 'recipe':
+                assert link.recipe_stop()
+            else:
+                link.submit(dict(action='send', command='stop'))
+            link.transport._report()
+            agv_clock.now += .05
+            assert link.capability()['results']['stop']['state'] == 'confirmed by status'
+            agv_clock.now += .75
+            if poll == 'recipe':
+                link.recipe_feedback()
+            elif poll == 'motion':
+                link.motion_feedback(poll=True)
+            elif poll == 'worker':
+                link._poll_status(link.transport)
+            else:
+                link.submit(dict(action='send', command='query_status', background=True))
+            assert [code for code, _ in link.transport.writes] == [0x26, 0x23]
+            agv_clock.now += .21
+            assert 'ack_elapsed_s' in link.capability()['results']['stop']
     finally:
         link.close()

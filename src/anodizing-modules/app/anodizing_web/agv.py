@@ -23,11 +23,13 @@ except ImportError:
 HEADER = b'\xa5\x5a'
 DEFAULT_PREFIX = b'\x00\x01\x04'
 REPLY_TIMEOUT = 1.5
+STATUS_REPLY_EXPECTED = .95  # Observed query replies took .83–.88 s.
 WRITE_TIMEOUT = .5
 STALE_AFTER = 5
-PAGE_POLL_S = .9  # Leave margin for one missed reply within the 2.5 s status-age target.
+PAGE_POLL_S = 1.2
 RECIPE_STALE_S = 3
-RECIPE_POLL_S = .5
+RECIPE_POLL_S = .9
+MOTION_POLL_S = .5
 UNIDENTIFIED_INTERVAL = 11.22
 REPORT_GAP = (.100, .150)  # Observed post-report transmit window.
 ACK_WINDOW = .75
@@ -428,6 +430,7 @@ class Connection:
         self.motion_poll_at = 0
         self.status_iso = None
         self.urgent_generation = 0
+        self.urgent_waiters = 0
         self.lock = Lock()
         self.send_lock = Lock()
         self.transport = None
@@ -553,7 +556,7 @@ class Connection:
                 and now - self.passive_reports[-1] < 1.5 * self.timed_report_interval)
 
     def _send_slot(self, *, retry=False, urgent=False):
-        if self.reading is not None and not urgent:
+        if not urgent and (self.reading is not None or self.urgent_waiters):
             return False
         now = monotonic()
         if not self._timed_reports_on_time(now):
@@ -562,6 +565,15 @@ class Connection:
         report_at = self.passive_reports[-1]
         return (now >= self.last_write_at + ACK_WINDOW
                 and report_at + REPORT_GAP[0] <= now <= report_at + REPORT_GAP[1])
+
+    def _status_reply_in_flight(self, now):
+        return (self.reading == 'query_status' and not self._fresh_timed_reports(now)
+                and now < self.read_sent_at + STATUS_REPLY_EXPECTED)
+
+    def _background_poll_blocked(self, now):
+        return (self.urgent_waiters or (self.resend is not None and self.resend.name in URGENT)
+                or any(name in URGENT and 'ack_elapsed_s' not in result and now < expires_at
+                       for name, _, result, expires_at in self.awaiting_ack.values()))
 
     def _wait_send_slot(self, transport, deadline):
         while True:
@@ -718,10 +730,11 @@ class Connection:
                     self._expire()
                     if acquired and not self.recipe_active:
                         if (self.reading is None and self.resend is None and now >= self.motion_poll_at
+                                and not self._background_poll_blocked(now)
                                 and not self._fresh_timed_reports(now)
-                                and (self.status_at is None or now-self.status_at >= RECIPE_POLL_S)
+                                and (self.status_at is None or now-self.status_at >= MOTION_POLL_S)
                                 and self._send_slot()):
-                            self.motion_poll_at = self._send('query_status', None, background=True) + RECIPE_POLL_S
+                            self.motion_poll_at = self._send('query_status', None, background=True) + MOTION_POLL_S
                             self._receive()
                 except OSError as exc:
                     self._transport_error(exc)
@@ -866,7 +879,7 @@ class Connection:
         self.link_quality['resent'] += attempt > 1
         return sent_at, self._record('TX', raw, detail)
 
-    def _send(self, name, value, *, background=False, prewrite=None, recipe_check=None):
+    def _send(self, name, value, *, background=False, prewrite=None, recipe_check=None, status_hold_s=None):
         if name == 'stop' and self.resend is not None and self.resend.name == name:
             return self.pending[name].sent_at
         frame = command_frame(name, value, self.splitter.prefix)
@@ -897,6 +910,8 @@ class Connection:
             return sent_at
 
         result['state'] = SENT
+        if status_hold_s is not None:
+            result['status_hold_s'] = status_hold_s
         if name == 'call_station' and not maximum:
             result['warning'] = ('Station learning is unverified.' if maximum is None
                                  else f'Station {value} is above the last reported maximum (0).')
@@ -917,6 +932,57 @@ class Connection:
         if recipe_check is None and self.settings is not None and self.retry_worker is None:
             self._start_worker()
         return sent_at
+
+    def _send_urgent(self, name, *, recipe=False):
+        with self.lock:
+            transport = self.transport
+            if recipe and transport is not self.recipe_transport:
+                return False
+            if recipe and self.recipe_urgent == 'stop' and not self.urgent_waiters:
+                return True
+            if transport is None:
+                raise ValueError('Connect an AGV transport first.')
+            self.urgent_generation += 1
+            if self.recipe_active and not recipe:
+                self.recipe_urgent = name
+            if self.resend is not None and (name != 'stop' or self.resend.name != name):
+                self._cancel_resend()
+            self.urgent_waiters += 1
+        held_at = None
+        try:
+            while True:
+                with self.lock:
+                    if self.transport is not transport:
+                        if recipe:
+                            return False
+                        raise ValueError('The AGV connection changed. Refresh before sending another command.')
+                    now = monotonic()
+                    waiting = self._status_reply_in_flight(now)
+                    if waiting:
+                        try:
+                            self._receive()
+                        except OSError:
+                            waiting = False  # Still attempt the urgent write after a receive error.
+                        else:
+                            now = monotonic()
+                            waiting = self._status_reply_in_flight(now)
+                    if not waiting:
+                        if self.recipe_active and not recipe:
+                            self.recipe_urgent = name
+                        try:
+                            self._send(name, None, status_hold_s=0 if held_at is None else now - held_at)
+                        except OSError as exc:
+                            self._transport_error(exc)
+                            if recipe:
+                                return False
+                            raise ValueError(self.error) from exc
+                        return True if recipe else self._snapshot()
+                    if held_at is None:
+                        held_at = now
+                sleep(.01)
+        finally:
+            with self.lock:
+                self.urgent_waiters -= 1
 
     def _start_worker(self, *, receive=False):
         self.retry_worker = Thread(target=self._retry_loop, args=(self.transport, receive),
@@ -953,6 +1019,8 @@ class Connection:
                         or self.resend is not None or self.reading is not None):
                     return
                 now = monotonic()
+                if self._background_poll_blocked(now):
+                    return
                 # Give the first reports time to establish a cadence before we query.
                 if self.timed_report_interval is None:
                     listen_from = self.passive_reports[-1] if self.passive_reports else self.connected_at
@@ -976,7 +1044,7 @@ class Connection:
         if retry.tries == retry.limit:
             return now >= retry.sent_at + retry.reply_wait
         if retry.name in URGENT:
-            return self._send_slot(retry=True, urgent=True)
+            return not self._status_reply_in_flight(now) and self._send_slot(retry=True, urgent=True)
         return now >= retry.sent_at + retry.interval
 
     def _retry(self, retry):
@@ -1076,14 +1144,15 @@ class Connection:
         action, name = body.get('action'), body.get('command')
         if action == 'send' and (not isinstance(name, str) or name not in COMMANDS):
             raise ValueError('Select a known AGV command.')
-        motion = action == 'send' and name not in URGENT and name not in READS
+        if action != 'send':
+            return self._submit_locked(body, action, name, False, None)
+        if name in URGENT:
+            return self._send_urgent(name)
+        motion = name not in READS
         with self.lock:
             urgent_generation = self.urgent_generation if motion else None
             transport = self.transport
-        # Preserve half-duplex pacing for ordinary writes while Stop and Pause bypass the reply wait.
-        with self.send_lock if action == 'send' and name not in URGENT else nullcontext():
-            if action != 'send' or name in URGENT:
-                return self._submit_locked(body, action, name, motion, urgent_generation)
+        with self.send_lock:
             deadline = monotonic() + 4
             while self._wait_send_slot(transport, deadline):
                 snapshot = self._submit(body, action, name, motion, urgent_generation)
@@ -1128,20 +1197,16 @@ class Connection:
                             self._check_manual_motion(body)
                             if urgent_generation is not None and self.urgent_generation != urgent_generation:
                                 raise ValueError('Stop, Pause or disarming cancelled this movement. Check the AGV before trying again.')
-                        elif name in READS:
+                        else:
                             if self.recipe_active:
                                 raise ValueError('The recipe is checking AGV status. Follow Current operation.')
                             if body.get('connection_id') is not None:
                                 self._check_connection(body['connection_id'])
-                            if background and self.resend is not None and self.resend.name in URGENT:
+                            if background and self._background_poll_blocked(monotonic()):
                                 return self._snapshot()
-                        else:
-                            self.urgent_generation += 1
-                            self.recipe_urgent = name if self.recipe_active else False
-                        if name not in URGENT and not self._send_slot():
+                        if not self._send_slot():
                             return None
-                        sent_at = self._send(name, body.get('value') if name not in URGENT else None,
-                                             background=background)
+                        sent_at = self._send(name, body.get('value'), background=background)
                     else:
                         self._check_connection(body.get('connection_id'))
                         if action == 'disconnect':
@@ -1215,6 +1280,7 @@ class Connection:
                 # radio. Leave room for them on its half-duplex link.
                 if (self.reading is None and not self.recipe_call_waiting and now >= self.recipe_next_poll
                         and not self._fresh_timed_reports(now)
+                        and not self._background_poll_blocked(now)
                         and (ack is not None or now >= self.recipe_ack_window) and self._send_slot()):
                     sent = self._send('query_status', None, background=True)
                     self.recipe_next_poll = sent + RECIPE_POLL_S
@@ -1236,7 +1302,7 @@ class Connection:
                 return None
             self.recipe_call_waiting = True
             transport = self.transport
-        if not self._wait_send_slot(transport, monotonic() + RECIPE_POLL_S / 4):
+        if not self._wait_send_slot(transport, monotonic() + .125):
             return None
         with self.lock:
             self._recipe_check_link()
@@ -1256,15 +1322,4 @@ class Connection:
             return sent
 
     def recipe_stop(self):
-        with self.lock:
-            if self.transport is not self.recipe_transport:
-                return False
-            if self.recipe_urgent == 'stop':
-                return True
-            try:
-                self.urgent_generation += 1
-                self._send('stop', None)
-                return True
-            except OSError as exc:
-                self._transport_error(exc)
-                return False
+        return self._send_urgent('stop', recipe=True)
