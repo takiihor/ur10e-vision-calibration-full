@@ -1,8 +1,12 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import Button from 'primevue/button';
+import Card from 'primevue/card';
+import Message from 'primevue/message';
+import ProgressSpinner from 'primevue/progressspinner';
+import Tag from 'primevue/tag';
+import AppLayout from './layout/AppLayout.vue';
 import StopBar from './StopBar.vue';
-import StateIcon from './StateIcon.vue';
 import AgvPage from './AgvPage.vue';
 import { request } from './api';
 import { useAgv } from './useAgv';
@@ -11,19 +15,13 @@ const isAgv = ref(location.hash === '#/agv');
 const agv = useAgv(isAgv);
 const heading = ref();
 const safety = ref();
-const sidebarOpen = ref(true);
 const service = ref(null);
 const offline = ref('');
 const targetOutcome = ref({});
 const targetSending = new Set();
 let timer, observer, checking = false, retired = false;
 
-const modules = [
-  { name: 'Calibration', url: '/calibration', icon: 'pi-camera' },
-  { name: 'Teaching', url: '/teaching', icon: 'pi-book' },
-  { name: 'AGV', url: '#/agv', icon: 'pi-truck' },
-  { name: 'Pick/place', url: '/pick-place', icon: 'pi-box' },
-];
+const transport = computed(() => agv.state.connected && agv.state.settings?.mode === 'serial' ? 'Serial AGV' : 'Simulation');
 const active = computed(() => service.value?.owner?.jobs?.find(job => job.id === service.value.owner.active));
 const targets = computed(() => (service.value?.owner?.stop_targets ?? []).map(({ kind, job_id }) => ({
   kind, job_id,
@@ -74,7 +72,6 @@ function navigate() {
   isAgv.value = location.hash === '#/agv';
   document.title = isAgv.value ? 'AGV commissioning · Operator app' : 'Home · Operator app';
   if (isAgv.value) agv.enterAgv();
-  if (window.matchMedia?.('(max-width: 60rem)').matches) sidebarOpen.value = false;
   void nextTick(() => heading.value?.focus());
 }
 
@@ -83,10 +80,12 @@ onMounted(() => {
   window.addEventListener('hashchange', navigate);
   void refreshService();
   timer = setInterval(refreshService, 1500);
+  const measureStopBar = () => {
+    document.documentElement.style.setProperty('--stop-height', safety.value.offsetHeight + 'px');
+  };
   if ('ResizeObserver' in window) {
-    observer = new ResizeObserver(() => {
-      document.documentElement.style.setProperty('--stop-height', safety.value.offsetHeight + 'px');
-    });
+    measureStopBar();
+    observer = new ResizeObserver(measureStopBar);
     observer.observe(safety.value);
   }
 });
@@ -94,64 +93,52 @@ onUnmounted(() => {
   retired = true;
   clearInterval(timer);
   observer?.disconnect();
+  document.documentElement.style.removeProperty('--stop-height');
   window.removeEventListener('hashchange', navigate);
 });
 </script>
 
 <template>
-  <div class="layout-wrapper" :class="{ 'layout-static-inactive': !sidebarOpen }">
-    <div ref="safety" class="layout-stop">
-      <StopBar :agv="agv" :targets="targets" :target-outcomes="targetOutcome" @target-stop="stopTarget" />
-    </div>
-    <header class="layout-topbar">
-      <Button class="menu-button" type="button" severity="secondary" icon="pi pi-bars" aria-label="Toggle navigation"
-        :aria-expanded="sidebarOpen" aria-controls="operator-nav" @click="sidebarOpen = !sidebarOpen" />
-      <a class="brand" href="#/">Operator app</a>
-      <span v-if="agv.state.settings?.mode === 'simulator' || !agv.state.connected" class="transport-label">Simulation</span>
-      <span v-else class="transport-label">Serial AGV</span>
-    </header>
-    <div class="layout-body">
-      <aside v-show="sidebarOpen" id="operator-nav" class="layout-sidebar">
-        <nav class="layout-menu" aria-label="Modules">
-          <a href="#/" :aria-current="!isAgv ? 'page' : undefined"><i class="pi pi-home" aria-hidden="true"></i>Home</a>
-          <a v-for="module in modules" :key="module.url" :href="module.url"
-            :aria-current="module.url === '#/agv' && isAgv ? 'page' : undefined">
-            <i class="pi" :class="module.icon" aria-hidden="true"></i>{{ module.name }}
-          </a>
-        </nav>
-      </aside>
-      <main class="layout-main-container" id="main">
-        <div class="layout-main">
-          <h1 ref="heading" tabindex="-1">{{ isAgv ? 'AGV commissioning' : 'Home' }}</h1>
-          <AgvPage v-if="isAgv" :agv="agv" />
-          <div v-else class="home-grid">
-            <section class="panel">
-              <h2>Service</h2>
-              <p v-if="offline" role="alert" class="alarm" data-state="failed"><StateIcon tone="failed" />{{ offline }}</p>
-              <p v-else-if="service?.app_id === 'anodizing_modules_v1'">Anodizing Modules · Online</p>
-              <p v-else-if="service">Service identity unknown. Check the service and reload.</p>
-              <p v-else>Checking service…</p>
-              <p v-if="service && !offline">{{ active ? `Current operation · ${active.module} · ${active.state}` : 'No active job' }}</p>
-              <p v-if="active?.module === 'calibration'"><a href="/calibration">Open current Calibration operation</a></p>
-              <dl v-if="service && !offline" class="capabilities">
-                <dt>Camera</dt><dd>{{ service.allow_camera ? 'Enabled' : 'Disabled' }}</dd>
-                <dt>Teaching hardware</dt><dd>{{ service.allow_teaching ? 'Enabled' : 'Disabled' }}</dd>
-                <dt>Manual robot controls</dt><dd>{{ service.allow_manual ? 'Enabled' : 'Disabled' }}</dd>
-              </dl>
-            </section>
-            <section class="panel">
-              <h2>AGV status</h2>
-              <p v-if="agv.stateError" role="alert" class="alarm" data-state="failed"><StateIcon tone="failed" />{{ agv.stateError }}</p>
-              <p v-else>{{ agv.connectionLabel }}</p>
-              <dl class="capabilities">
-                <dt>Reported motion</dt><dd>{{ agv.stale || !agv.state.connected || agv.variable('moving') == null ? 'Unknown' : agv.variable('moving') ? 'Running' : 'Stopped' }}</dd>
-                <dt>Current station</dt><dd>{{ !agv.stale && agv.state.connected ? agv.variable('current_station') ?? 'Unknown' : 'Unknown' }}</dd>
-              </dl>
-              <a class="page-link" href="#/agv">Open AGV commissioning</a>
-            </section>
-          </div>
-        </div>
-      </main>
-    </div>
+  <div ref="safety" class="layout-stop">
+    <StopBar :agv="agv" :targets="targets" :target-outcomes="targetOutcome" @target-stop="stopTarget" />
   </div>
+  <AppLayout :is-agv="isAgv" :transport="transport">
+    <h1 ref="heading" tabindex="-1">{{ isAgv ? 'AGV commissioning' : 'Home' }}</h1>
+    <AgvPage v-if="isAgv" :agv="agv" />
+    <div v-else class="home-grid">
+      <Card class="panel home-card" aria-labelledby="service-heading">
+        <template #title><h2 id="service-heading">Service</h2></template>
+        <template #content>
+          <Message v-if="offline" severity="error" icon="pi pi-times-circle">{{ offline }}</Message>
+          <p v-else-if="service?.app_id === 'anodizing_modules_v1'">
+            Anodizing Modules <Tag severity="success" value="Online" />
+          </p>
+          <Message v-else-if="service" severity="warn" icon="pi pi-exclamation-triangle">
+            Service identity unknown. Check the service and reload.
+          </Message>
+          <p v-else role="status"><ProgressSpinner class="control-spinner" aria-hidden="true" /> Checking service…</p>
+          <p v-if="service && !offline">{{ active ? `Current operation · ${active.module} · ${active.state}` : 'No active job' }}</p>
+          <Button v-if="active?.module === 'calibration'" as="a" href="/calibration" class="page-link"
+            label="Open current Calibration operation" severity="secondary" />
+          <dl v-if="service && !offline" class="capabilities">
+            <dt>Camera</dt><dd>{{ service.allow_camera ? 'Enabled' : 'Disabled' }}</dd>
+            <dt>Teaching hardware</dt><dd>{{ service.allow_teaching ? 'Enabled' : 'Disabled' }}</dd>
+            <dt>Manual robot controls</dt><dd>{{ service.allow_manual ? 'Enabled' : 'Disabled' }}</dd>
+          </dl>
+        </template>
+      </Card>
+      <Card class="panel home-card" aria-labelledby="agv-heading">
+        <template #title><h2 id="agv-heading">AGV status</h2></template>
+        <template #content>
+          <Message v-if="agv.stateError" severity="error" icon="pi pi-times-circle">{{ agv.stateError }}</Message>
+          <p v-else>{{ agv.connectionLabel }}</p>
+          <dl class="capabilities">
+            <dt>Reported motion</dt><dd>{{ agv.stale || !agv.state.connected || agv.variable('moving') == null ? 'Unknown' : agv.variable('moving') ? 'Running' : 'Stopped' }}</dd>
+            <dt>Current station</dt><dd>{{ !agv.stale && agv.state.connected ? agv.variable('current_station') ?? 'Unknown' : 'Unknown' }}</dd>
+          </dl>
+          <Button as="a" href="#/agv" class="page-link" label="Open AGV commissioning" severity="secondary" />
+        </template>
+      </Card>
+    </div>
+  </AppLayout>
 </template>

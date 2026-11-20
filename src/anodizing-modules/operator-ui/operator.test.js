@@ -2,6 +2,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
+import ConfirmationService from 'primevue/confirmationservice';
+import ToastService from 'primevue/toastservice';
 import App from './App.vue';
 
 const mode = { mode: 'simulator', address: '00 01', channel: '04' };
@@ -12,12 +14,13 @@ let app;
 function open(route, respond) {
   location.hash = route;
   document.head.innerHTML = '<meta name="module-token" content="fixture">';
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
   vi.stubGlobal('fetch', vi.fn(async (path, options) => {
     const body = options.body && JSON.parse(options.body);
     const response = await respond(path, body);
     return { ok: true, json: async () => response };
   }));
-  app = mount(App, { attachTo: document.body, global: { plugins: [PrimeVue] } });
+  app = mount(App, { attachTo: document.body, global: { plugins: [PrimeVue, ConfirmationService, ToastService] } });
 }
 
 function element(id) {
@@ -43,7 +46,7 @@ it('disarms on opening an armed connection and only dispatches one labelled Esc 
     return { ...connected, armed: !sent.some(item => item.action === 'arm'), sequence: ++sequence,
       commands: commandNames.map(name => ({ name, label: name.replaceAll('_', ' '), motion: name === 'forward' })),
       results: body?.command === 'stop' ? { stop: { tx_id: 9, sent_at: '2026-11-20T00:00:00Z',
-        state: 'confirmed by status' } } : {} };
+        state: 'confirmed by status', confirmed_stopped: true } } : {} };
   });
   await flushPromises();
   expect(sent[0]).toMatchObject({ action: 'arm', armed: false, connection_id: 2 });
@@ -59,6 +62,9 @@ it('disarms on opening an armed connection and only dispatches one labelled Esc 
   expect(element('stop-outcome').find('.pi-check-circle[aria-hidden="true"]').exists()).toBe(true);
   expect(element('outcome').text()).toBe(element('stop-outcome').text());
   expect(element('pause').element.disabled).toBe(false);
+  expect(element('outcome').get('.command-toast-inline').text()).toBe(element('stop-outcome').text());
+  expect(document.querySelector('.p-toast').textContent.trim()).toBe('');
+  expect(element('outcome').attributes('aria-live')).toBe('polite');
 });
 
 it('keeps command replies from a previous connection out of the current outcome', async () => {
@@ -90,10 +96,37 @@ it('keeps navigation, urgent controls and records available when storage is deni
   open('#/agv', async path => path === '/api/state' ? { variables: [] } :
     path === '/api/status' ? { owner: {} } : { ...connected, armed: false, sequence: 1, commands: [] });
   await flushPromises();
-  expect(app.get('a[href="/teaching"]').text()).toBe('Teaching');
+  expect(app.get('a[href="/teaching"]').text()).toMatch(/Teaching\s*Legacy/);
   await element('notes-1').setValue('Simulator only');
   expect(element('record-note').text()).toMatch(/storage is unavailable/i);
   expect(element('stop').element.disabled).toBe(false);
+});
+
+it('keeps urgent controls outside the Sakai shell and routes between marked modules', async () => {
+  open('#/', async path => path === '/api/state' ? { variables: [] } :
+    path === '/api/status' ? { app_id: 'anodizing_modules_v1' } : { ...connected, armed: false });
+  await flushPromises();
+  const wrapper = app.get('.layout-wrapper');
+  const menu = wrapper.get('nav[aria-label="Modules"]');
+  const links = menu.findAll('a');
+  expect(links.slice(1).map(link => link.attributes('href'))).toEqual([
+    '/calibration', '/teaching', '#/agv', '/pick-place',
+  ]);
+  expect(links.slice(1).map(link => link.findAll('.p-tag').map(tag => tag.text()).join(''))).toEqual(['Legacy', 'Legacy', '', 'Legacy']);
+  expect(wrapper.find('.stop-bar').exists()).toBe(false);
+  expect(app.get('.stop-bar').find('#agv-stop').exists()).toBe(true);
+  expect(wrapper.findAll('.home-grid .p-card')).toHaveLength(2);
+  const toggle = wrapper.get('button[aria-controls="operator-nav"]');
+  expect(toggle.attributes('aria-expanded')).toBe('true');
+  await toggle.trigger('click');
+  expect(toggle.attributes('aria-expanded')).toBe('false');
+  expect(element('stop').isVisible()).toBe(true);
+  await toggle.trigger('click');
+  location.hash = '#/agv';
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+  await flushPromises();
+  expect(wrapper.get('a[href="#/agv"]').attributes('aria-current')).toBe('page');
+  expect(document.activeElement).toBe(wrapper.get('h1').element);
 });
 
 it('keeps Manual and Teacher Stop bound to their jobs while Escape targets the AGV across navigation', async () => {
@@ -145,7 +178,7 @@ it('lets the operator disarm a stale link without re-enabling movement', async (
       status: { mode: 2, max_stations: 3, stopped: true }, commands, results: {} };
   });
   await flushPromises();
-  await element('armed').setValue(true);
+  element('armed').element.click();
   await flushPromises();
   expect(armed).toBe(true);
   age = 5;
@@ -154,7 +187,7 @@ it('lets the operator disarm a stale link without re-enabling movement', async (
   expect(element('alarms').find('.pi-times-circle[aria-hidden="true"]').exists()).toBe(true);
   expect(element('forward').element.disabled).toBe(true);
   expect(element('armed').element.disabled).toBe(false);
-  await element('armed').setValue(false);
+  element('armed').element.click();
   await flushPromises();
   expect(armed).toBe(false);
   expect(element('armed').element.disabled).toBe(true);

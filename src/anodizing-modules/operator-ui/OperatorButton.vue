@@ -1,5 +1,6 @@
 <script setup>
 import Button from 'primevue/button';
+import ProgressSpinner from 'primevue/progressspinner';
 import StateIcon from './StateIcon.vue';
 
 defineProps({
@@ -23,8 +24,8 @@ defineEmits(['press']);
       :icon="stop ? 'pi pi-stop-circle' : undefined"
       :aria-describedby="'agv-' + id + '-why agv-' + id + '-outcome'"
       :aria-keyshortcuts="shortcut ? 'Escape' : undefined" :aria-current="current ? 'true' : undefined"
-      :aria-busy="outcome?.tone === 'running'" @click="$emit('press')" />
+      :aria-busy="outcome?.pending || outcome?.tone === 'running'" @click="$emit('press')" />
     <small :id="'agv-' + id + '-why'">{{ why }}</small>
-    <span :id="'agv-' + id + '-outcome'" :data-state="outcome?.tone"><StateIcon :tone="outcome?.tone" />{{ outcome?.text }}</span>
+    <span :id="'agv-' + id + '-outcome'" :data-state="outcome?.tone"><ProgressSpinner v-if="outcome?.pending" class="control-spinner" aria-hidden="true" /><StateIcon v-else :tone="outcome?.tone" />{{ outcome?.text }}</span>
   </div>
 </template>
