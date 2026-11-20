@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import Button from 'primevue/button';
 import Checkbox from 'primevue/checkbox';
 import OperatorButton from './OperatorButton.vue';
+import StateIcon from './StateIcon.vue';
 import AgvRecord from './AgvRecord.vue';
 import {
   faultText, fieldLabels, linkQualityText, localTime, modes, speedText, stationCallRequired,
@@ -123,9 +124,9 @@ function connect() {
               </option>
             </select>
           </label>
-          <Button id="agv-refresh-ports" type="button" :label="portsBusy ? 'Refreshing ports…' : 'Refresh ports'"
+          <Button id="agv-refresh-ports" type="button" severity="secondary" :label="portsBusy ? 'Refreshing ports…' : 'Refresh ports'"
             :aria-busy="portsBusy" @click="refreshPorts" />
-          <p v-if="agv.portError" id="port-error" class="alarm">{{ agv.portError }}</p>
+          <p v-if="agv.portError" id="port-error" class="alarm" data-state="serious"><StateIcon tone="serious" />{{ agv.portError }}</p>
         </div>
         <details>
           <summary>Link settings</summary>
@@ -142,7 +143,7 @@ function connect() {
           </div>
         </details>
         <div class="controls">
-          <OperatorButton id="connect" label="Connect" :why="agv.connectReason" :outcome="agv.feedback('connect')" @press="connect" />
+          <OperatorButton id="connect" label="Connect" primary :why="agv.connectReason" :outcome="agv.feedback('connect')" @press="connect" />
           <OperatorButton id="disconnect" label="Disconnect" :why="disconnectReason" :outcome="agv.feedback('disconnect')"
             @press="agv.post({ action: 'disconnect' }, 'disconnect')" />
         </div>
@@ -160,7 +161,7 @@ function connect() {
           Sound an alert for a stale link or a new fault
         </label>
         <div class="controls">
-          <OperatorButton v-for="name in inquiry" :id="name" :key="name" :label="name === 'query_status' ? 'Query status' : 'Read speed'"
+          <OperatorButton v-for="name in inquiry" :id="name" :key="name" :label="name === 'query_status' ? 'Query status' : 'Read speed'" :primary="name === 'query_status'"
             :why="agv.commandReason(name)" :outcome="agv.feedback(name)" @press="agv.send(name)" />
         </div>
       </section>
@@ -175,7 +176,7 @@ function connect() {
           Armed
         </label>
         <small id="agv-armed-why">{{ agv.armReason }}</small>
-        <p id="agv-armed-outcome" :data-state="agv.feedback('armed')?.tone">{{ agv.feedback('armed')?.text }}</p>
+        <p id="agv-armed-outcome" :data-state="agv.feedback('armed')?.tone"><StateIcon :tone="agv.feedback('armed')?.tone" />{{ agv.feedback('armed')?.text }}</p>
         <div v-if="agv.commands.has('set_speed')" class="field-row">
           <label for="agv-speed">Set speed (500–4000 m/h)
             <input id="agv-speed" v-model.number="agv.form.speed" type="number" min="500" max="4000">

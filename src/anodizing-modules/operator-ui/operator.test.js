@@ -56,6 +56,7 @@ it('disarms on opening an armed connection and only dispatches one labelled Esc 
     expect.objectContaining({ connection_id: 2, action: 'send' }),
   ]);
   expect(element('stop-outcome').text()).toMatch(/\(Esc\).*AGV reports stopped/);
+  expect(element('stop-outcome').find('.pi-check-circle[aria-hidden="true"]').exists()).toBe(true);
   expect(element('outcome').text()).toBe(element('stop-outcome').text());
   expect(element('pause').element.disabled).toBe(false);
 });
@@ -111,6 +112,9 @@ it('keeps Manual and Teacher Stop bound to their jobs while Escape targets the A
   await flushPromises();
   expect(element('manual').text()).toMatch(/Pick\/place Stop/);
   expect(element('teacher').text()).toMatch(/Teacher Stop/);
+  for (const id of ['stop', 'manual', 'teacher']) {
+    expect(element(id).find('.pi-stop-circle').exists()).toBe(true);
+  }
   await element('manual').trigger('click');
   await element('teacher').trigger('click');
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
@@ -146,6 +150,8 @@ it('lets the operator disarm a stale link without re-enabling movement', async (
   expect(armed).toBe(true);
   age = 5;
   await vi.advanceTimersByTimeAsync(800);
+  expect(element('alarms').get('[data-state="failed"]').text()).toMatch(/Link stale/);
+  expect(element('alarms').find('.pi-times-circle[aria-hidden="true"]').exists()).toBe(true);
   expect(element('forward').element.disabled).toBe(true);
   expect(element('armed').element.disabled).toBe(false);
   await element('armed').setValue(false);

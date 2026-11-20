@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import Button from 'primevue/button';
 import StopBar from './StopBar.vue';
+import StateIcon from './StateIcon.vue';
 import AgvPage from './AgvPage.vue';
 import { request } from './api';
 import { useAgv } from './useAgv';
@@ -103,7 +104,7 @@ onUnmounted(() => {
       <StopBar :agv="agv" :targets="targets" :target-outcomes="targetOutcome" @target-stop="stopTarget" />
     </div>
     <header class="layout-topbar">
-      <Button class="menu-button" type="button" icon="pi pi-bars" aria-label="Toggle navigation"
+      <Button class="menu-button" type="button" severity="secondary" icon="pi pi-bars" aria-label="Toggle navigation"
         :aria-expanded="sidebarOpen" aria-controls="operator-nav" @click="sidebarOpen = !sidebarOpen" />
       <a class="brand" href="#/">Operator app</a>
       <span v-if="agv.state.settings?.mode === 'simulator' || !agv.state.connected" class="transport-label">Simulation</span>
@@ -126,7 +127,7 @@ onUnmounted(() => {
           <div v-else class="home-grid">
             <section class="panel">
               <h2>Service</h2>
-              <p v-if="offline" role="alert" class="alarm">{{ offline }}</p>
+              <p v-if="offline" role="alert" class="alarm" data-state="failed"><StateIcon tone="failed" />{{ offline }}</p>
               <p v-else-if="service?.app_id === 'anodizing_modules_v1'">Anodizing Modules · Online</p>
               <p v-else-if="service">Service identity unknown. Check the service and reload.</p>
               <p v-else>Checking service…</p>
@@ -140,7 +141,7 @@ onUnmounted(() => {
             </section>
             <section class="panel">
               <h2>AGV status</h2>
-              <p v-if="agv.stateError" role="alert" class="alarm">{{ agv.stateError }}</p>
+              <p v-if="agv.stateError" role="alert" class="alarm" data-state="failed"><StateIcon tone="failed" />{{ agv.stateError }}</p>
               <p v-else>{{ agv.connectionLabel }}</p>
               <dl class="capabilities">
                 <dt>Reported motion</dt><dd>{{ agv.stale || !agv.state.connected || agv.variable('moving') == null ? 'Unknown' : agv.variable('moving') ? 'Running' : 'Stopped' }}</dd>

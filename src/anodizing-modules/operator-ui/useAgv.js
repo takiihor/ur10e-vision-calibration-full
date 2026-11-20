@@ -65,13 +65,13 @@ export function useAgv(isAgv) {
     return (stale.value ? 'Link stale · ' : 'Connected · ') + elapsed;
   });
   const alarms = computed(() => [
-    stale.value && 'Link stale. The AGV may still be moving. Use its e-stop if needed. Check the radio before moving again.',
-    serviceError.value || state.value.error,
-    state.value.connected && state.value.status?.fault_code && faultText(state.value.status) +
-      '. Check the machine and consult the manual before moving.',
-    state.value.connected && state.value.status?.obstacle_stop === true &&
-      'Obstacle stop active. Check the track and clear it when safe.',
-  ].filter(Boolean));
+    [stale.value && 'Link stale. The AGV may still be moving. Use its e-stop if needed. Check the radio before moving again.', 'failed'],
+    [serviceError.value || state.value.error, 'failed'],
+    [state.value.connected && state.value.status?.fault_code && faultText(state.value.status) +
+      '. Check the machine and consult the manual before moving.', 'failed'],
+    [state.value.connected && state.value.status?.obstacle_stop === true &&
+      'Obstacle stop active. Check the track and clear it when safe.', 'serious'],
+  ].filter(([text]) => text).map(([text, tone]) => ({ text, tone })));
   const connectionLocked = computed(() => busy.value ? pendingWait :
     state.value.connected ? 'Disconnect to change link settings.' : '');
   const connectReason = computed(() => {

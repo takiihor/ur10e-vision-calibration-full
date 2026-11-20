@@ -94,7 +94,7 @@ function download(format) {
         <label for="agv-mark-text">What did you observe?
           <input id="agv-mark-text" v-model="markText" maxlength="120" placeholder="e.g. AGV stopped" required>
         </label>
-        <Button id="agv-mark" label="Mark event" type="submit" />
+        <Button id="agv-mark" label="Mark event" type="submit" severity="secondary" />
       </form>
       <ol id="agv-event-feed">
         <li v-for="(event, index) in agv.journal.events.slice(-12).reverse()" :key="index">
@@ -115,16 +115,16 @@ function download(format) {
     <section class="panel">
       <h2>Test record</h2>
       <div class="controls">
-        <Button id="agv-download-report" label="Download readable report" type="button" @click="download('markdown')" />
-        <Button id="agv-download" label="Download JSON record" type="button" @click="download('json')" />
-        <Button id="agv-new-session" label="New test session" type="button" @click="confirmReset = true" />
+        <Button id="agv-download-report" label="Download readable report" type="button" severity="secondary" @click="download('markdown')" />
+        <Button id="agv-download" label="Download JSON record" type="button" severity="secondary" @click="download('json')" />
+        <Button id="agv-new-session" label="New test session" type="button" severity="secondary" @click="confirmReset = true" />
       </div>
       <p id="agv-record-note" role="status">{{ agv.recordNote }}</p>
       <Dialog v-model:visible="confirmReset" modal header="Start a new test session" :close-on-escape="false"
         :closable="false" :pt="{ root: { class: 'record-dialog' } }">
         <p>This clears the current checklist, settings and record. Download the record first if you need it.</p>
         <template #footer>
-          <Button label="Cancel" autofocus @click="confirmReset = false" />
+          <Button label="Cancel" severity="secondary" autofocus @click="confirmReset = false" />
           <Button label="Start new session" @click="agv.newRecord(); confirmReset = false" />
         </template>
       </Dialog>
