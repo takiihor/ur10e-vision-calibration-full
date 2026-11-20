@@ -186,8 +186,8 @@ def agv(_, token, __):
             'Expected a fresh 29-byte AGV600 reply with radio prefix 00 FF 04.')
     require(status['obstacle_input'] == 0xCC and not {'attachment_active', 'roller_speed'} & status.keys(),
             'Expected the captured obstacle input and absent attachment fields.')
-    require(queried['results']['query_status']['state'] == 'reply: status',
-            'The valid status reply did not complete the query.')
+    require(queried['results']['query_status']['state'] == 'status received',
+            'The valid status report did not complete the query.')
     speed = action('read-speed', action='send', command='read_speed')
     require(any(event['hex'] == '00 FF 04 A5 5A 07 21 DC 05 08'
                 and event['decode'].get('read_speed_m_h') == 1500 for event in speed['log']),

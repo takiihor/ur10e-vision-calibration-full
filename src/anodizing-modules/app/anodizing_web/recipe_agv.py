@@ -13,6 +13,8 @@ WATCH_S = .1
 POSE_FRESH_S = .75
 UNKNOWN = 'AGV state unknown: connect the AGV on the AGV page, or confirm it is switched off'
 REPORTING = 'The AGV is reporting, so it is not switched off. Use AGV parked.'
+STANDARD_MODE = ('Pick/place needs station-call mode to verify and call learned stations. '
+                 'Enable the station-call function in the XBOT app before starting a new run.')
 
 
 def motion_state(connection, *, poll=False):
@@ -153,6 +155,8 @@ class StationVisit:
 
     def _check_hold(self, status, stamp):
         check_status(status, stamp, require_unpaused=self.strict_station)
+        if self.strict_station and status.get('mode') == 0:
+            raise ValueError(STANDARD_MODE)
         actual = status.get('current_station', 0)
         if not stopped(status) or (self.station is not None and actual != self.station):
             raise ValueError('AGV moved during robot work or was already moving. Check the AGV before a new run.')
@@ -221,9 +225,20 @@ class StationVisit:
                 check_speed(status, speed_cap)
                 if cancelled.is_set() or time.monotonic()-pose_at >= POSE_FRESH_S:
                     raise ValueError('Robot travel-pose check expired or was stopped. Start a new run.')
+
+            def retry_check(status, stamp, updates):
+                now = time.monotonic()
+                if cancelled.is_set() or now-self.pose_at >= POSE_FRESH_S:
+                    raise ValueError('Robot travel-pose check expired or was stopped. Start a new run.')
+                if now >= self.travel_deadline or now-self.sent >= ACK_S:
+                    raise ValueError('No AGV acknowledgement within 3 s. Check the radio before starting a new run.')
+                for report, received in updates or ((status, stamp),):
+                    self._check_hold(report, received)
+                    check_speed(report, speed_cap)
+
             # A transport write can partially reach the AGV before raising.
             try:
-                self.sent = self.connection.recipe_call(target, validate)
+                self.sent = self.connection.recipe_call(target, validate, retry_check=retry_check)
             except OSError:
                 self._stop()
                 raise ValueError('AGV station call write failed. Check the radio before a new run.')

@@ -199,3 +199,14 @@ def test_synthetic_ack_is_not_status_and_records_elapsed_time(monkeypatch):
     assert 'stopped' not in ack and connection.status is None
     assert ack['acknowledged_command'] == 'set_speed'
     assert ack['ack_elapsed_s'] == pytest.approx(1)
+
+
+
+def test_seeded_simulator_drops_host_frames_before_processing_them():
+    transport = agv.Simulator(PREFIX, loss_fraction=.5, seed=7)
+    raw = agv.command_frame('read_speed', None, PREFIX).encode()
+    received = []
+    for _ in range(8):
+        assert transport.write(raw) == len(raw)
+        received.append(bool(transport.read(transport.in_waiting)))
+    assert received == [False, False, True, False, True, False, False, True]

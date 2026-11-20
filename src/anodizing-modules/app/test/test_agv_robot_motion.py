@@ -66,6 +66,13 @@ def test_hold_attempts_agv_stop_and_releases_waiter_when_robot_stop_raises():
     link.recipe_stop.assert_called_once()
 
 
+def test_pick_place_station_hold_explains_standard_mode_refusal():
+    status = dict(mode=0, fault_code=0, paused=False, stopped=True, actual_speed_m_h=0, current_station=1)
+    with pytest.raises(ValueError, match='Pick/place needs station-call mode to verify and call learned stations.*XBOT app'):
+        StationVisit(None, None)._check_hold(status, time.monotonic())
+    assert StationVisit(None, None, strict_station=False)._check_hold(status, time.monotonic()) == 1
+
+
 def test_capture_station_prefers_fresh_serial_report_and_preserves_provenance(tmp_path):
     from anodizing_web.teaching import agv_capture
 

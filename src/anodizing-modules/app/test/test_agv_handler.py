@@ -174,7 +174,7 @@ def test_concurrent_reads_keep_the_silent_read_window_free_of_other_writes(sessi
     assert second_at - first_at >= agv.REPLY_TIMEOUT
     assert first_status == second_status == 200
     assert first_state['results']['read_speed']['state'] == 'no reply'
-    assert second_state['results']['query_status']['state'] == 'reply: status'
+    assert second_state['results']['query_status']['state'] == 'status received'
 
 
 def test_urgent_write_can_receive_the_pending_read_reply(session, monkeypatch, agv_clock):
@@ -248,10 +248,11 @@ def test_silent_simulator_marks_link_stale_without_inventing_a_confirmation(sess
     status, state = request()
     assert status == 200 and state['connected'] and state['stale']
     assert state['status_age_s'] == pytest.approx(5.01)
-    assert state['results']['pause']['state'] == 'waiting for status'
+    assert state['results']['pause']['state'] == 'sent'
+    assert state['results']['pause']['tries'] == 2
 
 
-def test_unchanged_status_does_not_confirm_repeat_of_completed_command(session, monkeypatch):
+def test_status_confirms_repeat_stop_when_agv_is_already_stopped(session, monkeypatch):
     clock = SimpleNamespace(now=10.0)
     monkeypatch.setattr(agv, 'monotonic', lambda: clock.now)
     _, request = session
@@ -261,23 +262,24 @@ def test_unchanged_status_does_not_confirm_repeat_of_completed_command(session, 
     assert send(request, 'query_status')[1]['results']['stop']['state'] == 'confirmed by status'
     send(request, 'stop')
     clock.now += 5
-    assert send(request, 'query_status')[1]['results']['stop']['state'] == 'not confirmed'
+    assert send(request, 'query_status')[1]['results']['stop']['state'] == 'confirmed by status'
 
 
 def test_command_confirmation_expires_during_silent_read(session, agv_clock):
     _, request = session
     connection_id = open_simulator(request)
     send(request, 'query_status')
-    send(request, 'pause')
+    request(dict(action='arm', armed=True, connection_id=connection_id))
+    send(request, 'rotate_clockwise', connection_id)
     send(request, 'query_status')
-    send(request, 'pause')
-    send(request, 'query_status')
+    agv_clock.now += 1
+    assert request()[1]['results']['rotate_clockwise']['ack_elapsed_s'] == pytest.approx(1)
     request(dict(action='silence', silent=True, connection_id=connection_id))
-    agv_clock.now += agv.STALE_AFTER - 1
+    agv_clock.now += agv.STALE_AFTER - 2
 
     status, state = send(request, 'query_status', connection_id)
     assert status == 200 and state['results']['query_status']['state'] == 'no reply'
-    assert state['results']['pause']['state'] == 'not confirmed'
+    assert state['results']['rotate_clockwise']['state'] == 'not confirmed'
 
 
 def test_agv_uses_existing_request_authorization(session):
@@ -305,7 +307,7 @@ def test_captured_replies_confirm_and_only_status_refreshes_the_link(session, mo
     state = send(request, 'query_status', connection_id)[1]
     assert state['status_hex'] == status_reply.hex(' ').upper()
     assert state['status']['reply_prefix'] == '00 FF 04'
-    assert state['results']['query_status']['state'] == 'reply: status'
+    assert state['results']['query_status']['state'] == 'status received'
 
     clock.now += 4
     state = send(request, 'query_status', connection_id)[1]
@@ -466,7 +468,7 @@ def test_query_waits_for_reply_or_full_timeout_before_next_request(session, monk
     connection_id = open_simulator(request)
     state = send(request, 'query_status', connection_id)[1]
     assert agv_clock.now == 10.60
-    assert state['results']['query_status']['state'] == 'reply: status'
+    assert state['results']['query_status']['state'] == 'status received'
 
     request(dict(action='silence', silent=True, connection_id=connection_id))
     state = send(request, 'query_status', connection_id)[1]
@@ -505,7 +507,9 @@ def test_stop_counter_cannot_confirm_a_station_call(session, agv_clock):
     assert send(request, 'query_status')[1]['status']['max_stations'] == 0
     request(dict(action='arm', armed=True, connection_id=connection_id))
     assert send(request, 'call_station', connection_id, value=1)[0] == 200
-    agv_clock.now += 6
+    agv_clock.now += 1
+    assert request()[1]['results']['call_station']['ack_elapsed_s'] == pytest.approx(1)
+    agv_clock.now += 5
     result = send(request, 'query_status')[1]['results']['call_station']
     assert result['state'] == 'not confirmed'
     assert 'maximum' in result['warning']
@@ -723,3 +727,194 @@ def test_recipe_keeps_the_radio_reply_window_clear_of_ordinary_writes(agv_clock)
         assert 1 <= ack < agv.REPLY_TIMEOUT
         assert writes == [0x26, 0x23, 0x26]
     link.close()
+
+
+def command_writes(state, name):
+    return [entry for entry in state['log']
+            if entry['direction'] == 'TX' and entry['decode']['command'] == name]
+
+
+@pytest.mark.parametrize(('command', 'interval', 'limit'), [
+    ('stop', 1, 5), ('pause', 1, 5), ('forward', 2, 4),
+])
+def test_unanswered_commands_resend_the_identical_frame_to_the_try_limit(
+        session, agv_clock, command, interval, limit):
+    _, request = session
+    connection_id = open_simulator(request)
+    request(dict(action='silence', silent=True, connection_id=connection_id))
+    request(dict(action='arm', armed=True, connection_id=connection_id))
+
+    status, state = send(request, command, connection_id)
+    assert status == 200
+    first, = command_writes(state, command)
+    for attempt in range(2, limit + 1):
+        agv_clock.now += interval - .01
+        assert len(command_writes(request()[1], command)) == attempt - 1
+        agv_clock.now += .01
+        assert len(command_writes(request()[1], command)) == attempt
+
+    agv_clock.now += interval
+    state = request()[1]
+    writes = command_writes(state, command)
+    assert [entry['hex'] for entry in writes] == [first['hex']] * limit
+    assert [entry['decode']['try'] for entry in writes] == list(range(1, limit + 1))
+    assert state['results'][command]['state'] == 'no reply'
+    quality = state['link_quality']
+    assert (quality['sent'], quality['acknowledged'], quality['resent'], quality['no_reply']) == (
+        limit, 0, limit - 1, 1)
+    agv_clock.now += 20
+    assert len(command_writes(request()[1], command)) == limit
+
+
+def test_retry_acknowledgement_ends_resends_without_confirming_status(session, agv_clock):
+    _, request = session
+    connection_id = open_simulator(request)
+    request(dict(action='silence', silent=True, connection_id=connection_id))
+    send(request, 'stop', connection_id)
+    request(dict(action='silence', silent=False, connection_id=connection_id))
+    agv_clock.now += 1
+    assert len(command_writes(request()[1], 'stop')) == 2
+
+    agv_clock.now += 1
+    state = request()[1]
+    assert state['results']['stop']['ack_elapsed_s'] == pytest.approx(1)
+    assert state['status'] is None
+    assert state['link_quality']['acknowledged'] == 1
+    agv_clock.now += 10
+    assert len(command_writes(request()[1], 'stop')) == 2
+
+
+@pytest.mark.parametrize(('action', 'fields'), [
+    ('send', {'command': 'stop'}),
+    ('send', {'command': 'pause'}),
+    ('arm', {'armed': False}),
+    ('disconnect', {}),
+])
+def test_urgent_controls_disarm_and_disconnect_cancel_pending_motion_resends(
+        session, agv_clock, action, fields):
+    _, request = session
+    connection_id = open_simulator(request)
+    request(dict(action='silence', silent=True, connection_id=connection_id))
+    request(dict(action='arm', armed=True, connection_id=connection_id))
+    assert send(request, 'forward', connection_id)[0] == 200
+    agv_clock.now += 2
+    assert len(command_writes(request()[1], 'forward')) == 2
+
+    assert request(dict(action=action, connection_id=connection_id, **fields))[0] == 200
+    for _ in range(5):
+        agv_clock.now += 2
+        assert len(command_writes(request()[1], 'forward')) == 2
+    if action == 'disconnect':
+        assert open_simulator(request) != connection_id
+        agv_clock.now += 2
+        assert not command_writes(request()[1], 'forward')
+
+
+def test_stop_status_ends_resends_even_if_the_ack_was_lost(session, agv_clock, monkeypatch):
+    class StatusWithoutAck(agv.Simulator):
+        def write(self, raw):
+            written = super().write(raw)
+            self.acknowledgements.clear()
+            return written
+
+    monkeypatch.setattr(agv, 'Simulator', StatusWithoutAck)
+    _, request = session
+    connection_id = open_simulator(request)
+    send(request, 'query_status', connection_id)
+    send(request, 'stop', connection_id)
+    agv_clock.now += 1
+    assert len(command_writes(request()[1], 'stop')) == 2
+
+    state = send(request, 'query_status', connection_id)[1]
+    assert state['results']['stop']['state'] == 'confirmed by status'
+    assert 'ack_elapsed_s' not in state['results']['stop']
+    agv_clock.now += 2
+    assert len(command_writes(request()[1], 'stop')) == 2
+
+
+def test_recipe_station_call_uses_shared_resend_and_urgent_cancel(agv_clock):
+    link = agv.Connection(SimpleNamespace(lock=RLock(), closing=False, active=None,
+                                          storage_error=None, execution_uncertain=False))
+    link.submit({'action': 'connect'})
+    simulator = link.transport
+    real_write = simulator.write
+
+    def drop_calls(raw):
+        frame = agv.parse_frame(raw)
+        return len(raw) if frame.command == 0x23 and frame.data[0] == 0x9D else real_write(raw)
+
+    simulator.write = drop_calls
+    try:
+        with link.recipe_link():
+            link.recipe_feedback()
+            assert link.recipe_call(2, lambda *args: None) is not None
+            agv_clock.now += 2
+            link.recipe_feedback()
+            first, retry = command_writes(link.capability(), 'call_station')
+            assert first['hex'] == retry['hex']
+            assert retry['decode']['try'] == 2
+            assert link.recipe_stop()
+            agv_clock.now += 2
+            assert len(command_writes(link.capability(), 'call_station')) == 2
+    finally:
+        link.close()
+
+
+def test_late_motion_ack_does_not_prevent_stop_resend(session, agv_clock, monkeypatch):
+    class DropFirstStop(agv.Simulator):
+        drop_stop = True
+
+        def write(self, raw):
+            frame = agv.parse_frame(raw)
+            if self.drop_stop and frame.command == 0x23 and frame.data == b'\x87\x04\x00':
+                self.drop_stop = False
+                return len(raw)
+            return super().write(raw)
+
+    monkeypatch.setattr(agv, 'Simulator', DropFirstStop)
+    _, request = session
+    connection_id = open_simulator(request)
+    request(dict(action='arm', armed=True, connection_id=connection_id))
+    send(request, 'forward', connection_id)
+    agv_clock.now += .9
+    send(request, 'stop', connection_id)
+    agv_clock.now += .1
+
+    state = request()[1]
+    assert 'ack_elapsed_s' not in state['results']['stop']
+    agv_clock.now += .91
+    state = request()[1]
+    assert len(command_writes(state, 'stop')) == 2
+    assert len(command_writes(state, 'forward')) == 1
+
+
+def test_standard_simulator_reports_status_without_requests_and_rejects_station_calls(session, agv_clock):
+    _, request = session
+    _, connected = request(dict(action='connect', mode='simulator', agv_mode=0))
+    for _ in range(4):
+        agv_clock.now += 1
+        state = request()[1]
+    assert state['status']['mode'] == 0 and not state['stale']
+    assert state['link_quality']['timed_report_interval_s'] == pytest.approx(1)
+    assert not [entry for entry in state['log'] if entry['direction'] == 'TX']
+    cid = connected['connection_id']
+    assert send(request, 'query_status', cid)[1]['results']['query_status']['state'] == 'status received'
+    request(dict(action='arm', armed=True, connection_id=cid))
+    status, refused = send(request, 'call_station', cid, value=1)
+    assert status == 400 and 'station-call function' in refused['error']
+
+
+def test_timed_reports_pace_ordinary_send_but_never_delay_stop(session, agv_clock):
+    _, request = session
+    request(dict(action='connect', mode='simulator', agv_mode=0))
+    for _ in range(4):
+        agv_clock.now += 1
+        request()
+    report_at = agv_clock.now
+
+    assert send(request, 'read_speed')[0] == 200
+    assert .099 <= agv_clock.now - report_at <= .150
+
+    stopped_at = agv_clock.now
+    assert send(request, 'stop')[0] == 200
+    assert agv_clock.now == stopped_at
