@@ -20,7 +20,7 @@ export function labelPosition(anchor, camera, width, height) {
 // shortcut: dense or small views can run out of callout slots; the complete label list stays available.
 export function positionCallouts(anchors, width, height) {
   const columns = Math.max(1, Math.floor(width / 160));
-  const rows = Math.max(1, Math.floor(height / 76));
+  const rows = Math.max(1, Math.floor(height / 104));
   const slots = Array.from({ length: columns * rows }, (_, index) => ({
     left: (index % columns + .5) * width / columns,
     top: (Math.floor(index / columns) + .5) * height / rows,

@@ -26,11 +26,11 @@ export function sceneLabels(config, variable, taughtTank, lineTanks) {
     : moving?.value === false ? 'Stopped' : 'Unknown';
   const joints = variable('robot.joints');
   const robot = joints?.value ? (joints.source === 'robot.simulator' ? 'Simulated joints' : 'Job joint sample') : 'Unknown';
+  const placement = anchor ? `Last confirmed station ${last}` : 'Unplaced';
   return [
-    { ...label('agv', 'AGV', motion, moving, anchor),
-      detail: anchor ? `Last confirmed station ${last}` : 'Unplaced' },
+    { ...label('agv', 'AGV', motion, moving, anchor), detail: placement },
     { ...label('robot', 'Robot', robot, joints),
-      detail: anchor && config?.robot_mount ? `Display reference · AGV station ${last}` : 'Unplaced' },
+      detail: anchor && config?.robot_mount ? `Display reference · ${placement}` : 'Unplaced' },
     ...(config?.tanks ?? []).map(tank => {
       const basket = lineTanks?.[tank.id]?.basket;
       const statusId = lineTanks ? (basket && 'line.' + basket) : tank.status_id;

@@ -229,6 +229,7 @@ onUnmounted(() => {
         <strong>{{ item.name }}</strong><template v-if="item.taught"> · Taught tank</template>
         <div>{{ item.state }}</div>
         <div>{{ item.age }}</div>
+        <div v-if="item.detail">{{ item.detail }}</div>
       </div>
     </div>
     <Message v-if="robotMessage" severity="secondary">{{ robotMessage }}</Message>

@@ -11,6 +11,11 @@ import { sampleAge } from './sceneState';
 const props = defineProps({ test: Boolean, state: Object, stateError: String, variable: Function, view: String });
 const emit = defineEmits(['outcome', 'view']);
 const serviceUnavailable = 'Line status unavailable. Check the service and reload.';
+const refreshMessages = {
+  pending: 'Catalog refresh pending.',
+  done: 'Catalog replied.',
+  failed: 'Catalog unavailable. Check the line API connection and retry.',
+};
 const views = [
   ['overview', 'Overview'], ['tank', 'Tank monitor'], ['signals', 'Signal browser'],
   ['alarms', 'Alarm signals'], ['catalog', 'Tag catalog'], ['diagnostics', 'Communication log'],
@@ -54,7 +59,7 @@ const shown = computed(() => {
   if (view.value === 'alarms') return tags.value.filter(tag => tag.group === 'Alarms')
     .map(tag => ({ name: tag.tag_name, tag }));
   const needle = query.value.trim().toLowerCase();
-  return tags.value.filter(tag => (!access.value || tag.read_write === access.value) &&
+  return tags.value.filter(tag => (!props.test || !access.value || tag.read_write === access.value) &&
     (!group.value || tag.group === group.value) && (!type.value || tag.data_type === type.value) &&
     [tag.tag_name, tag.description, tag.device_address].some(text => text.toLowerCase().includes(needle)))
     .map(tag => ({ name: tag.tag_name, tag }));
@@ -62,7 +67,9 @@ const shown = computed(() => {
 const visibleRows = computed(() => shown.value.map(row => ({
   ...row, sample: row.tag && props.variable('line.' + row.tag.tag_name),
 })));
-const refreshReason = computed(() => props.stateError ? serviceUnavailable : remaining.value ? 'Wait for the current refresh.' :
+const refreshFeedback = computed(() => outcome.value?.text || refreshMessages[props.state?.refresh?.outcome]);
+const refreshReason = computed(() => props.stateError ? serviceUnavailable :
+  remaining.value || props.state?.refresh?.outcome === 'pending' ? 'Wait for the current refresh.' :
   !props.state?.refresh_available ? props.state?.reason || 'Waiting for line setup.' : '');
 
 watch(() => props.state?.catalog_revision, loadCatalog, { immediate: true });
@@ -100,9 +107,9 @@ function checkRefresh(result) {
   if (pending === null || result?.id !== pending || result.outcome === 'pending') return;
   if (result.outcome === 'done') {
     if (!currentCatalog.value) void loadCatalog();
-    endRefresh('Catalog replied.', 'done');
+    endRefresh(refreshMessages.done, 'done');
   } else {
-    endRefresh('Catalog unavailable. Check the line API connection and retry.', 'failed');
+    endRefresh(refreshMessages.failed, 'failed');
   }
   if (view.value === 'diagnostics') void loadLog();
 }
@@ -127,6 +134,7 @@ async function refresh() {
     pending = confirmation.id;
     checkRefresh(props.state?.refresh);
   } catch (error) {
+    if (!remaining.value) return;
     endRefresh(error.status === 403 ? 'Page access expired. Reload to reconnect.' :
       'Catalog refresh unavailable. Check the service and retry.', 'failed');
   }
@@ -197,13 +205,17 @@ onUnmounted(() => {
       </Message>
       <dl class="capabilities">
         <dt>Supplier timestamp</dt><dd id="line-source-at">{{ state?.source_at ?? 'Unknown' }}</dd>
+        <template v-if="state?.clock_offset_ms != null">
+          <dt>Supplier clock correction</dt><dd id="line-clock-offset">{{ state.clock_offset_ms }} ms</dd>
+          <dt>Corrected supplier timestamp</dt><dd id="line-corrected-source-at">{{ state.corrected_source_at ?? 'Unknown' }}</dd>
+        </template>
         <dt>PLC row</dt><dd>{{ state?.row_id ?? 'Unknown' }}</dd>
         <dt>Reported tag reads</dt><dd>{{ state?.tags_ok ?? 'Unknown' }} available · {{ state?.tags_failed ?? 'Unknown' }} unavailable</dd>
       </dl>
       <div class="line-actions">
         <Button id="line-refresh" label="Refresh catalog" :disabled="Boolean(refreshReason)" @click="refresh" />
         <span v-if="refreshReason">{{ refreshReason }}</span>
-        <span v-if="outcome" role="status">{{ outcome.text }}</span>
+        <span v-if="refreshFeedback" role="status">{{ refreshFeedback }}</span>
         <Button as="a" :href="test ? '#/line' : '#/tests/line-api'" severity="secondary"
           :label="test ? 'Operator line view' : 'Line API test view'" />
       </div>

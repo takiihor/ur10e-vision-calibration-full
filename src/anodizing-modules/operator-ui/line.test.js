@@ -101,3 +101,12 @@ it('gives line recovery instructions beside the disabled refresh after losing th
   expect(page.get('#line-refresh').element.disabled).toBe(true);
   expect(page.get('.line-actions').text()).toContain('Line status unavailable. Check the service and reload.');
 });
+
+it('displays the verified clock correction beside the original supplier timestamp', async () => {
+  const { state } = open();
+  Object.assign(state, { clock_offset_ms: -1250, corrected_source_at: '2026-01-01T11:59:58.750+00:00' });
+  await flushPromises();
+  expect(page.get('#line-source-at').text()).toBe('2026-01-01T12:00:00+00:00');
+  expect(page.get('#line-clock-offset').text()).toBe('-1250 ms');
+  expect(page.get('#line-corrected-source-at').text()).toBe('2026-01-01T11:59:58.750+00:00');
+});

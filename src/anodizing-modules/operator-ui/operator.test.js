@@ -277,3 +277,135 @@ it('opens Recorder and its test alias, starts selected variables, and reattaches
   expect(changes[1]).toEqual({ action: 'stop', id: 'fixture' });
   expect(app.text()).toContain('Finishing recording');
 });
+
+async function navigate(route) {
+  location.hash = route;
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+  await flushPromises();
+}
+
+const lineState = { mode: 'simulation', quality: 'fresh', catalog_revision: 1, refresh_available: true };
+const lineCatalog = { revision: 1, tanks: {}, warnings: [], tags: [
+  { tag_name: 'FixtureRead', description: 'Synthetic input', device_address: 'M1', read_write: 'R', group: 'Fixture', data_type: 'Bool' },
+  { tag_name: 'FixtureCommand', description: 'Synthetic readback', device_address: 'M2', read_write: 'W', group: 'Fixture', data_type: 'Bool' },
+] };
+
+it('shows read-only signals when leaving the writable test catalog in the same app', async () => {
+  open('#/tests/line-api/catalog', async path => {
+    if (path === '/api/state') return { agv: { connection_id: 0, sequence: 1 }, variables: [], line: lineState };
+    if (path === '/api/line/catalog') return lineCatalog;
+    return { connected: false, sequence: 1 };
+  });
+  await flushPromises();
+  await app.get('#line-access').setValue('W');
+  expect(app.text()).toContain('FixtureCommand');
+  await navigate('#/line/signals');
+  expect(app.find('#line-access').exists()).toBe(false);
+  expect(app.text()).toContain('FixtureRead');
+  expect(app.text()).not.toContain('FixtureCommand');
+});
+
+it('expires delayed joint and PLC responses and never revives the same samples', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'performance'] });
+  const reply = (read_at, robotAge, lineAge) => ({
+    agv: { connection_id: 0, sequence: 1 }, line: lineState,
+    variables: [
+      { id: 'robot.joints', source: 'robot.simulator', read_at, age_ms: robotAge, quality: 'fresh', value: [0, 0, 0, 0, 0, 0],
+        freshness: { kind: 'max_age_ms', max_age_ms: 1000 } },
+      { id: 'line.poll_age', source: 'line.simulator', read_at, age_ms: lineAge, quality: 'fresh', value: lineAge,
+        freshness: { kind: 'max_age_ms', max_age_ms: 3000 } },
+    ],
+  });
+  let release, polls = 0;
+  const stamp = '2026-01-01T12:00:00Z';
+  open('#/scene', async path => {
+    if (path === '/api/scene') return { tanks: [] };
+    if (path === '/api/state') {
+      polls++;
+      if (polls === 1) return new Promise(resolve => { release = resolve; });
+      if (polls === 2) return reply(stamp, 250, 2650);
+      return reply('2026-01-01T12:00:02Z', 0, 0);
+    }
+    if (path === '/api/line/catalog') return lineCatalog;
+    return { connected: false, sequence: 1 };
+  });
+  await flushPromises();
+  await vi.advanceTimersByTimeAsync(1200);
+  release(reply(stamp, 200, 2600));
+  await flushPromises();
+  expect(app.get('[data-label=robot]').text()).toContain('Unknown');
+  expect(app.get('[data-label=robot]').text()).toContain('1.4 s ago');
+
+  await vi.advanceTimersByTimeAsync(200);
+  expect(polls).toBe(2);
+  expect(app.get('[data-label=robot]').text()).toContain('Unknown');
+  await navigate('#/line');
+  expect(app.text()).toContain('PLC sample · Stale');
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(app.text()).toContain('PLC sample · Fresh');
+  await navigate('#/scene');
+  expect(app.get('[data-label=robot]').text()).toContain('Simulated joints');
+});
+
+it.each(['line', 'records'])('retires pending %s status on departure and retains a later Stop', async page => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'performance'] });
+  let release, sequence = 0, active = null;
+  let line = lineState;
+  open('#/' + page, async (path, body) => {
+    if (path === '/api/state') return { agv: { connection_id: 2, sequence },
+      variables: [{ id: 'agv.speed', name: 'Speed' }], line };
+    if (path === '/api/status') return { owner: {} };
+    if (path === '/api/line/catalog') return lineCatalog;
+    if (path === '/api/line/refresh' || path === '/api/records' && body) return new Promise(resolve => {
+      release = () => {
+        if (page === 'line') {
+          line = { ...lineState, refresh: { id: 1, outcome: 'done' } };
+          resolve({ id: 1 });
+        } else {
+          active = { id: 'fixture', status: 'recording', started_at: '2026-11-21T00:00:00Z',
+            agv_transport: 'simulator', rate_hz: 1, variables: [{ id: 'agv.speed' }] };
+          resolve(active);
+        }
+      };
+    });
+    if (path === '/api/records') return { active, records: active ? [active] : [] };
+    return { ...connected, armed: false, sequence: ++sequence, commands: [], results: body?.command === 'stop' ? {
+      stop: { tx_id: 9, state: 'confirmed by status', sent_at: '2026-11-20T00:00:00Z', confirmed_stopped: true },
+    } : {} };
+  });
+  await flushPromises();
+  if (page === 'line') {
+    await app.get('#line-refresh').trigger('click');
+  } else {
+    await app.get('input[type="checkbox"]').setValue(true);
+    await app.get('form').trigger('submit');
+  }
+  expect(element('outcome').text()).toBe('Sending…');
+  await navigate('#/');
+  expect(element('outcome').text()).toBe('');
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  await flushPromises();
+  const stop = element('outcome').text();
+  expect(stop).toContain('AGV reports stopped');
+  release();
+  await flushPromises();
+  expect(element('outcome').text()).toBe(stop);
+  await navigate('#/' + page);
+  if (page === 'records') {
+    expect(app.get('#record-state').text()).toBe('Recording');
+  } else {
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(app.get('.line-actions [role=status]').text()).toBe('Catalog replied.');
+    expect(element('outcome').text()).toBe(stop);
+  }
+});
+
+it('identifies unreadable recordings without offering downloads for them', async () => {
+  open('#/records', async path => path === '/api/records' ?
+    { active: null, records: [{ id: 'damaged-fixture', started_at: null, status: 'unreadable', outcome: null }] } :
+    path === '/api/state' ? { variables: [] } : { connected: false, sequence: 1 });
+  await flushPromises();
+  const history = app.get('.records-history');
+  expect(history.text()).toMatch(/damaged-fixture.*unreadable/i);
+  expect(history.find('button').exists()).toBe(false);
+});

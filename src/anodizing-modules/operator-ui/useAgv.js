@@ -14,7 +14,6 @@ export function useAgv(isAgv, isScene) {
   const state = shallowRef(initialState);
   const capability = shallowRef(null);
   const report = shallowRef(null);
-  let reportReceivedAt = 0;
   const clock = ref(performance.now());
   let receivedAt = clock.value;
   const stateError = ref('');
@@ -345,12 +344,25 @@ export function useAgv(isAgv, isScene) {
     if (statePoll || clock.value - lastStatePoll < (isScene?.value ? 190 : 990)) return;
     statePoll = true;
     lastStatePoll = clock.value;
+    const requestedAt = performance.now();
     try {
       const response = await request('/api/state', null, 3000);
-      if (!retired && response.agv && (!report.value || response.agv.connection_id >= report.value.connection_id &&
-          response.agv.sequence >= report.value.sequence)) {
-        reportReceivedAt = performance.now();
-        report.value = { ...response.agv, line: response.line, variables: new Map(response.variables.map(variable => [variable.id, variable])) };
+      const previous = report.value;
+      if (!retired && response.agv && (!previous || response.agv.connection_id >= previous.connection_id &&
+          response.agv.sequence >= previous.sequence)) {
+        const variables = new Map(response.variables.map(item => {
+          const prior = previous?.variables.get(item.id);
+          // A faster reply must not make an already expired sample appear fresh again.
+          if (item.age_ms != null && prior?.age_ms != null && item.read_at != null && item.read_at === prior.read_at &&
+              item.source === prior.source && item.source_at === prior.source_at && item.row_id === prior.row_id &&
+              item.model_sha256 === prior.model_sha256 &&
+              (!item.id.startsWith('agv.') || response.agv.connection_id === previous.connection_id)) {
+            item = { ...item, age_ms: Math.max(item.age_ms, prior.age_ms + requestedAt - previous.requestedAt) };
+          }
+          return [item.id, item];
+        }));
+        clock.value = performance.now();
+        report.value = { ...response.agv, line: response.line, requestedAt, variables };
       }
       stateError.value = '';
     } catch (error) {
@@ -437,7 +449,7 @@ export function useAgv(isAgv, isScene) {
     if (!report.value || (id.startsWith('agv.') && report.value.connection_id !== state.value.connection_id)) return null;
     const item = report.value.variables.get(id);
     if (!item || item.age_ms == null) return item;
-    const age_ms = item.age_ms + Math.max(0, clock.value - reportReceivedAt);
+    const age_ms = item.age_ms + Math.max(0, clock.value - report.value.requestedAt);
     if (item.freshness.kind === 'max_age_ms' && age_ms >= item.freshness.max_age_ms) {
       return { ...item, age_ms, quality: 'stale', value: null };
     }
@@ -459,6 +471,9 @@ export function useAgv(isAgv, isScene) {
     showOutcome(id, outcome, select) {
       if (select) latest.value = id;
       outcomes.set(id, { direct: outcome });
+    },
+    retireOutcome(id) {
+      if (['running', 'waiting'].includes(outcomes.get(id)?.direct?.tone)) outcomes.delete(id);
     },
   });
 }

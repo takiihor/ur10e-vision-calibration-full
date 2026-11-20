@@ -57,7 +57,7 @@ describe('scene display', () => {
     ]);
     result.forEach((label, index) => {
       for (const other of result.slice(index + 1)) {
-        expect(Math.abs(label.top - other.top) >= 76 || Math.abs(label.left - other.left) >= 160).toBe(true);
+        expect(Math.abs(label.top - other.top) >= 104 || Math.abs(label.left - other.left) >= 160).toBe(true);
       }
     });
   });
@@ -74,4 +74,11 @@ describe('scene display', () => {
     expect(page.text()).toContain('Robot');
     expect(page.get('a[href="/preview/tool-envelope.html"]').text()).toContain('Legacy');
   });
+});
+
+it('labels both off-station anchors as historical when the AGV stops', () => {
+  const values = { 'agv.moving': variable(false), 'agv.last_confirmed_station': variable(1) };
+  const [agv, robot] = sceneLabels({ ...config, robot_mount: {} }, id => values[id], null);
+  expect(agv).toMatchObject({ state: 'Stopped', detail: 'Last confirmed station 1' });
+  expect(robot.detail).toBe('Display reference · Last confirmed station 1');
 });

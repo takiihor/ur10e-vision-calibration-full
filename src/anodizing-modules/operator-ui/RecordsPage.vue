@@ -41,6 +41,7 @@ const devices = ref('');
 const notes = ref('');
 const active = computed(() => catalog.value?.active);
 const finished = computed(() => (catalog.value?.records ?? []).filter(record => record.outcome));
+const unreadable = computed(() => (catalog.value?.records ?? []).filter(record => record.status === 'unreadable'));
 const ended = computed(() => finished.value[0]?.outcome?.reason);
 const endedWithError = computed(() => ['storage_error', 'event_overflow', 'source_error'].includes(ended.value));
 const selectedIds = computed(() => props.variables.filter(item => selected.value.includes(item.id)).map(item => item.id));
@@ -59,7 +60,7 @@ const stopReason = computed(() => operation.value ? 'Wait for the recorder respo
 let version = 0;
 let reading = false;
 let retired = false;
-let poll;
+let poll, wait;
 
 async function refresh() {
   if (reading || operation.value) return;
@@ -92,7 +93,7 @@ async function update(action) {
   operation.value = action;
   outcome('Sending…', 'running', true);
   const deadline = performance.now() + 8000;
-  const wait = setInterval(() => {
+  wait = setInterval(() => {
     const seconds = Math.max(0, Math.ceil((deadline - performance.now()) / 1000));
     outcome(`Waiting for the recorder… ${seconds} s`, 'waiting');
   }, 1000);
@@ -149,6 +150,7 @@ onMounted(() => {
 onUnmounted(() => {
   retired = true;
   clearInterval(poll);
+  clearInterval(wait);
 });
 </script>
 
@@ -221,7 +223,10 @@ onUnmounted(() => {
     <Card class="panel home-card records-history" aria-labelledby="record-history">
       <template #title><h2 id="record-history">Finished recordings</h2></template>
       <template #content>
-        <p v-if="catalog && !finished.length">No finished recordings.</p>
+        <p v-if="catalog && !finished.length && !unreadable.length">No finished recordings.</p>
+        <ul v-if="unreadable.length">
+          <li v-for="record in unreadable" :key="record.id">{{ record.id }} · Unreadable recording</li>
+        </ul>
         <p v-if="exportFeedback" role="status">{{ exportFeedback }}</p>
         <ul v-if="finished.length">
           <li v-for="record in finished" :key="record.id" class="record-history-item">

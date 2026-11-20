@@ -103,7 +103,11 @@ function selectLineView(view) {
 }
 
 function navigate() {
+  const wasLine = lineRoute.value;
+  const wasRecords = isRecords.value;
   route.value = location.hash;
+  if (wasLine && !lineRoute.value) agv.retireOutcome('line-read');
+  if (wasRecords && !isRecords.value) agv.retireOutcome('recorder');
   document.title = title.value + ' · Operator app';
   if (isAgv.value) agv.enterAgv();
   if (isScene.value) void loadScene();
