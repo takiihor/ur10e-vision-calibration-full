@@ -24,8 +24,10 @@ function contrast(first, second) {
 
 it('meets operator HCI contrast for text, control boundaries and focus in all used states', () => {
   Theme.setTheme({ preset: Nord, options: { darkModeSelector: false } });
-  const { semantic, global } = Theme.getCommon();
-  const css = [semantic.css, global.css, ...['button', 'checkbox', 'dialog'].map(name => Theme.getComponent(name).css)].join('');
+  const { primitive, semantic, global } = Theme.getCommon();
+  const components = ['accordion', 'button', 'card', 'checkbox', 'datatable', 'dialog', 'inputtext',
+    'message', 'panel', 'progressspinner', 'select', 'tag', 'textarea', 'timeline', 'toast', 'toggleswitch'];
+  const css = [primitive.css, semantic.css, global.css, ...components.map(name => Theme.getComponent(name).css)].join('');
   const tokens = Object.fromEntries([...css.matchAll(/--p-([\w-]+):([^;{}]+)/g)].map(([, name, value]) => [name, value]));
 
   function resolve(name) {
@@ -81,6 +83,60 @@ it('meets operator HCI contrast for text, control boundaries and focus in all us
   check('checkbox-icon-checked-hover-color', ['checkbox-checked-hover-background'], 3);
   check('checkbox-checked-disabled-border-color', [panel, raised, 'checkbox-disabled-background'], 3);
   check('checkbox-icon-disabled-color', ['checkbox-disabled-background'], 3);
+
+  check('card-color', ['card-background'], 4.5);
+  check('card-subtitle-color', ['card-background'], 4.5);
+  check('panel-color', ['panel-background'], 4.5);
+  check('panel-header-color', ['panel-background'], 4.5);
+  check('panel-border-color', ['panel-background'], 3);
+
+  for (const name of ['inputtext', 'select', 'textarea']) {
+    check(name + '-color', [name + '-background'], 4.5);
+    check(name + '-placeholder-color', [name + '-background'], 4.5);
+    check(name + '-disabled-color', [name + '-disabled-background'], 4.5);
+    check(name + '-border-color', [name + '-background', panel], 3);
+    check(name + '-invalid-border-color', [name + '-background', panel], 3);
+    check(name + '-focus-ring-color', surfaces, 3);
+  }
+  check('select-dropdown-color', ['select-background'], 4.5);
+  check('select-overlay-color', ['select-overlay-background'], 4.5);
+  check('select-overlay-border-color', ['select-overlay-background'], 3);
+  check('select-option-color', ['select-overlay-background'], 4.5);
+  for (const state of ['focus', 'selected', 'selected-focus']) {
+    check('select-option-' + state + '-color', ['select-option-' + state + '-background'], 4.5);
+  }
+
+  for (const state of ['', 'hover-', 'disabled-', 'checked-', 'checked-hover-']) {
+    check('toggleswitch-handle-' + state + 'background', ['toggleswitch-' + state + 'background'], 3);
+    if (state !== 'disabled-') check('toggleswitch-' + state + 'border-color', surfaces, 3);
+  }
+  check('toggleswitch-focus-ring-color', surfaces, 3);
+  for (const alternate of ['one', 'two', 'three', 'four']) {
+    check('progressspinner-color-' + alternate, surfaces, 3);
+  }
+
+  for (const state of ['primary', 'secondary', 'success', 'info', 'warn', 'danger']) {
+    check('tag-' + state + '-color', ['tag-' + state + '-background'], 4.5);
+  }
+  for (const name of ['message', 'toast']) {
+    for (const state of ['secondary', 'success', 'info', 'warn', 'error']) {
+      const prefix = name + '-' + state + '-';
+      check(prefix + 'color', [prefix + 'background'], 4.5);
+      check(prefix + 'border-color', [prefix + 'background'], 3);
+      if (name === 'message') check(prefix + 'simple-color', surfaces, 4.5);
+    }
+  }
+
+  for (const state of ['', 'hover-', 'active-', 'active-hover-']) {
+    const prefix = 'accordion-header-';
+    check(prefix + state + 'color', [prefix + state + 'background'], 4.5);
+  }
+  check('accordion-header-focus-ring-color', ['accordion-header-background'], 3);
+  check('timeline-event-marker-border-color', ['timeline-event-marker-background'], 3);
+  check('timeline-event-marker-content-background', ['timeline-event-marker-background'], 3);
+  check('datatable-header-cell-color', ['datatable-header-cell-background'], 4.5);
+  check('datatable-row-color', ['datatable-row-background', 'datatable-row-striped-background'], 4.5);
+  check('datatable-body-cell-border-color', ['datatable-row-background'], 3);
 
   check('dialog-color', ['dialog-background'], 4.5);
   check('dialog-border-color', ['dialog-background'], 3);

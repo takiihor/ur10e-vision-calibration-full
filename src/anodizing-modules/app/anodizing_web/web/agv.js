@@ -278,7 +278,7 @@ function renderStatus() {
 function renderOutcome(id) {
   const element = controls.get(id)?.outcome;
   const outcome = outcomes.get(id);
-  const feedback = resultText(outcome?.name, outcome?.result, outcome?.viaEsc, outcome?.requested) ?? outcome?.direct;
+  const feedback = resultText(outcome?.name, outcome?.result, outcome?.viaEsc) ?? outcome?.direct;
   if (element) {
     if (element.textContent !== (feedback?.text ?? '')) element.textContent = feedback?.text ?? '';
     element.dataset.state = feedback?.tone ?? '';
@@ -493,7 +493,7 @@ async function post(body, {id, priority = false, viaEsc = false} = {}) {
         const current = state.results[name];
         const fromResponse = result.results[name];
         const newest = connectionKeyFor(state) === resultConnection && current?.tx_id === fromResponse?.tx_id ? current : fromResponse;
-        outcomes.set(id, {name, requested: body.command, result: newest, connection: resultConnection, viaEsc});
+        outcomes.set(id, {name, result: newest, connection: resultConnection, viaEsc});
       } else {
         const connected = result.settings?.mode === 'simulator' ? 'Simulator' : 'Serial AGV';
         const text = {connect: 'Connected · ' + connected, disconnect: 'Disconnected.',
