@@ -18,6 +18,8 @@ Vite writes `../app/anodizing_web/operator_dist/`, including the hashed assets a
 
 ## State and controls
 
+The AGV commissioning page follows the [operator page HCI guide](../docs/operator-page-hci.md).
+
 The app sends the injected `X-Module-Token` header on same-origin API requests. The entry is served fresh with a per-response PrimeVue style nonce. A service restart requires a reload and a deliberate new connection. AGV status reads use `/api/state` and `/api/agv?cached=1`. `/api/agv?ports=1` refreshes the port list and command capabilities. AGV operations use the existing `POST /api/agv`.
 
 The commissioning view uses the same connection, checklist, notes and record storage keys as the legacy AGV page. Open the AGV route to use the simulator, then choose **Simulator** and **Connect**. The fixed StopBar stays above the Sakai sidebar and overlays. Escape requests one AGV software Stop. Movement requests carry the current server Stop generation. The UI follows the returned urgent command result and reports stopped only when the server confirms zero speed. Robot stops for active Manual and Teacher sessions display their own buttons and use their own bound job IDs. Opening the AGV route on an armed link requests disarm. Inspect the link before issuing any new request after a failure.
@@ -235,6 +237,26 @@ checksum. If either operation reports damaged evidence, preserve the archive
 for inspection. Import folders and files are owner-only. Keep them and all
 downloads outside Git and release artifacts. Select the archive in the test
 view to see the historical API and human totals, provenance and original downloads.
+
+## AGV stations and rod transfers
+
+Connect the serial link on **AGV** before running robot motion. A fresh stopped report with zero speed and no fault admits the job. The service checks the AGV throughout robot work. If the AGV moves or the status reaches 3 seconds old, the service requests both software Stops. An interrupted Pick/place job leaves item state unknown.
+
+When the AGV is physically switched off, tick **AGV is switched off** beside the motion approval for that job. A fresh serial report prevents admission and interrupts work already running under that approval. The job record shows which mode was used. The checkbox clears after submission and starts unchecked on reload. While a robot job owns the service, the AGV page blocks movement commands. Stop and Pause remain available on an open link.
+
+The pendant operates outside this interlock.
+
+On **Teaching**, capture the marker at its tank. Teaching records a fresh stopped serial report from a learned station when available. Otherwise, enter the station number. New captures store the station, source, report time and transport in the optional `agv` field in `project.json` (schema version 1).
+
+On **Pick/place**, choose the teaching projects for endpoints A and B. Their recorded stations prefill the editable fields. Review the source and any mismatch warnings. A blank B project or station uses the corresponding A value. The recipe review binds the chosen stations and AGV mode. A parked approval expires after Stop, Pause, disarming or a change of connection. Check-only mode requires both endpoints at the same station and a fresh arrival report there. A single Pick or Place with a recorded station checks arrival there before starting. Parked admission and holds require zero speed, a stopped report and a clear obstacle state. For a switched-off job, both endpoints must be reachable without moving the AGV. Station fields are optional in that mode.
+
+To teach the travel pose, fold the stopped arm within the vehicle footprint with and without the rod. Open **AGV travel pose** after the Teaching steps, tick the confirmation and select **Save current joints as AGV travel pose**. Select the robot's teaching project or set the site profile's `robot_control.robot_ip`. The service reads stopped joints over RTDE receive and records the timestamp, confirmation and robot address in `agv-travel-pose.json`. Pick/place shows the saved joints and the live stillness and ±2° check. The AGV page checks the saved pose immediately before a manual movement command when robot access is enabled.
+
+With `--allow-agv-in-recipe`, a separately confirmed recipe can call stations. The operator confirms Manual mode, auto-start after stop OFF, a clear line and a person at the AGV e-stop. The robot uses the reviewed joint transit to fold. The recipe checks reported mode, destination and set-speed cap while the AGV travels, and verifies arrival at the requested station before pickup or placement. The cap defaults to 1,000 m/h and supports up to 1,500 m/h. The travel timeout is 120 s by default, up to 600 s. **Current operation** shows the robot stage, AGV ACK, reported arrival and aborts. Completed transfers record their stations, transport and leg timings. Stop or an interruption ends the run. The watchdog cancels future station calls and can halt the AGV while the robot Stop is still in progress. Software Stop sends Pause in station-call mode and Stop in standard mode. A halt write records an attempt. A fresh, attributable status report with zero speed and the stopped flag confirms stopped state.
+
+Before enabling recipe driving on hardware, observe the AGV's e-stop and radio link-loss behavior on the AGV page. Verify auto-start after stop is OFF. Check the taught pose with a rod inside the footprint. Run the first supervised transfer at the minimum speed (500 m/h) with someone at the AGV e-stop.
+
+Idle MCU commands 1, 2 and 3 require parked or switched-off approval. Command 0 can read sensors while idle without AGV approval. At a grip or release prompt, the project, robot and project hash must match the supervised job.
 
 ## Pick/place and Recipe
 
