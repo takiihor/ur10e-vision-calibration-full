@@ -300,6 +300,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, teaching.session_state(self.server.owner, query['job'][0]))
             except (ValueError, TypeError) as exc:
                 return self.reply(404, {'error': str(exc)})
+        if path == '/api/calibration-defaults':
+            return self.reply(200, calibration.defaults(self.server.root))
+        if path == '/api/calibration-handoff':
+            try:
+                query = parse_qs(urlsplit(self.path).query, strict_parsing=True)
+                if set(query) != {'job', 'selection'} or any(len(values) != 1 for values in query.values()):
+                    raise ValueError('Select one calibration job and output.')
+                job = self.server.owner.get(query['job'][0])
+                return self.reply(200, calibration.teaching_handoff(self.server.root, job, query['selection'][0]))
+            except (ValueError, OSError, TypeError) as exc:
+                return self.reply(409, {'error': str(exc)})
         if path == '/api/teacher-defaults':
             from .site_profile import section
             found = teaching.defaults(self.server.root)
@@ -594,6 +605,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, control(self.server.owner,body))
             if path == '/api/teacher-control':
                 return self.reply(200, teaching.control(owner, body.get('job_id'), body.get('action')))
+            if path == '/api/calibration-control':
+                if body.get('action') != 'stop':
+                    raise ValueError('Choose Calibration Stop.')
+                return self.reply(200, owner.stop_calibration(body.get('job_id')))
             if path == '/api/answer':
                 return self.reply(200, owner.answer(body.get('job_id'), body.get('request_id'), body.get('value')))
             if path == '/api/tool-power':

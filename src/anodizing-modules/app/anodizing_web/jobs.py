@@ -10,6 +10,7 @@ import tempfile
 import time
 
 ID = re.compile(r'^[A-Za-z0-9_-]{8,80}$')
+CALIBRATION_STOP_ACTIONS = ('manual', 'collect', 'replay')
 
 
 def atomic_json(path, value):
@@ -162,6 +163,8 @@ class JobOwner:
             job = {'id': request_id, 'module': module, 'fingerprint': fingerprint,
                    'state': 'running', 'created': time.time(), 'events': [], 'pending': None,
                    'result': None, 'error': None}
+            if module == 'calibration':
+                job['calibration_action'] = payload.get('action')
             if mode:
                 job['agv_motion'] = mode
             if scene:
@@ -212,6 +215,8 @@ class JobOwner:
                 self.check_agv()
             self.check_agv()
             with self.lock:
+                if job.get('stop_requested'):
+                    raise ValueError('Calibration Stop requested.')
                 job.update(state='done', result=result, pending=None)
                 if job.get('auto_action') == 'validate_move':
                     project = (result or {}).get('project') or {}
@@ -222,6 +227,8 @@ class JobOwner:
         except Exception as exc:
             with self.lock:
                 job.update(state='failed', error=str(exc), pending=None)
+                if job.get('stop_requested') and not (visit and visit.error):
+                    job.update(state='interrupted', error='Calibration ended after Stop was requested. Review the saved artifacts and check the machine.')
                 if visit and visit.error:
                     manual = job.get('manual')
                     repeat = (manual or {}).get('repeat')
@@ -260,9 +267,20 @@ class JobOwner:
             job['events'].append(event)
             # Keep the browser response bounded; final artifacts remain in their session.
             job['events'] = job['events'][-200:]
-            if event.get('type') == 'request':
+            if event.get('type') == 'request' and not job.get('stop_requested'):
                 job.update(state='waiting', pending=event)
             self._save(job)
+
+    def stop_calibration(self, job_id):
+        with self.lock:
+            job = self.jobs.get(self.active, {})
+            if (job.get('id') != job_id or job.get('calibration_action') not in CALIBRATION_STOP_ACTIONS
+                    or job['state'] not in ('running', 'waiting')):
+                raise ValueError('This calibration capture is no longer active.')
+            job.update(stop_requested=True, pending=None, state='running')
+            if self.runner:
+                self.runner.stop()
+            return {'job_id': job_id, 'stop_requested': True}
 
     def answer(self, job_id, request_id, value):
         with self.lock:
@@ -328,8 +346,10 @@ class JobOwner:
             manual = self.jobs.get(self.active, {})
             if manual.get('auto_action') in ('PICK', 'PLACE', 'REPEAT', 'vertical_descent', 'STEP'):
                 stop_targets.append({'kind': 'manual', 'job_id': self.active})
+            if manual.get('calibration_action') in CALIBRATION_STOP_ACTIONS and manual['state'] in ('running', 'waiting'):
+                stop_targets.append({'kind': 'calibration', 'job_id': self.active})
             return {'active': self.active, 'stop_targets': stop_targets, 'mcu_pending': self.mcu_pending, 'storage_error': self.storage_error, 'closing': self.closing,
                     'execution_uncertain': self.execution_uncertain,
                     'recovery': 'Review physical state, native worker cleanup and saved Teacher evidence before a reviewed service restart; no automatic motion replay or clear button.' if self.execution_uncertain else None, 'jobs': [
-                {k: job.get(k) for k in ('id', 'module', 'state', 'created', 'finished', 'error')}
+                {k: v for k, v in job.items() if k in ('id', 'module', 'state', 'created', 'finished', 'error', 'calibration_action')}
                 for job in sorted(self.jobs.values(), key=lambda j: j['created'], reverse=True)[:100]]}

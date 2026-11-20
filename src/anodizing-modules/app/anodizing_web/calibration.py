@@ -1,8 +1,57 @@
 """Calibration jobs with explicit camera and automatic-control opt-ins."""
+from hashlib import sha256
 import json
 import time
 
 from .paths import check_tree, inside
+
+
+def defaults(root):
+    from .site_profile import section
+    fields = ('session', 'manifest', 'board', 'serial', 'robot_ip', 'camera_provider', 'camera_fps',
+              'camera_exposure_us', 'camera_gain_db', 'intrinsics', 'calibration', 'verification',
+              'collision_scene', 'views', 'tilt_deg', 'roll_deg')
+    return {key: value for key, value in section(root, 'calibration').items()
+            if key in fields and type(value) in (str, int, float)}
+
+
+def check_stop(owner, job_id):
+    if owner.jobs.get(job_id, {}).get('stop_requested'):
+        raise ValueError('Calibration Stop requested.')
+
+
+def artifact_sha256(path):
+    with path.open('rb') as stream:
+        content = stream.read(2_000_001)
+    if len(content) > 2_000_000:
+        raise ValueError('The calibration file exceeds 2 MB.')
+    return sha256(content).hexdigest()
+
+
+def teaching_handoff(root, job, selection):
+    from ur_handeye.dataset import load_result
+    from ur_handeye.ui import CalibrationUI
+
+    fitted = job.get('result') or {}
+    result = fitted.get('result') or {}
+    if (job['module'] != 'calibration' or job['state'] != 'done' or result.get('type') != 'eye_in_hand'
+            or result.get('verdict') not in ('good', 'acceptable')):
+        raise ValueError('Select a completed usable calibration.')
+    path = inside(root, selection, required=False)
+    if str(path) != fitted.get('path'):
+        raise ValueError('The selected path differs from the fitted calibration.')
+    digest = artifact_sha256(path)
+    if digest != fitted.get('calibration_sha256', digest) or load_result(path) != result:
+        raise ValueError('The fitted calibration changed. Reopen or fit the session before teaching.')
+    camera = result.get('camera') or {}
+    robot = result.get('robot') or {}
+    return {'calibration': str(path), 'calibration_sha256': digest, 'tcp': result['camera_in_tcp']['tcp_offset'],
+            'robot_ip': robot.get('host', '') if robot.get('host') != 'simulated' else '',
+            'serial': (camera.get('device') or {}).get('serial_number', ''),
+            'camera_provider': camera.get('provider', 'realsense'),
+            'camera_fps': (camera.get('stream') or {}).get('fps'),
+            'camera_exposure_time_us': camera.get('exposure_time_us'),
+            'simulation': CalibrationUI.is_simulated(result)}
 
 
 def run(owner, root, body, job_id, allow_camera, allow_manual=False):
@@ -142,6 +191,7 @@ def run(owner, root, body, job_id, allow_camera, allow_manual=False):
         load_scene(scene)
         owner.event(job_id, {'type': 'log', 'message': 'Collision scene loaded. Motion remains disabled.'})
     with owner.lock:
+        check_stop(owner, job_id)
         if automatic:
             from .auto_scene import check
             check(root, owner.jobs[job_id]['auto_scene'])
@@ -161,7 +211,9 @@ def run(owner, root, body, job_id, allow_camera, allow_manual=False):
                 for event in runner.drain():
                     owner.event(job_id, event)
                     if event.get('type') == 'result':
-                        last_result = {'path': event.get('path'), 'result': event.get('result')}
+                        path = inside(root, event['path'])
+                        last_result = {'path': str(path), 'result': event['result'],
+                                       'calibration_sha256': artifact_sha256(path)}
                     if event.get('type') == 'done':
                         exit_code = event['code']
             if exit_code is None:
@@ -178,4 +230,6 @@ def run(owner, root, body, job_id, allow_camera, allow_manual=False):
                 time.sleep(.05)
     if exit_code != 0:
         raise ValueError(f'Calibration worker failed with exit code {exit_code}. Review the job log.')
-    return last_result or {'message': 'Calibration worker finished.', 'session': str(session)}
+    output = argv[argv.index('--output') + 1] if '--output' in argv else None
+    completed_session = output if action in ('plan', 'collect', 'manual', 'replay') and output else session
+    return last_result or {'message': 'Calibration worker finished.', 'session': str(completed_session)}
