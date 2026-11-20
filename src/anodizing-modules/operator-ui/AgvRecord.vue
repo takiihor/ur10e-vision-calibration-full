@@ -1,17 +1,52 @@
 <script setup>
 import { computed, ref } from 'vue';
+import Accordion from 'primevue/accordion';
+import AccordionContent from 'primevue/accordioncontent';
+import AccordionHeader from 'primevue/accordionheader';
+import AccordionPanel from 'primevue/accordionpanel';
 import Button from 'primevue/button';
-import Dialog from 'primevue/dialog';
+import Column from 'primevue/column';
+import ConfirmDialog from 'primevue/confirmdialog';
+import DataTable from 'primevue/datatable';
+import InputNumber from 'primevue/inputnumber';
+import InputText from 'primevue/inputtext';
+import Message from 'primevue/message';
+import Panel from 'primevue/panel';
+import Select from 'primevue/select';
+import Tag from 'primevue/tag';
+import Textarea from 'primevue/textarea';
+import Timeline from 'primevue/timeline';
+import { useConfirm } from 'primevue/useconfirm';
 import {
   checklist, checklistCommands, connectionKeyFor, exportRecord, foundFields,
-  isoNow, localTime, markdown, outcomesList,
+  isoNow, localTime, markdown, outcomesList, resultText,
 } from '../app/anodizing_web/web/agv-record.mjs';
 
 const { agv } = defineProps({ agv: { type: Object, required: true } });
 const markText = ref('');
-const confirmReset = ref(false);
-const raw = computed(() => agv.journal.log.slice(-30).reverse().map(entry =>
-  `${localTime(entry.timestamp)}  ${entry.direction}  ${entry.hex}\n  ${JSON.stringify(entry.decode)}`).join('\n'));
+const confirm = useConfirm();
+const steps = checklist.map(([title, instructions, watch], index) => ({
+  number: index + 1, title, instructions, watch,
+}));
+const resultSeverity = { 'Not tested': 'secondary', Pass: 'success', Fail: 'danger', Skipped: 'warn' };
+const raw = computed(() => agv.journal.log.slice(-30).reverse());
+const commands = computed(() => Object.values(agv.journal.commands).slice(-30).reverse());
+
+function confirmReset(event) {
+  confirm.require({
+    target: event.currentTarget,
+    header: 'Start a new test session',
+    message: 'This clears the current checklist, settings and record. Download the record first if you need it.',
+    acceptLabel: 'Start new session',
+    rejectLabel: 'Cancel',
+    rejectProps: { severity: 'secondary' },
+    defaultFocus: 'reject',
+    closeOnEscape: false,
+    modal: false,
+    blockScroll: false,
+    accept: agv.newRecord,
+  });
+}
 
 function updateTest(number, field, value) {
   const saved = agv.session.checklist[number] ?? {};
@@ -24,7 +59,8 @@ function updateTest(number, field, value) {
     next.evidence = {
       marked_at: marked, status: agv.state.status ?? null, status_age_s: agv.age,
       connected: Boolean(agv.state.connected), stale: agv.stale, transport: agv.state.settings?.mode ?? null,
-      commands: Object.values(agv.journal.commands).filter(entry => during(entry) && checklistCommands[number - 1].includes(entry.name)),
+      commands: Object.values(agv.journal.commands).filter(entry => during(entry) &&
+        (entry.requested_commands ?? [entry.name]).some(command => checklistCommands[number - 1].includes(command))),
       events: agv.journal.events.filter(during),
     };
   }
@@ -33,8 +69,13 @@ function updateTest(number, field, value) {
   if (field === 'result') agv.persistJournal();
 }
 
-function opened(event, number) {
-  if (event.currentTarget.open && !agv.session.checklist[number]?.opened_at) updateTest(number, 'opened_at', isoNow());
+function opened(number) {
+  if (number && !agv.session.checklist[number]?.opened_at) updateTest(number, 'opened_at', isoNow());
+}
+
+function updateSetting(key, value) {
+  agv.session.settings[key] = String(value ?? '');
+  agv.persistSession();
 }
 
 function observed() {
@@ -62,37 +103,52 @@ function download(format) {
 
 <template>
   <div class="agv-workflow">
-    <section class="panel">
-      <h2>Commissioning checklist</h2>
-      <p><strong>Before testing</strong> Confirm the robot is idle, the track is clear, a person is at the AGV’s e-stop, and fresh status is visible.</p>
-      <p>The AGV may restart by itself in Auto mode or when automatic restart is enabled. Check both settings before moving.</p>
-      <details v-for="([title, instructions, watch], index) in checklist" :key="title" :id="'agv-test-' + (index + 1)"
-        @toggle="opened($event, index + 1)">
-        <summary>{{ title }} · {{ agv.session.checklist[index + 1]?.result ?? 'Not tested' }}</summary>
-        <p>{{ instructions }}</p>
-        <p>Watch for this. {{ watch }}</p>
-        <label :for="'agv-result-' + (index + 1)">Result
-          <select :id="'agv-result-' + (index + 1)" :value="agv.session.checklist[index + 1]?.result ?? 'Not tested'"
-            @change="updateTest(index + 1, 'result', $event.target.value)">
-            <option v-for="result in outcomesList" :key="result">{{ result }}</option>
-          </select>
-        </label>
-        <label :for="'agv-notes-' + (index + 1)">Notes
-          <textarea :id="'agv-notes-' + (index + 1)" rows="3" :value="agv.session.checklist[index + 1]?.notes ?? ''"
-            @input="updateTest(index + 1, 'notes', $event.target.value)"></textarea>
-        </label>
-        <p v-if="agv.session.checklist[index + 1]?.evidence">
-          Observed {{ localTime(agv.session.checklist[index + 1].evidence.marked_at) }} ·
-          {{ agv.session.checklist[index + 1].evidence.commands.length }} command results ·
-          {{ agv.session.checklist[index + 1].evidence.events.length }} events
-        </p>
-      </details>
-    </section>
-    <section class="panel">
-      <h2>Events</h2>
+    <Panel class="panel agv-surface">
+      <template #header><h2>Commissioning checklist</h2></template>
+      <Message severity="info">
+        <strong>Before testing</strong> Confirm the robot is idle, the track is clear, a person is at the AGV’s e-stop, and fresh status is visible.
+        The AGV may restart by itself in Auto mode or when automatic restart is enabled. Check both settings before moving.
+      </Message>
+      <Timeline :value="steps" class="checklist" :pt="{ root: { role: 'list' }, event: { role: 'listitem' } }">
+        <template #content="{ item: { number, title, instructions, watch } }">
+          <Accordion @update:value="opened">
+            <AccordionPanel :id="'agv-test-' + number" :value="number">
+              <AccordionHeader>
+                <span class="checklist-label">{{ title }}</span>
+                <Tag :value="agv.session.checklist[number]?.result ?? 'Not tested'"
+                  :severity="resultSeverity[agv.session.checklist[number]?.result] ?? 'secondary'" />
+              </AccordionHeader>
+              <AccordionContent>
+                <p>{{ instructions }}</p>
+                <p>Watch for this. {{ watch }}</p>
+                <div class="field-row">
+                  <div class="checklist-field">
+                    <label :id="'agv-result-label-' + number" :for="'agv-result-' + number">Result</label>
+                    <Select :input-id="'agv-result-' + number" :aria-labelledby="'agv-result-label-' + number"
+                      :model-value="agv.session.checklist[number]?.result ?? 'Not tested'" :options="outcomesList" fluid
+                      @update:model-value="updateTest(number, 'result', $event)" />
+                  </div>
+                  <label :for="'agv-notes-' + number">Notes
+                    <Textarea :id="'agv-notes-' + number" rows="3" :model-value="agv.session.checklist[number]?.notes ?? ''"
+                      @update:model-value="updateTest(number, 'notes', $event)" />
+                  </label>
+                </div>
+                <p v-if="agv.session.checklist[number]?.evidence">
+                  Observed {{ localTime(agv.session.checklist[number].evidence.marked_at) }} ·
+                  {{ agv.session.checklist[number].evidence.commands.length }} command results ·
+                  {{ agv.session.checklist[number].evidence.events.length }} events
+                </p>
+              </AccordionContent>
+            </AccordionPanel>
+          </Accordion>
+        </template>
+      </Timeline>
+    </Panel>
+    <Panel class="panel agv-surface">
+      <template #header><h2>Events</h2></template>
       <form class="field-row" @submit.prevent="observed">
         <label for="agv-mark-text">What did you observe?
-          <input id="agv-mark-text" v-model="markText" maxlength="120" placeholder="e.g. AGV stopped" required>
+          <InputText id="agv-mark-text" v-model="markText" maxlength="120" placeholder="e.g. AGV stopped" required />
         </label>
         <Button id="agv-mark" label="Mark event" type="submit" severity="secondary" />
       </form>
@@ -101,39 +157,86 @@ function download(format) {
           {{ localTime(event.timestamp) }} · {{ event.text }}
         </li>
       </ol>
-    </section>
-    <details class="panel">
-      <summary>Settings as found</summary>
-      <div class="controls">
-        <label v-for="(label, key) in foundFields" :key="key" :for="'agv-found-' + key">{{ label }}
-          <input :id="'agv-found-' + key" v-model="agv.session.settings[key]"
-            :type="key === 'date' ? 'date' : key === 'restart-seconds' ? 'number' : 'text'"
-            @input="agv.session.settings[key] = $event.target.value; agv.persistSession()">
-        </label>
-      </div>
-    </details>
-    <section class="panel">
-      <h2>Test record</h2>
+    </Panel>
+    <Accordion class="panel agv-surface">
+      <AccordionPanel value="found-settings">
+        <AccordionHeader>Settings as found</AccordionHeader>
+        <AccordionContent>
+          <div class="controls found-fields">
+            <label v-for="(label, key) in foundFields" :key="key" :for="'agv-found-' + key">{{ label }}
+              <InputNumber v-if="key === 'restart-seconds'" :input-id="'agv-found-' + key"
+                :model-value="agv.session.settings[key] ? Number(agv.session.settings[key]) : null"
+                :max-fraction-digits="6" :use-grouping="false" fluid @input="updateSetting(key, $event.value)"
+                @update:model-value="updateSetting(key, $event)" />
+              <InputText v-else :id="'agv-found-' + key" :type="key === 'date' ? 'date' : 'text'"
+                :model-value="agv.session.settings[key] ?? ''" @update:model-value="updateSetting(key, $event)" />
+            </label>
+          </div>
+        </AccordionContent>
+      </AccordionPanel>
+    </Accordion>
+    <Panel class="panel agv-surface">
+      <template #header><h2>Test record</h2></template>
       <div class="controls">
         <Button id="agv-download-report" label="Download readable report" type="button" severity="secondary" @click="download('markdown')" />
         <Button id="agv-download" label="Download JSON record" type="button" severity="secondary" @click="download('json')" />
-        <Button id="agv-new-session" label="New test session" type="button" severity="secondary" @click="confirmReset = true" />
+        <Button id="agv-new-session" label="New test session" type="button" severity="secondary" @click="confirmReset" />
       </div>
       <p id="agv-record-note" role="status">{{ agv.recordNote }}</p>
-      <Dialog v-model:visible="confirmReset" modal header="Start a new test session" :close-on-escape="false"
-        :closable="false" :pt="{ root: { class: 'record-dialog' } }">
-        <p>This clears the current checklist, settings and record. Download the record first if you need it.</p>
-        <template #footer>
-          <Button label="Cancel" severity="secondary" autofocus @click="confirmReset = false" />
-          <Button label="Start new session" @click="agv.newRecord(); confirmReset = false" />
+      <ConfirmDialog :draggable="false" :pt="{ root: { class: 'record-dialog', 'aria-describedby': 'agv-reset-description' } }">
+        <template #message="{ message }">
+          <p id="agv-reset-description">{{ message.message }}</p>
         </template>
-      </Dialog>
-    </section>
-    <details class="panel">
-      <summary>Raw TX/RX log</summary>
-      <p v-if="agv.journal.log_gap">Some log entries are missing from this record.</p>
-      <pre aria-label="Raw status frame">{{ agv.state.status_hex }}</pre>
-      <pre id="agv-log" tabindex="0" aria-label="Timestamped TX/RX log">{{ raw }}</pre>
-    </details>
+      </ConfirmDialog>
+      <Accordion lazy>
+        <AccordionPanel value="command-results">
+          <AccordionHeader>Recent command results</AccordionHeader>
+          <AccordionContent>
+            <DataTable id="agv-command-results" :value="commands" class="record-table" scrollable scroll-height="24rem"
+              :pt="{ tableContainer: { tabindex: 0 } }" :table-props="{ 'aria-label': 'Recent command results' }">
+              <template #empty>No command results in this session.</template>
+              <Column field="timestamp" header="Time"><template #body="{ data }">{{ localTime(data.timestamp) }}</template></Column>
+              <Column field="name" header="Command"><template #body="{ data }">{{ agv.commands.get(data.name)?.label ?? data.name }}</template></Column>
+              <Column field="state" header="Outcome">
+                <template #body="{ data }">
+                  <span :data-state="resultText(data.name, data).tone">{{ resultText(data.name, data).text }}</span>
+                </template>
+              </Column>
+            </DataTable>
+          </AccordionContent>
+        </AccordionPanel>
+      </Accordion>
+    </Panel>
+    <Accordion class="panel agv-surface" lazy>
+      <AccordionPanel value="raw-log">
+        <AccordionHeader>Raw TX/RX log</AccordionHeader>
+        <AccordionContent>
+          <Message v-if="agv.journal.log_gap" severity="warn">Some log entries are missing from this record.</Message>
+          <p v-if="agv.state.status_hex">Raw status frame <code>{{ agv.state.status_hex }}</code></p>
+          <DataTable id="agv-log" :value="raw" class="record-table" scrollable scroll-height="24rem"
+            :pt="{ tableContainer: { tabindex: 0 } }" :table-props="{ 'aria-label': 'Timestamped TX/RX log' }">
+            <template #empty>No frames in this session.</template>
+            <Column field="timestamp" header="Time"><template #body="{ data }">{{ localTime(data.timestamp) }}</template></Column>
+            <Column field="direction" header="Direction" />
+            <Column field="hex" header="Frame"><template #body="{ data }"><code>{{ data.hex }}</code></template></Column>
+            <Column field="decode" header="Decoded"><template #body="{ data }"><code>{{ JSON.stringify(data.decode) }}</code></template></Column>
+          </DataTable>
+        </AccordionContent>
+      </AccordionPanel>
+    </Accordion>
   </div>
 </template>
+
+<style scoped>
+.agv-surface { padding: 0; }
+.agv-surface h2 { margin: 0; }
+.checklist { margin-top: .75rem; }
+.checklist :deep(.p-timeline-event-opposite) { display: none; }
+.checklist :deep(.p-timeline-event-separator) { padding-top: .85rem; }
+.checklist :deep(.p-timeline-event-content) { min-width: 0; padding: 0 0 .35rem .65rem; }
+.checklist :deep(.p-accordionheader) { gap: .4rem; }
+.checklist-label { flex: 1; text-align: start; }
+.checklist-field, .found-fields > label { flex: 1 1 11rem; min-width: 0; }
+#agv-event-feed:empty { display: none; }
+.record-table code, p > code { overflow-wrap: anywhere; }
+</style>

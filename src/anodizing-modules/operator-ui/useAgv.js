@@ -121,7 +121,7 @@ export function useAgv(isAgv) {
     for (const [name, result] of [...(next.replaced ?? []), ...Object.entries(next.results)]) {
       const key = `${connection}/${result.tx_id}`;
       if (result.background || !result.tx_id || (!data.commands[key] && !newTx.has(result.tx_id))) continue;
-      data.commands[key] = { connection, name, timestamp: result.sent_at, ...result };
+      data.commands[key] = { ...data.commands[key], connection, name, timestamp: result.sent_at, ...result };
     }
   }
 
@@ -181,11 +181,11 @@ export function useAgv(isAgv) {
   function feedback(id) {
     const item = outcomes.get(id);
     if (!item) return null;
-    if (item.result) return resultText(item.name, item.result, item.viaEsc);
+    if (item.result) return resultText(item.name, item.result, item.viaEsc, item.requested);
     if (item.started != null) {
       const elapsed = (clock.value - item.started) / 1000;
-      return elapsed < 1 ? { text: 'Sending…', tone: 'running' } :
-        { text: `Waiting for the AGV… ${Math.max(0, Math.ceil(item.timeout / 1000 - elapsed))} s`, tone: 'waiting' };
+      return elapsed < 1 ? { text: 'Sending…', tone: 'running', pending: true } :
+        { text: `Waiting for the AGV… ${Math.max(0, Math.ceil(item.timeout / 1000 - elapsed))} s`, tone: 'waiting', pending: true };
     }
     return item.direct;
   }
@@ -210,12 +210,18 @@ export function useAgv(isAgv) {
       }
       setServiceError('');
       if (body.command) {
-        const sent = next.results[body.command];
-        const observed = current.results[body.command];
+        const name = next.urgent_command ?? body.command;
+        const sent = next.results[name];
+        const observed = current.results[name];
         const result = sent?.tx_id === observed?.tx_id ? observed :
           current.replaced?.find(([, old]) => old.tx_id === sent?.tx_id)?.[1] ?? sent;
         if (!result) throw new Error('Missing command outcome');
-        outcomes.set(id, { name: body.command, generation, result, viaEsc });
+        outcomes.set(id, { name, requested: body.command, generation, result, viaEsc });
+        const entry = journal.value.commands[`${connectionKeyFor(next)}/${result.tx_id}`];
+        if (priority && entry) {
+          entry.requested_commands = [...new Set([...(entry.requested_commands ?? []), body.command])];
+          persistJournal();
+        }
       } else {
         if (body.action === 'connect' && current.connected) {
           const { mode, port, address, channel } = current.settings;
@@ -254,8 +260,11 @@ export function useAgv(isAgv) {
     if (state.value.motion_block) return state.value.motion_block;
     if (stale.value || !freshReport.value) return 'Wait for a fresh status report. Query status or check the radio.';
     if (!armed.value) return 'Tick Armed to enable movement.';
+    const { mode, max_stations: maximum, fault_code: fault, obstacle_stop: obstacle } = freshReport.value;
+    if (![0, 2].includes(mode)) return 'Select standard or station-call mode in the XBOT app first.';
+    if (fault || obstacle) return 'Clear the reported AGV fault or obstacle before continuing.';
+    if (name === 'resume' && mode !== 2) return 'Resume requires station-call mode.';
     if (name === 'call_station') {
-      const { mode, max_stations: maximum } = freshReport.value;
       if (mode !== 2) return stationCallRequired;
       if (!maximum) return 'Teach a route in the XBOT app before calling a station.';
       if (!Number.isInteger(value) || value < 1 || value > maximum) return `Choose a learned station from 1 to ${maximum}.`;
@@ -268,7 +277,11 @@ export function useAgv(isAgv) {
 
   function send(name, id = name, value = null, viaEsc = false) {
     const why = commandReason(name, value);
-    if (!why) return post({ action: 'send', command: name, value }, id, viaEsc);
+    if (!why) {
+      const body = { action: 'send', command: name, value };
+      if (commands.value.get(name)?.motion) body.stop_generation = state.value.stop_generation;
+      return post(body, id, viaEsc);
+    }
     if (viaEsc) {
       latest.value = id;
       outcomes.set(id, { direct: { text: why, tone: 'waiting' } });
