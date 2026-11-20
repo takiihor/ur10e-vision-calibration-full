@@ -7,8 +7,11 @@ import { useToast } from 'primevue/usetoast';
 import OperatorButton from './OperatorButton.vue';
 import StateIcon from './StateIcon.vue';
 
-const props = defineProps({ agv: { type: Object, required: true }, targets: { type: Array, default: () => [] }, targetOutcomes: Object });
-defineEmits(['target-stop']);
+const props = defineProps({
+  agv: { type: Object, required: true }, targets: { type: Array, default: () => [] }, targetOutcomes: Object,
+  lineActive: Object, lineAlarm: String, lineStopOutcome: Object, lineEscape: Boolean,
+});
+defineEmits(['target-stop', 'line-stop']);
 
 const toast = useToast();
 const feedback = computed(() => props.agv.currentFeedback);
@@ -34,6 +37,11 @@ watch([() => feedback.value?.text, () => feedback.value?.tone], ([text, tone]) =
         <OperatorButton v-for="target in targets" :key="target.job_id" :id="target.kind" :label="target.label" urgent stop
           :outcome="targetOutcomes[target.kind + '/' + target.job_id]" @press="$emit('target-stop', target)" />
       </div>
+      <div v-if="lineActive || lineStopOutcome" class="stop-actions line-stop-action">
+        <OperatorButton id="line-stop" label="Line Stop · clear command" urgent stop
+          :shortcut="lineEscape && Boolean(lineActive)" :why="!lineActive ? 'No active line test.' : ''"
+          :outcome="lineStopOutcome" @press="$emit('line-stop')" />
+      </div>
       <div class="head-status">
         <Tag id="agv-link" :value="agv.connectionLabel"
           :severity="agv.stale || agv.serviceError || agv.state.error ? 'danger' : 'secondary'" />
@@ -43,7 +51,17 @@ watch([() => feedback.value?.text, () => feedback.value?.tone], ([text, tone]) =
         </Message>
       </div>
     </div>
-    <p class="safety-note"><strong>Not an emergency stop. Use the AGV’s e-stop.</strong> Esc sends AGV Stop. <span v-if="targets.length">For robot motion use the robot’s physical e-stop.</span></p>
+    <p class="safety-note"><strong>Not an emergency stop. Use the AGV’s e-stop.</strong>
+      {{ lineEscape && lineActive ? 'Esc requests line clear.' : 'Esc sends AGV Stop.' }}
+      <span v-if="targets.length">For robot motion use the robot’s physical e-stop.</span></p>
+    <p v-if="lineActive || lineAlarm || lineEscape" class="safety-note">
+      <strong>Not an emergency stop. Use the line’s physical e-stop.</strong>
+    </p>
+    <div aria-live="assertive" aria-atomic="true">
+      <Message v-if="lineAlarm" severity="error" class="alarm" :pt="{ root: { role: null, 'aria-live': null } }">
+        <StateIcon tone="failed" />{{ lineAlarm }}
+      </Message>
+    </div>
     <div id="agv-alarms" aria-live="assertive" aria-atomic="true">
       <Message v-for="{ text, tone } in agv.alarms" :key="text" :severity="tone === 'failed' ? 'error' : 'warn'"
         :pt="{ root: { class: 'alarm', 'data-state': tone, role: null, 'aria-live': null, 'aria-atomic': null } }">

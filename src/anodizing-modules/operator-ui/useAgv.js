@@ -10,7 +10,7 @@ const initialState = { connection_id: 0, sequence: -1, results: {}, log: [] };
 const pendingWait = 'Wait for the current request.';
 const connectionChanged = 'Connection changed. Check the AGV before trying again.';
 
-export function useAgv(isAgv, isScene) {
+export function useAgv(isAgv, isScene, alternateStop) {
   const state = shallowRef(initialState);
   const capability = shallowRef(null);
   const report = shallowRef(null);
@@ -293,7 +293,7 @@ export function useAgv(isAgv, isScene) {
   function escape(event) {
     if (event.key !== 'Escape') return;
     event.preventDefault();
-    if (!event.repeat) void send('stop', 'stop', null, true);
+    if (!event.repeat && !alternateStop?.()) void send('stop', 'stop', null, true);
   }
 
   function playAlarm() {

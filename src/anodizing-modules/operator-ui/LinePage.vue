@@ -217,10 +217,12 @@ onUnmounted(() => {
         <span v-if="refreshReason">{{ refreshReason }}</span>
         <span v-if="refreshFeedback" role="status">{{ refreshFeedback }}</span>
         <Button as="a" :href="test ? '#/line' : '#/tests/line-api'" severity="secondary"
-          :label="test ? 'Operator line view' : 'Line API test view'" />
+          :label="test ? 'Operator line view' : 'Unified line test'" />
       </div>
     </template>
   </Card>
+
+  <slot :quality="quality" :catalog="currentCatalog" />
 
   <Card class="panel line-content">
     <template #content>

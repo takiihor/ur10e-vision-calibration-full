@@ -11,6 +11,7 @@ import AgvPage from './AgvPage.vue';
 import ScenePage from './ScenePage.vue';
 import RecordsPage from './RecordsPage.vue';
 import LinePage from './LinePage.vue';
+import LineTestPanel from './LineTestPanel.vue';
 import { request } from './api';
 import { useAgv } from './useAgv';
 
@@ -21,8 +22,8 @@ const isRecords = computed(() => ['#/records', '#/tests/records'].includes(route
 const lineRoute = computed(() => /^#\/(line|tests\/line-api)(?:\/(tank|signals|alarms|catalog|diagnostics))?$/.exec(route.value));
 const lineTest = computed(() => lineRoute.value?.[1] === 'tests/line-api');
 const title = computed(() => isAgv.value ? 'AGV commissioning' : isScene.value ? 'Scene' : isRecords.value ? 'Recorder' :
-  lineRoute.value ? (lineTest.value ? 'Line API reads' : 'Line reads') : 'Home');
-const agv = useAgv(isAgv, isScene);
+  lineRoute.value ? (lineTest.value ? 'Unified line test' : 'Line reads') : 'Home');
+const agv = useAgv(isAgv, isScene, lineEscape);
 const sceneConfig = ref(null);
 const sceneError = ref('');
 let sceneRead = false;
@@ -44,6 +45,11 @@ const safety = ref();
 const service = ref(null);
 const offline = ref('');
 const targetOutcome = ref({});
+const linePanel = ref();
+const lineStopOutcome = ref(null);
+const lineStopRequest = ref(null);
+const lineState = computed(() => service.value?.line_test);
+const lineActive = computed(() => lineState.value?.active);
 const targetSending = new Set();
 let timer, observer, checking = false, retired = false;
 
@@ -68,7 +74,9 @@ async function refreshService() {
     if (retired) return;
     service.value = response;
     offline.value = '';
+    updateLineStop();
   } catch (error) {
+    if (lineStopRequest.value && lineStopOutcome.value?.pending) updateLineStop(true);
     offline.value = error.status === 403 ? 'Page access expired. Reload to reconnect.' : 'Service unavailable. Check the service and reload.';
   } finally {
     checking = false;
@@ -98,6 +106,51 @@ async function stopTarget(target) {
   }
 }
 
+function lineEscape() {
+  if (!lineTest.value) return false;
+  if (lineActive.value) {
+    void stopLine(true);
+    return true;
+  }
+  return !agv.state.connected && (linePanel.value?.cancelReview() ?? false);
+}
+
+function showLineStop(text, tone, select = false) {
+  const stamp = lineStopRequest.value.at.toLocaleTimeString();
+  const via = lineStopRequest.value.escape ? ' (Esc)' : '';
+  const outcome = { text: `${stamp}${via} · ${text}`, tone, pending: tone === 'running' || tone === 'waiting' };
+  lineStopOutcome.value = outcome;
+  agv.showOutcome('line-stop', outcome, select);
+}
+
+function updateLineStop(unavailable = false) {
+  if (!lineStopRequest.value || !lineStopOutcome.value?.pending) return;
+  const { id, at } = lineStopRequest.value;
+  const result = lineState.value?.latest;
+  if (result?.id === id && lineActive.value?.id !== id) {
+    const cleared = result.state === 'finished';
+    showLineStop(result.reason, cleared || result.state === 'refused' ? 'done' : 'failed');
+  } else if (unavailable || Date.now() - at.getTime() > 12000) {
+    showLineStop('Clear unconfirmed. Check the line test status and use the line’s physical e-stop if needed.', 'failed');
+  } else if (Date.now() - at.getTime() >= 1000) {
+    showLineStop('Waiting for command zero confirmation… ' + Math.ceil(lineActive.value?.deadline_s ?? 8) + ' s', 'waiting');
+  }
+}
+
+async function stopLine(escape = false) {
+  if (!lineActive.value || lineStopOutcome.value?.pending) return;
+  const id = lineActive.value.id;
+  lineStopRequest.value = { id, at: new Date(), escape };
+  showLineStop('Sending…', 'running', true);
+  try {
+    await request('/api/tests/line', { action: 'stop', request_id: id }, 3500);
+    showLineStop('Clear requested. Waiting for command zero confirmation.', 'waiting');
+  } catch {
+    showLineStop('Clear request unconfirmed. Check the line test status and use the line’s physical e-stop if needed.', 'failed');
+  }
+  void refreshService();
+}
+
 function selectLineView(view) {
   location.hash = '#/' + lineRoute.value[1] + (view === 'overview' ? '' : '/' + view);
 }
@@ -105,8 +158,10 @@ function selectLineView(view) {
 function navigate() {
   const wasLine = lineRoute.value;
   const wasRecords = isRecords.value;
+  const wasLineTest = lineTest.value;
   route.value = location.hash;
   if (wasLine && !lineRoute.value) agv.retireOutcome('line-read');
+  if (wasLineTest && !lineTest.value) agv.retireOutcome('line-test');
   if (wasRecords && !isRecords.value) agv.retireOutcome('recorder');
   document.title = title.value + ' · Operator app';
   if (isAgv.value) agv.enterAgv();
@@ -140,7 +195,9 @@ onUnmounted(() => {
 
 <template>
   <div ref="safety" class="layout-stop">
-    <StopBar :agv="agv" :targets="targets" :target-outcomes="targetOutcome" @target-stop="stopTarget" />
+    <StopBar :agv="agv" :targets="targets" :target-outcomes="targetOutcome" :line-active="lineActive"
+      :line-alarm="lineState?.alarm" :line-stop-outcome="lineStopOutcome" :line-escape="lineTest"
+      @target-stop="stopTarget" @line-stop="stopLine()" />
   </div>
   <AppLayout :route="route" :transport="transport">
     <h1 ref="heading" tabindex="-1">{{ title }}</h1>
@@ -153,7 +210,12 @@ onUnmounted(() => {
     <LinePage v-else-if="lineRoute" :test="lineTest" :state="agv.line" :state-error="agv.stateError"
       :variable="agv.variableInfo" :view="lineRoute[2]"
       @view="selectLineView"
-      @outcome="(outcome, choose) => agv.showOutcome('line-read', outcome, choose)" />
+      @outcome="(outcome, choose) => agv.showOutcome('line-read', outcome, choose)">
+      <template v-if="lineTest" #default="{ quality, catalog }">
+        <LineTestPanel ref="linePanel" :quality="quality" :catalog="catalog" :variable="agv.variableInfo" @changed="refreshService"
+          @outcome="(outcome, choose) => agv.showOutcome('line-test', outcome, choose)" />
+      </template>
+    </LinePage>
     <div v-else class="home-grid">
       <Card class="panel home-card" aria-labelledby="service-heading">
         <template #title><h2 id="service-heading">Service</h2></template>

@@ -409,3 +409,27 @@ it('identifies unreadable recordings without offering downloads for them', async
   expect(history.text()).toMatch(/damaged-fixture.*unreadable/i);
   expect(history.find('button').exists()).toBe(false);
 });
+
+it('routes Escape to the active line clear on the test page and keeps the bound button across navigation', async () => {
+  const sent = [];
+  const active = { id: 'fixture-run', state: 'observing', case: { command: 'FixtureCommand' }, deadline_s: 9 };
+  open('#/tests/line-api', async (path, body) => {
+    if (body) sent.push([path, body]);
+    if (path === '/api/status') return { owner: {}, line_test: { active } };
+    if (path === '/api/state') return { variables: [], agv: { sequence: 1, connection_id: 0 }, line: lineState };
+    if (path === '/api/line/catalog') return lineCatalog;
+    if (path.endsWith('/archives')) return { archives: [] };
+    if (!body) return { active, history: [], cases: [] };
+    return { id: active.id };
+  });
+  await flushPromises();
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', repeat: true }));
+  await flushPromises();
+  expect(sent).toEqual([['/api/tests/line', { action: 'stop', request_id: 'fixture-run' }]]);
+  expect(app.get('#agv-line-stop-outcome').text()).toContain('(Esc)');
+  expect(app.text()).toContain('Use the line’s physical e-stop');
+  await navigate('#/line');
+  expect(app.get('#agv-line-stop').text()).toContain('Line Stop');
+  expect(app.find('#line-arm').exists()).toBe(false);
+});
