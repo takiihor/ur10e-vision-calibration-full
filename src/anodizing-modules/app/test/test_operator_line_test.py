@@ -174,6 +174,89 @@ def test_unreadable_intent_keeps_alarm_and_fence_on_restart(tmp_path):
     assert not restart.writes
 
 
+@pytest.mark.parametrize('damage', ['missing-state', 'list-state', 'unknown-state', 'no-zero',
+                                    'stale-zero', 'false-observation', 'false-refusal', 'bad-judgment', 'nonfinite'])
+def test_damaged_saved_run_keeps_shared_stop_available_with_line_disabled(tmp_path, service, damage):
+    rig = Rig(tmp_path)
+    rig.start()
+    rig.poll(3)
+    original = rig.test.directory / 'fixture-run.json'
+    damaged = rig.test.directory / 'damaged-run.json'
+    run = json.loads(original.read_text())
+    run.pop('dispatches', None)
+    original.write_text(json.dumps(run))
+    run['id'] = damaged.stem
+    if damage == 'missing-state':
+        del run['state']
+    elif damage == 'list-state':
+        run['state'] = ['finished']
+    elif damage == 'unknown-state':
+        run['state'] = 'done'
+    elif damage == 'no-zero':
+        del run['zero_readback']
+    elif damage == 'stale-zero':
+        run['zero_readback'] = run['zero_attempts'][-1]['baseline']
+    elif damage == 'false-observation':
+        run['observation']['values'][FEEDBACK] = 0
+    elif damage == 'false-refusal':
+        run.update(state='refused', api='Refused')
+    elif damage == 'bad-judgment':
+        run['human'] = ['Pass']
+    else:
+        run['deadline_s'] = float('nan')
+    before = json.dumps(run).encode()
+    damaged.write_bytes(before)
+
+    service.root, service.owner = tmp_path, JobOwner(tmp_path)
+    service.allow_camera = service.allow_teaching = service.allow_manual = False
+    service.check_model = lambda: None
+    service.model_source, service.model_hash, service.model_data = None, 'fixture-model', {}
+    service.line_tests = LineTest(tmp_path, Line('disabled', None), service.owner)
+    service.owner.active = 'fixture-pick'
+    service.owner.jobs['fixture-pick'] = dict(id='fixture-pick', auto_action='PICK', created=1)
+
+    status, _, raw = request(service, '/api/status')
+    assert status == 200
+    summary = json.loads(raw)
+    assert summary['owner']['stop_targets'] == [{'kind': 'manual', 'job_id': 'fixture-pick'}]
+    assert summary['line_test']['latest']['id'] == 'fixture-run'
+    status, _, raw = request(service, '/api/tests/line')
+    assert status == 200
+    evidence = json.loads(raw)
+    assert not evidence['enabled'] and evidence['alarm'] and service.owner.line_test_fence
+    assert [item['id'] for item in evidence['unresolved']] == ['damaged-run']
+    assert [item['id'] for item in evidence['history']] == ['fixture-run']
+    with pytest.raises(ValueError, match='Select a saved test'):
+        service.line_tests.action(dict(action='judge', request_id='damaged-run', result='Pass', notes=''))
+    assert damaged.read_bytes() == before
+
+
+def test_intent_save_past_page_lease_refuses_before_first_dispatch(tmp_path, monkeypatch):
+    rig = Rig(tmp_path)
+    rig.action('start', **rig.prepare())
+    persist = rig.test.persist
+
+    def delayed_save(run):
+        saved = persist(run)
+        if run['state'] == 'dispatching':
+            rig.time.sec = rig.test.lease_until - .25
+            rig.line.step()
+            rig.time.sec = rig.test.lease_until + .25
+            rig.line.step()
+            assert rig.line.reason is None
+        return saved
+
+    monkeypatch.setattr(rig.test, 'persist', delayed_save)
+    rig.poll()
+    assert rig.writes == []
+    refused, = rig.test.status()['history']
+    assert refused['state'] == 'refused' and refused['dispatches'] == 0
+    assert 'Page lease expired' in refused['reason'] and not rig.owner.line_test_fence
+    restart = Rig(tmp_path)
+    assert restart.test.status()['history'] == [refused]
+    assert not restart.owner.line_test_fence
+
+
 @pytest.mark.parametrize('scenario', ['timeout', 'mismatched-one', 'mismatched-zero', 'disarm',
                                       'shutdown', 'expired-session', 'unreachable', 'zero-cache', 'tab-close'])
 def test_clears_or_fences_after_possible_dispatch(tmp_path, scenario):

@@ -93,3 +93,33 @@ def test_archive_routes_serve_originals_as_authenticated_attachments(tmp_path, s
     assert status == 200 and headers['Content-Disposition'] == 'attachment; filename="fixture-report.md"'
     assert body == b'# Fixture report\r\n'
     assert request(service, f'{prefix}/{digest}/999')[0] == 404
+
+
+@pytest.mark.parametrize('damage', [b'# Damaged report', b'x' * 10_001], ids=['changed', 'oversized'])
+@pytest.mark.parametrize('operation', ['download', 'reimport'])
+def test_damaged_original_refuses_access_without_modifying_archive(tmp_path, service, monkeypatch, damage, operation):
+    originals = tmp_path / 'originals'
+    selected = source(originals)
+    service.root = tmp_path
+    digest = archive.import_archive(tmp_path, originals, selected)
+    monkeypatch.setattr(archive, 'FILE_LIMIT', 10_000)
+    stored = tmp_path / 'line-tests/imports' / digest / 'originals/fixture-report.md'
+    stored.write_bytes(damage)
+    if operation == 'download':
+        index = sorted(selected).index(stored.name)
+        assert request(service, f'/api/tests/line/archives/{digest}/{index}')[0] == 404
+    else:
+        with pytest.raises(ValueError, match='Evidence'):
+            archive.import_archive(tmp_path, originals, selected)
+    assert stored.read_bytes() == damage
+
+
+def test_download_returns_the_verified_bytes_if_original_is_edited_after_open(tmp_path):
+    originals = tmp_path / 'originals'
+    selected = source(originals)
+    digest = archive.import_archive(tmp_path, originals, selected)
+    stored = tmp_path / 'line-tests/imports' / digest / 'originals/fixture-report.md'
+    index = sorted(selected).index(stored.name)
+    with archive.original(tmp_path, digest, str(index)) as stream:
+        stored.write_bytes(b'# Damaged report')
+        assert stream.read() == b'# Fixture report\r\n'

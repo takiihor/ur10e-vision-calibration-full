@@ -9,7 +9,7 @@ from secrets import token_urlsafe
 from threading import Event, RLock
 
 from .jobs import ID, atomic_json
-from .operator_line import IDENT, LIMIT_MS, Simulator, local_json
+from .operator_line import IDENT, LIMIT_MS, Simulator, count, local_json
 
 SESSION_S = 1800
 APPROVAL_S = 30
@@ -19,10 +19,22 @@ ALARM = ('Restore unconfirmed. Check the command and line state. '
          'Use the line’s physical e-stop if needed. Further tests are blocked.')
 BUSY = 'A line test owns the service. Wait for confirmed restore.'
 TERMINAL = {'finished', 'refused'}
+DISPOSITIONS = {
+    'dispatching': ('Pending',), 'observing': ('Pending',), 'clearing': ('Pending',),
+    'finished': ('Pass', 'Fail', 'Observed'), 'refused': ('Refused',),
+    'uncertain': ('Restore unconfirmed', 'Refused'),
+}
 
 
 def binary(value):
     return type(value) is int and value in (0, 1)
+
+
+def accepted_receipt(receipt, command, value):
+    return (isinstance(receipt, dict) and receipt.get('written') is True
+            and receipt.get('tag_name') == command['tag_name']
+            and receipt.get('device_address') == command['device_address']
+            and binary(receipt.get('value')) and receipt['value'] == value)
 
 
 def simulator_cases(fixture):
@@ -48,6 +60,70 @@ def simulator_cases(fixture):
             raise ValueError('Invalid simulator test case.')
         result[ident] = case
     return result
+
+
+def stamped(value):
+    return datetime.fromisoformat(value).utcoffset() is not None
+
+
+def valid_sample(sample, case, command=None, feedback=None):
+    values = sample['values']
+    return (count(sample['id']) and all(stamped(sample[key]) for key in ('source_at', 'corrected_source_at', 'read_at'))
+            and all(binary(values[name]) for name in ('Remote', 'Local', case['command'], case['feedback']))
+            and values['Remote'] == 1 and values['Local'] == 0
+            and (command is None or values[case['command']] == command)
+            and (feedback is None or values[case['feedback']] == feedback))
+
+
+def valid_attempt(attempt, run, value):
+    return (type(attempt['ordered']) is bool and type(attempt['accepted']) is bool and stamped(attempt['at'])
+            and valid_sample(attempt['baseline'], run['case'])
+            and attempt['accepted'] == accepted_receipt(attempt['receipt'], run['metadata'][2], value))
+
+
+def validate_saved_run(run, ident):
+    state, case = run['state'], run['case']
+    if (not ID.fullmatch(ident) or run['id'] != ident or run['source'] != 'Simulation'
+            or not isinstance(state, str) or state not in DISPOSITIONS or run['api'] not in DISPOSITIONS[state]
+            or not isinstance(run['reason'], str) or not stamped(run['at'])):
+        raise ValueError('Malformed line test.')
+    simulator_cases({'test_cases': [case]})
+    json.dumps(run, allow_nan=False)
+    if state in TERMINAL | {'uncertain'} and not stamped(run['finished_at']):
+        raise ValueError('Malformed finish time.')
+    judgments = run.get('judgments', [])
+    if not isinstance(judgments, list) or len(judgments) > 100:
+        raise ValueError('Malformed judgments.')
+    for judgment in judgments + ([run['human']] if 'human' in run else []):
+        if (judgment['result'] not in ('Pass', 'Fail', 'Not checked') or not isinstance(judgment['notes'], str)
+                or len(judgment['notes']) > 2000 or not stamped(judgment['at'])):
+            raise ValueError('Malformed judgment.')
+    zeroes = run.get('zero_attempts', [])
+    if not isinstance(zeroes, list) or not all(valid_attempt(attempt, run, 0) for attempt in zeroes):
+        raise ValueError('Malformed restore attempts.')
+    if 'dispatches' in run and (type(run['dispatches']) is not int or run['dispatches'] != ('one' in run) + len(zeroes)):
+        raise ValueError('Malformed dispatch count.')
+    if 'baseline' in run and not valid_sample(run['baseline'], case, 0, case['baseline']):
+        raise ValueError('Malformed baseline.')
+    if 'one' in run and (not valid_attempt(run['one'], run, 1) or run['one']['baseline'] != run['baseline']):
+        raise ValueError('Malformed command attempt.')
+    if 'observation' in run:
+        observed = run['observation']
+        if (not run['one']['accepted'] or not valid_sample(observed, case, 1, case['expected'])
+                or not LineTest.later(observed, run['one'])):
+            raise ValueError('Malformed feedback observation.')
+    if 'zero_readback' in run:
+        restored = run['zero_readback']
+        if (not zeroes or not zeroes[-1]['accepted'] or not valid_sample(restored, case, 0, case.get('clear'))
+                or not LineTest.later(restored, zeroes[-1])):
+            raise ValueError('Malformed restore readback.')
+    if state == 'refused' and ('one' in run or zeroes):
+        raise ValueError('Refused test contains a dispatch.')
+    if state == 'finished':
+        api = ('Observed' if case.get('provisional') else 'Pass') if 'observation' in run else 'Fail'
+        if (run['api'] != api or 'zero_readback' not in run or not run['one']['ordered']
+                or not all(attempt['ordered'] for attempt in zeroes)):
+            raise ValueError('Finished test has incomplete evidence.')
 
 
 def sync_directory(path):
@@ -87,13 +163,11 @@ class LineTest:
                 sync_directory(self.directory.parent)
                 for path in sorted(self.directory.glob('*.json'), key=lambda file: file.stat(follow_symlinks=False).st_mtime_ns):
                     try:
+                        if path.is_symlink():
+                            raise ValueError('Line test records must not be symbolic links.')
                         run = local_json(self.directory, path.name)
-                        if (not isinstance(run, dict) or run.get('id') != path.stem
-                                or not ID.fullmatch(path.stem) or run.get('source') != 'Simulation'
-                                or not isinstance(run.get('case'), dict) or not isinstance(run.get('api'), str)
-                                or not isinstance(run.get('reason'), str)):
-                            raise ValueError('Malformed intent.')
-                    except (ValueError, OSError, RecursionError):
+                        validate_saved_run(run, path.stem)
+                    except (ValueError, OSError, RecursionError, TypeError, KeyError, IndexError):
                         self.alarm = ALARM
                         self.unresolved.append(dict(id=path.stem))
                         continue
@@ -297,7 +371,8 @@ class LineTest:
 
     def finish(self, state, api, reason):
         run = self.active
-        run.update(state=state, api=api, reason=reason, finished_at=self.line.wall().isoformat())
+        run.update(state=state, api=api, reason=reason, finished_at=self.line.wall().isoformat(),
+                   dispatches=int('one' in run) + len(run.get('zero_attempts', [])))
         if not self.persist(run):
             run.update(state='uncertain', api='Restore unconfirmed', reason=ALARM)
             state = 'uncertain'
@@ -316,11 +391,7 @@ class LineTest:
             receipt, ordered = self.line.client.write(run['case'], value)
         except (OSError, ValueError):
             receipt, ordered = None, False
-        accepted = (isinstance(receipt, dict) and receipt.get('written') is True
-                    and receipt.get('tag_name') == command['tag_name']
-                    and receipt.get('device_address') == command['device_address']
-                    and binary(receipt.get('value')) and receipt['value'] == value)
-        attempt = dict(at=self.line.wall().isoformat(), accepted=accepted,
+        attempt = dict(at=self.line.wall().isoformat(), accepted=accepted_receipt(receipt, command, value),
                        ordered=ordered is True, receipt=receipt, baseline=baseline)
         self.evidence('dispatch', value=value, **attempt)
         return attempt
@@ -362,9 +433,12 @@ class LineTest:
                     self.finish('uncertain', 'Refused', 'Intent storage failed. No command was sent.')
                     return
                 try:
-                    if self.closing or self.owner.closing or self.line.clock() >= min(self.approval_until, self.session_until):
-                        raise ValueError('Approval expired before dispatch. Review a new test.')
                     self.baseline(case, run['metadata'])
+                    now = self.line.clock()
+                    if now >= self.lease_until:
+                        raise ValueError('Page lease expired before dispatch. Review a new test.')
+                    if self.restore or self.closing or self.owner.closing or now >= min(self.approval_until, self.session_until):
+                        raise ValueError('Test stopped or approval expired before dispatch. Review a new test.')
                 except ValueError as exc:
                     self.finish('refused', 'Refused', str(exc))
                     return

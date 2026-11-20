@@ -48,6 +48,13 @@ def read_file(root, name):
     return data
 
 
+def verified_file(root, name, checksum):
+    data = read_file(root, name)
+    if hashlib.sha256(data).hexdigest() != checksum:
+        raise ValueError('Evidence checksum mismatch. Preserve the archive for inspection.')
+    return data
+
+
 def decode(raw):
     def invalid(_):
         raise ValueError('Evidence contains an invalid number.')
@@ -222,7 +229,7 @@ def import_archive(root, source, names, catalog=None):
     sync_directory(parent)
     destination = imports / digest
     if destination.exists():
-        read_manifest(imports, digest)
+        verify_existing(imports, digest, checksums)
         return digest
     temporary = Path(tempfile.mkdtemp(prefix='.import-', dir=imports))
     try:
@@ -242,12 +249,19 @@ def import_archive(root, source, names, catalog=None):
         except OSError:
             if not destination.is_dir():
                 raise
-            read_manifest(imports, digest)
+            verify_existing(imports, digest, checksums)
         sync_directory(imports)
     finally:
         if temporary.exists():
             shutil.rmtree(temporary)
     return digest
+
+
+def verify_existing(imports, digest, checksums):
+    if read_manifest(imports, digest)['checksums'] != checksums:
+        raise ValueError('Evidence manifest does not match the selected originals.')
+    for name, checksum in checksums.items():
+        verified_file(imports / digest / 'originals', name, checksum)
 
 
 def read_manifest(imports, digest):
@@ -259,7 +273,13 @@ def read_manifest(imports, digest):
     if archive.resolve(strict=True) != archive:
         raise ValueError('Archive unavailable.')
     result = local_json(archive, 'manifest.json')
-    if result.get('id') != digest or not isinstance(result.get('files'), list):
+    if not isinstance(result, dict) or result.get('id') != digest:
+        raise ValueError('Archive unavailable.')
+    names, checksums = result.get('files'), result.get('checksums')
+    if (not isinstance(names, list) or not 1 <= len(names) <= 100 or not isinstance(checksums, dict)
+            or not all(isinstance(name, str) for name in names) or len(set(names)) != len(names)
+            or set(names) != checksums.keys()
+            or not all(isinstance(value, str) and HASH.fullmatch(value) for value in checksums.values())):
         raise ValueError('Archive unavailable.')
     return result
 
@@ -285,14 +305,15 @@ def original(root, digest, index):
     manifest = read_manifest(imports, digest)
     name = manifest['files'][int(index)]
     source = imports / digest / 'originals'
-    path = source / checked_path(name)
-    if path.resolve(strict=True) != path:
-        raise ValueError('Original unavailable.')
-    stream = os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb')
-    if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+    data = verified_file(source, name, manifest['checksums'][name])
+    stream = tempfile.TemporaryFile()
+    try:
+        stream.write(data)
+        stream.seek(0)
+    except BaseException:
         stream.close()
-        raise ValueError('Original unavailable.')
-    stream.original_name = path.name
+        raise
+    stream.original_name = Path(name).name
     return stream
 
 
