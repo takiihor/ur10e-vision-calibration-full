@@ -542,8 +542,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="pick-layout teacher-layout">
-    <div class="teacher-work">
+  <div class="agv-grid pick-grid teacher-layout">
+    <div class="agv-main">
       <section class="panel" aria-labelledby="teacher-setup-heading">
         <div class="teacher-heading">
           <h2 id="teacher-setup-heading">Set up the camera and marker</h2>
@@ -762,7 +762,7 @@ onUnmounted(() => {
       </section>
     </div>
 
-    <aside class="pick-aside">
+    <aside class="operation">
       <section class="panel pick-operation" aria-labelledby="teacher-operation-heading">
         <h2 id="teacher-operation-heading">Current Teacher operation</h2>
         <p role="status">{{ native?.busy ? 'Running · ' + native.busy.replaceAll('_', ' ') :
