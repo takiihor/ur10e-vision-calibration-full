@@ -273,7 +273,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/tool-power':
             return self.reply(200, tool_power.capability(self.server.owner))
         if path == '/api/agv-travel-pose':
-            return self.reply(200, travel_pose.state(self.server.owner))
+            return self.reply(200, travel_pose.state(self.server.owner, check_live=urlsplit(self.path).query != 'cached=1'))
         if path == '/api/agv':
             query = urlsplit(self.path).query
             if query in ('cached=1', 'ports=1'):
@@ -283,7 +283,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, self.server.agv.link_state())
         if path == '/api/agv-robot-motion':
             from .recipe_agv import motion_state
-            return self.reply(200, dict(motion_state(self.server.agv, poll=True), active=self.server.owner.active))
+            cached = urlsplit(self.path).query == 'cached=1'
+            return self.reply(200, dict(motion_state(self.server.agv, poll=not cached, cached=cached),
+                                        active=self.server.owner.active))
         if path == '/api/mcu':
             return self.reply(200, mcu.capability(self.server.owner))
         if path == '/api/robot-control':

@@ -17,8 +17,10 @@ STANDARD_MODE = ('Pick/place needs station-call mode to verify and call learned 
                  'Enable the station-call function in the XBOT app before starting a new run.')
 
 
-def motion_state(connection, *, poll=False):
-    link = connection.motion_feedback(poll=poll) if connection else {}
+def motion_state(connection, *, poll=False, cached=False):
+    link = {}
+    if connection:
+        link = connection.cached_motion_feedback() if cached else connection.motion_feedback(poll=poll)
     status = link.get('status')
     age = link.get('status_age_s')
     reporting = (link.get('mode') == 'serial' and status is not None

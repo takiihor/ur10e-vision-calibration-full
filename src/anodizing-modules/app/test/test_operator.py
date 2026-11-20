@@ -121,3 +121,41 @@ def test_home_projection_does_not_report_stopped_at_nonzero_speed():
     sample = (report, 'now', 10.0, True, 'simulator', False, None, 'now', None, 10.1)
     moving = next(item for item in agv_state(sample) if item['id'] == 'agv.moving')
     assert moving['value'] is True
+
+
+def test_vue_pick_place_reads_cached_agv_and_travel_pose_without_device_access(service, tmp_path, monkeypatch):
+    from anodizing_web import travel_pose
+
+    owner = service.owner = service.agv.owner
+    owner.root = tmp_path
+    owner.agv = service.agv
+    owner.robot_configured = owner.allow_agv_in_recipe = True
+    link = service.agv
+    link.transport = object()
+    link.settings = {'mode': 'serial'}
+    link.status = dict(stopped=True, actual_speed_m_h=0, obstacle_stop=False, fault_code=0, current_station=2)
+    link.status_at, link.status_iso = 8, '2026-01-01T00:00:00Z'
+    clock = [10.0]
+    monkeypatch.setattr(agv, 'monotonic', lambda: clock[0])
+    for name in ('_receive', '_send'):
+        monkeypatch.setattr(link, name, lambda *args, **kwargs: pytest.fail('accessed the AGV transport'))
+    monkeypatch.setattr(travel_pose, '_check', lambda *args: pytest.fail('opened a robot session'))
+    monkeypatch.setattr(travel_pose, 'load', lambda root: {'saved_at': link.status_iso})
+
+    def read(path):
+        code, _, data = request(service, path)
+        assert code == 200
+        assert request(service, path, token=None)[0] == 403
+        return json.loads(data)
+
+    path = '/api/agv-robot-motion?cached=1'
+    state = read(path)
+    assert state['parked'] and state['station'] == 2 and state['status_age_s'] == 2
+    assert state['connection_id'] == link.id and state['stop_generation'] == link.stop_generation
+    link.pending['call_station'] = object()
+    assert not read(path)['parked']
+    link.pending.clear()
+    clock[0] = 11
+    assert not read(path)['reporting']
+    saved = read('/api/agv-travel-pose?cached=1')
+    assert saved['pose']['saved_at'] == link.status_iso and saved['at_pose'] is None

@@ -102,7 +102,7 @@ def motion_block(owner):
         return str(exc)
 
 
-def state(owner):
+def state(owner, *, check_live=True):
     result = dict(robot_configured=owner.robot_configured, allow_agv_in_recipe=owner.allow_agv_in_recipe,
                   pose=None, at_pose=None, detail='Robot access is disabled.', agv=owner.agv.link_state())
     if not owner.robot_configured:
@@ -112,6 +112,8 @@ def state(owner):
         result['pose'] = pose
         if pose is None:
             result['detail'] = MISSING
+        elif not check_live:
+            result['detail'] = 'Saved travel pose. Select Check live travel pose to check current robot joints.'
         elif owner.lock.acquire(blocking=False):
             try:
                 if owner.active or owner.mcu_pending or owner.closing:

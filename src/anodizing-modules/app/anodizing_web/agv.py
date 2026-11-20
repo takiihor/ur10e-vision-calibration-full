@@ -847,6 +847,18 @@ class Connection:
                     'status': self.status, 'results': {name: dict(self.results[name])
                                                        for name in URGENT if name in self.results}}
 
+    def cached_motion_feedback(self):
+        with self.lock:
+            return self._motion_sample()
+
+    def _motion_sample(self):
+        if self.transport is None:
+            return {}
+        return dict(status=self.status, status_time=self.status_iso, mode=self.settings['mode'],
+                    connection_id=self.id, stop_generation=self.stop_generation,
+                    status_age_s=None if self.status_at is None else monotonic() - self.status_at,
+                    movement_pending=any(name not in URGENT and name != 'set_speed' for name in self.pending))
+
     def motion_feedback(self, *, poll=False):
         # A robot page may request status without taking over an AGV page read.
         acquired = poll and self.send_lock.acquire(blocking=False)
@@ -869,10 +881,7 @@ class Connection:
                 except OSError as exc:
                     self._transport_error(exc)
                     return {}
-                return dict(status=self.status, status_time=self.status_iso, mode=self.settings['mode'],
-                            connection_id=self.id, stop_generation=self.stop_generation,
-                            status_age_s=None if self.status_at is None else monotonic() - self.status_at,
-                            movement_pending=any(name not in URGENT and name != 'set_speed' for name in self.pending))
+                return self._motion_sample()
         finally:
             if acquired:
                 self.send_lock.release()
