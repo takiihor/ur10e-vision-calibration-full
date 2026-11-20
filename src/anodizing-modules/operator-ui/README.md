@@ -135,3 +135,88 @@ ID. It separates HTTP 200 from PLC freshness. After two advancing rows,
 values age out at 3 s. Missing or invalid values show as Unknown. The recorder
 can sample any catalog tag with the same freshness rule and source identity.
 Carry the local evidence files and exports separately from the repository.
+
+## Unified line test
+
+Open `/operator/#/tests/line-api` to find the simulator command checklist,
+the live sample and the evidence. The existing line reads section also explains
+how to browse numeric tags and export communication diagnostics.
+
+Start the service with `--line-mode simulation --allow-line-api-test-writes`
+and a private line simulator fixture. The flag defaults to off and takes
+effect only in simulation. Add synthetic writable Bool commands and distinct
+read-only Bool feedback and `Remote`/`Local` tags to the fixture catalog.
+Populate those values in every baseline row. Use multiplier 1, unique
+addresses and any configured limits that include both 0 and 1. Use a command
+baseline of 0, `Remote` of 1 and `Local` of 0. For example, add this top-level
+field to the fixture and provide the corresponding catalog tags and rows.
+
+```json
+{
+  "test_cases": [
+    {
+      "id": "fixture",
+      "command": "FixtureCommand",
+      "feedback": "FixtureFeedback",
+      "baseline": 0,
+      "expected": 1,
+      "clear": 0,
+      "seconds": 5,
+      "basis": "Synthetic feedback mapping",
+      "guidance": "Record the simulated observation."
+    }
+  ]
+}
+```
+
+`baseline` and `expected` describe the feedback transition. Optional `clear`
+requires the given feedback value as well as the command zero for cleanup.
+For a provisional mapping use `"provisional": true`. Such a feedback match is
+recorded as Observed. Use an observation limit from 1 to 15 seconds.
+For delayed-feedback simulator tests, set the fixture's top-level
+`feedback_delay_rows` from 0 to 15. This delay uses simulator polls.
+
+Disconnect the AGV and finish any other operation before arming. Choose the
+command and reviewed feedback case, select **Review 0→1→0 test**, then inspect the
+exact tags, baseline and observation limit before approving. There is one
+active test. **Line Stop · clear command** requests immediate same-command
+cleanup. On the test route, Escape does the same while a test is active.
+**Use the line’s physical e-stop in an emergency.** The server starts cleanup
+if the approving page loses contact. Reload to see the active or saved test
+and arm again for a new run.
+
+Check the separately labelled API disposition and human result. The API
+disposition includes qualifying readback and cleanup. Record a human result
+and notes in the saved test. The history filter selects API dispositions.
+Open **Baseline, receipts and readback** for details and earlier judgments.
+Download the Markdown summary, CSV or full JSON for the selected run.
+If **Restore unconfirmed** persists, keep the service data for investigation.
+Restart preserves the fence, and this stage supplies no real-line
+reconciliation workflow.
+
+### Import legacy evidence locally
+
+Run the installer from a shell with the same service Python environment.
+Select the originals explicitly. Put the historical catalog and evidence under
+the same private source directory if they are stored separately. The catalog is
+used for historical signature matching and is not copied as an original.
+Replace the example filenames and paths with local selections.
+
+```sh
+python -m anodizing_web.operator_line_archive \
+  --data-dir /absolute/path/to/private-service-data \
+  --source /absolute/path/to/private-evidence \
+  --catalog historical-catalog.json \
+  operator-results.json operator-results-history.jsonl api-checks.json \
+  reports/saved-report.md
+```
+
+Use the three legacy filenames exactly to index native console evidence.
+Additional explicitly named JSON, JSONL, CSV, HTML, Markdown or text reports
+and browser-only exports stay available as original attachments. Without an
+archived catalog the import uses the signatures in the evidence. Contexts
+that cannot be matched remain available through the original files. Repeating
+an import with the same source content and catalog produces the same archive
+ID. Import folders and files are owner-only. Keep them and all downloads outside
+Git and release artifacts. Select the archive in the test view to see the
+historical API and human totals, provenance and individual original downloads.

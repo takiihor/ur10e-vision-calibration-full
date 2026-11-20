@@ -65,8 +65,8 @@ counts and notes, and links to the full evidence.
 Recorder data and downloaded files are local evidence and can contain entered
 site details and raw device frames. Use the service data directory for private
 storage. Recorder summaries identify selected line sources. Line samples keep the
-original supplier timestamp and row ID in JSON and CSV. Line-test write,
-receipt, readback and restore events belong to Stage 5.
+original supplier timestamp and row ID in JSON and CSV. The recorder links
+simulator line-test dispatch, feedback and restore events by test and request ID.
 
 ## Line reads (Stage 4)
 
@@ -108,5 +108,44 @@ variable and age as the tank monitor. The drawing and Teaching assignment
 supply display identity only.
 
 The standalone modules and native job paths require no active line source.
-Stage 5 owns command approvals, simulator dispatch, cleanup, and the historical
-API/operator archive. See [Line read setup](../operator-ui/README.md#line-reads).
+See [Line read setup](../operator-ui/README.md#line-reads).
+
+## Unified line test (Stage 5)
+
+The test route adds the writable Boolean checklist, reviewed command and
+feedback cases, one-shot approval, and separate API and human evidence to the
+shared read views. The simulator is the only write-capable client. Its
+transport has no network write method. Enabling the startup flag with live
+reads leaves writes disabled. The operator route exposes the same read cache
+and catalog diagnostics. The legacy service landing and independently
+launched console remain available.
+
+The server grants a session for up to 30 minutes. One approval lasts 30
+seconds and binds the session, request ID, simulator instance, reviewed
+case, observation limit, and current tag metadata. Before writing, the
+line worker refreshes the catalog, checks the complete fresh row, both
+mode bits and the reviewed zero-command and feedback baselines. An AGV
+connection or concurrent job prevents admission. Once reserved, the test
+fences conflicting operations and saves intent under the private data lock
+before sending 1. The worker tracks a five-second page lease so a lost page
+requests cleanup independently of future browser requests.
+
+The worker serializes the observation and same-command zero dispatch with
+Stop, timeout, service close, and lease expiry. Cleanup refreshes the
+catalog and checks both mode bits and freshness again. The worker requires
+matching receipts and a PLC row strictly later than the baseline and
+acceptance for feedback and zero confirmation. A provisional match is
+recorded as **Observed**. The eight-second recovery window can wait for
+the gates to return. If evidence or ordering remains uncertain, or audit
+storage fails, the alarm and fence remain in force. Unresolved or unreadable
+intent also fences admission on restart. The server never replays 1.
+Power-loss response, reconciliation and safe early clear require site review
+before any real write implementation.
+
+Simulator history keeps baselines, receipts, readbacks, API disposition,
+separate time-stamped human judgments and original notes. Exports include a
+summary-first Markdown report, CSV and complete JSON. Historical imports
+preserve the console originals under a private content digest. The view
+keeps archive context, recorded identities, latest judgments, automated
+results, human backfills and explicit API overrides. Historical results
+grant no write authority. See [setup and import](../operator-ui/README.md#unified-line-test).
