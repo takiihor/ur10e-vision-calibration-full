@@ -23,3 +23,42 @@ The renderer uses the service's selected robot model and the existing UR10e join
 Opt-in scene simulation produces six fake joint angles at 5 Hz and optional scripted tank statuses at 1 Hz. A job takes precedence over the fake joint stream. Scene only consumes feedback the Manual or Teacher worker has already cached for that job. It shows **Unknown** on contention, a missing or expired sample, or an invalid model. Live idle RTDE is deferred pending stalled connect/read/disconnect checks during job admission, Stop and travel reads. Existing native stillness and motion gates remain independent of display data.
 
 Scene reads the optional canonical `tank` from an explicitly selected saved Teaching project. Older projects show **Tank not taught**. Tank authoring and capture binding belong to Teaching. Tank status inputs are scripted or **Unknown** until the line reader is integrated. The text list carries the same labels and ages as the map and remains available without WebGL. See the [local Scene configuration](../operator-ui/README.md#local-scene-configuration).
+
+## Recorder (Stage 3)
+
+The operator and test routes, `/operator/#/records` and `/operator/#/tests/records`,
+share one server-owned recording. The legacy landing page and AGV commissioning
+remain available. Recorder links to the AGV checklist and its two commissioning
+exports. That checklist, operator observations and link-quality summary use the
+same browser session as legacy commissioning.
+
+Start with a selection of stable variable IDs and 0.2, 1 or 5 Hz. The worker and
+`GET /api/state` use the same AGV, Scene and scripted line projections. Reads
+use existing acquisitions and keep their source time. A missing or expired
+value is null with its quality and reason. Recording does not enumerate ports,
+poll devices, start jobs or acquire an idle robot session. The available variable
+catalogue grows as the later modules are ported.
+
+The loopback, token-protected `/api/records` endpoint lists sessions and accepts
+Start and ID-bound Stop. Closing the browser leaves the worker running. The
+server writes a manifest and append-only sample and event rows under
+`<data-dir>/records/<id>/`. The manifest records the selected variables and
+rate, optional session details and notes, starting AGV connection settings and
+transport, and whether Scene simulation was enabled. Event records pair the
+AGV connection ID with TX IDs and attempts, log raw TX/RX and alarms, and pair
+accepted jobs with their request IDs and outcomes. Job audit files stay in the
+native store.
+
+The first cap reached, 2 hours or 50 MiB including the manifest, ends the
+session. An event buffer fills only when the recorder cannot keep up. It ends
+the session visibly without blocking native producers on recorder storage.
+A service restart retains complete rows and marks an unfinished session
+Interrupted. Downloads are available after the session finishes. JSON carries
+the manifest and all retained rows. CSV lists samples with observation and
+acquisition times and quality. The Markdown summary names the transports, shows
+counts and notes, and links to the full evidence.
+
+Recorder data and downloaded files are local evidence and can contain entered
+site details and raw device frames. Use the service data directory for private
+storage. Stage 3 exercises only simulation. Live line sources and line-test
+write, receipt, readback and restore events belong to the later line stages.

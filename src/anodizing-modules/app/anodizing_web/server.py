@@ -7,13 +7,14 @@ import stat
 import tempfile
 import json
 import secrets
+from shutil import copyfileobj
 from email.utils import formatdate
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import calibration, teaching, pick_place, manual_pick_place, tool_power, mcu, robot_control, agv, travel_pose, operator_state
+from . import calibration, teaching, pick_place, manual_pick_place, tool_power, mcu, robot_control, agv, travel_pose, operator_state, operator_records
 from .jobs import JobOwner
 from .operator_scene import Scene as OperatorScene, TANK_ID
 from .paths import check_tree, inside
@@ -90,6 +91,9 @@ class Server(ThreadingHTTPServer):
                                   allow_agv_in_recipe=allow_agv_in_recipe, robot_read_access=allow_manual or allow_teaching)
             self.agv = self.owner.agv = agv.Connection(self.owner)
             self.scene = OperatorScene(self.root, simulate=simulate_scene)
+            self.records = operator_records.Recorder(self.root, lambda: operator_state.server_state(self),
+                                                      agv_context=self.agv.recording_context, scene_simulation=simulate_scene)
+            self.agv.record_event = self.owner.record_event = self.records.event
             self.token = secrets.token_urlsafe(32)
             self.allow_camera, self.allow_teaching, self.allow_manual = allow_camera, allow_teaching, allow_manual
             super().__init__(('127.0.0.1', port), Handler)
@@ -131,6 +135,7 @@ class Server(ThreadingHTTPServer):
         super().server_close()
         self.owner.shutdown()
         self.agv.close()
+        self.records.close()
         if self.data_lock_fd is not None:
             os.close(self.data_lock_fd)
             self.data_lock_fd = None
@@ -150,14 +155,15 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def reply(self, status, body, mime='application/json; charset=utf-8', *, editor_frame=False,
-              cache_control='no-store', etag=None, last_modified=None, style_nonce=None):
-        if not isinstance(body, bytes):
+              cache_control='no-store', etag=None, last_modified=None, style_nonce=None, download=None):
+        if not download and not isinstance(body, bytes):
             body = json.dumps(body, allow_nan=False).encode()
         if etag and status == 200 and self.headers.get('If-None-Match') == etag:
             status, body = 304, b''
         style_src = "style-src 'self'" + (f" 'nonce-{style_nonce}'" if style_nonce else "")
         self.send_response(status)
-        headers = {'Content-Type': mime, 'Content-Length': str(len(body)),
+        size = os.fstat(body.fileno()).st_size if download else len(body)
+        headers = {'Content-Type': mime, 'Content-Length': str(size),
                    'Cache-Control': cache_control, 'X-Content-Type-Options': 'nosniff',
                    'Referrer-Policy': 'no-referrer', 'Connection': 'close',
                    'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; "
@@ -166,11 +172,16 @@ class Handler(BaseHTTPRequestHandler):
             headers['ETag'] = etag
         if last_modified:
             headers['Last-Modified'] = last_modified
+        if download:
+            headers['Content-Disposition'] = f'attachment; filename="{download}"'
         for key, value in headers.items():
             self.send_header(key, value)
         self.end_headers()
         try:
-            self.wfile.write(body)
+            if download:
+                copyfileobj(body, self.wfile)
+            else:
+                self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
             pass
         self.close_connection = True
@@ -215,9 +226,11 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith('/operator/'):
             return self.operator_asset(path)
         if path == '/api/state':
-            scene = getattr(self.server, 'scene', None)
-            variables = scene.variables(self.server.owner, self.server) if scene else ()
-            return self.reply(200, operator_state.read(self.server.agv, variables))
+            return self.reply(200, operator_state.server_state(self.server))
+        if path == '/api/records':
+            return self.reply(200, self.server.records.catalog())
+        if path.startswith('/api/records/'):
+            return self.record_download(path)
         if path == '/api/scene':
             return self.reply(200, self.server.scene.config)
         if path.startswith('/api/scene/drawing/'):
@@ -458,6 +471,29 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_asset(data, mime, mtime=mtime, editor_frame=False,
                                cache_control='no-store' if name.endswith('.html') else 'no-cache')
 
+    def record_download(self, path):
+        ident, _, format = path.removeprefix('/api/records/').partition('/')
+        if format not in operator_records.FORMATS:
+            return self.reply(404, {'error': 'Recording download not found.'})
+        suffix, mime = operator_records.FORMATS[format]
+        try:
+            output = tempfile.TemporaryFile(mode='w+', encoding='utf-8', newline='')
+        except OSError:
+            return self.reply(503, {'error': operator_records.STORAGE_ERROR})
+        with output as stream:
+            try:
+                self.server.records.export(ident, format, stream)
+                stream.seek(0)
+            except KeyError:
+                return self.reply(404, {'error': 'Recording download not found.'})
+            except json.JSONDecodeError:
+                return self.reply(503, {'error': operator_records.STORAGE_ERROR})
+            except ValueError as exc:
+                return self.reply(409, {'error': str(exc)})
+            except OSError:
+                return self.reply(503, {'error': operator_records.STORAGE_ERROR})
+            return self.reply(200, stream.buffer, mime, download=f'record-{ident}.{suffix}')
+
     def do_POST(self):
         if not self.authorized(token=True):
             return self.reply(403, {'error': 'Request is not authorized.'})
@@ -474,6 +510,12 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('Send a JSON object.')
             path = urlsplit(self.path).path
             owner = self.server.owner
+            if path == '/api/records':
+                if body.get('action') == 'start':
+                    return self.reply(201, self.server.records.start(body))
+                if body.get('action') == 'stop':
+                    return self.reply(200, self.server.records.stop(body.get('id')))
+                raise ValueError('Choose Start or Stop recording.')
             if path == '/api/manual-control':
                 from .manual_execution import control
                 return self.reply(200, control(self.server.owner,body))

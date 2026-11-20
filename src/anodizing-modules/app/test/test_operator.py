@@ -11,15 +11,18 @@ import pytest
 from anodizing_web import agv, server
 
 
-def request(service, path, token='secret', host='127.0.0.1:8870', origin=None, method='GET', etag=None):
+def request(service, path, token='secret', host='127.0.0.1:8870', origin=None, method='GET', etag=None, body=None):
     handler = server.Handler.__new__(server.Handler)
     handler.server = service
     handler.client_address = ('127.0.0.1', 1234)
     extra = f'Origin: {origin}\r\n' if origin is not None else ''
     if etag is not None:
         extra += f'If-None-Match: {etag}\r\n'
+    payload = b'' if body is None else json.dumps(body).encode()
+    if payload:
+        extra += f'Content-Type: application/json\r\nContent-Length: {len(payload)}\r\n'
     handler.rfile = BytesIO(f'{method} {path} HTTP/1.1\r\nHost: {host}\r\n'
-                            f'X-Module-Token: {token}\r\n{extra}\r\n'.encode())
+                            f'X-Module-Token: {token}\r\n{extra}\r\n'.encode() + payload)
     handler.wfile = BytesIO()
     handler.handle_one_request()
     head, body = handler.wfile.getvalue().split(b'\r\n\r\n', 1)

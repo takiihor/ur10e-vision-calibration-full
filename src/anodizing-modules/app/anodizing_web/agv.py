@@ -456,6 +456,8 @@ class Resend:
 class Connection:
     """One transport per server. Owner lock fences motion at the actual write."""
 
+    record_event = None
+
     def __init__(self, owner):
         self.owner = owner
         self.recipe_active = False
@@ -497,17 +499,24 @@ class Connection:
         self.log_id = 0
         self.error = None
 
-    def _record(self, direction, raw, decoded):
+    def _capture(self, event, **detail):
+        if self.record_event is not None:
+            self.record_event('agv', event, connection_id=self.id,
+                              transport=(self.settings or {}).get('mode'), **detail)
+
+    def _record(self, direction, raw, decoded, *, tx_id=None):
         self.log_id += 1
         entry = {'id': self.log_id, 'timestamp': timestamp(),
                  'direction': direction, 'hex': hex_bytes(raw), 'decode': decoded}
         self.log.append(entry)
+        self._capture('frame', **entry, tx_id=(self.log_id if tx_id is None and direction == 'TX' else tx_id))
         return entry
 
     def _event(self, field, before, after, **detail):
         self.event_id += 1
-        self.events.append(dict(id=self.event_id, timestamp=timestamp(), field=field, before=before, after=after,
-                                **detail))
+        entry = dict(id=self.event_id, timestamp=timestamp(), field=field, before=before, after=after, **detail)
+        self.events.append(entry)
+        self._capture(field, **entry)
 
     def _check_stale(self, now):
         stale = self.transport is not None and self.connected_at is not None and now - (
@@ -518,7 +527,10 @@ class Connection:
 
     def _finish_confirmation(self, name, state):
         pending = self.pending.pop(name)
-        self.results[name].update(state=state, completed_at=timestamp(), elapsed_s=monotonic() - pending.sent_at)
+        result = self.results[name]
+        result.update(state=state, completed_at=timestamp(), elapsed_s=monotonic() - pending.sent_at)
+        self._capture('command_outcome', command=name, tx_id=result['tx_id'], state=state,
+                      timestamp=result['completed_at'])
         if self.resend is not None and self.resend.name == name:
             self.resend = None
 
@@ -583,6 +595,9 @@ class Connection:
             if name == 'call_station' and self.recipe_active and self.recipe_call_at is not None:
                 result['recipe_ack_elapsed_s'] = sent_at - self.recipe_call_at + elapsed
             decoded.update(acknowledged_command=name, ack_elapsed_s=elapsed)
+            self._capture('command_outcome', command=name, tx_id=result['tx_id'],
+                          state='acknowledged late' if result['state'] == 'acknowledged late' else 'acknowledged',
+                          timestamp=result['acknowledged_at'])
             self.link_quality['acknowledged'] += 1
             if (self.resend is not None and self.resend.name == name
                     and not result.get('mode_unverified')
@@ -759,6 +774,8 @@ class Connection:
     def _finish_read(self, state):
         result = self.results[self.reading]
         result.update(state=state, elapsed_s=monotonic() - self.read_sent_at, completed_at=timestamp())
+        self._capture('command_outcome', command=self.reading, tx_id=result['tx_id'], state=state,
+                      timestamp=result['completed_at'])
         if state == 'no reply':
             self.link_quality['no_reply'] += 1
         self.reading = None
@@ -791,6 +808,12 @@ class Connection:
             return (deepcopy(self.status), self.status_iso, self.status_at, self.transport is not None,
                     (self.settings or {}).get('mode'), self.recipe_active, self.last_confirmed_station,
                     self.connected_iso, self.error, monotonic(), self.id, self.sequence)
+
+    def recording_context(self):
+        with self.lock:
+            if self.transport is not None and self.settings:
+                return dict(connection_id=self.id, settings=dict(self.settings))
+            return None
 
     def commissioning(self, *, ports=False):
         if ports:
@@ -923,6 +946,7 @@ class Connection:
         self.recent_tx.clear()
         self.log.clear()
         self.log_id = 0
+        self._capture('connected', settings=dict(self.settings), timestamp=self.connected_iso)
         self._start_worker(receive=True)
 
     def _check_connection(self, connection_id):
@@ -939,6 +963,7 @@ class Connection:
         self.awaiting_ack.clear()
         self.retry_worker = None
         if transport is not None:
+            self._capture('disconnected')
             transport.close()
 
     def close(self):
@@ -966,7 +991,7 @@ class Connection:
         except OSError as close_error:
             self._record('Link', b'', {'error': str(close_error)})
 
-    def _write(self, name, raw, value, attempt, background=False):
+    def _write(self, name, raw, value, attempt, background=False, *, tx_id=None):
         try:
             written = self.transport.write(raw)
         finally:
@@ -983,7 +1008,7 @@ class Connection:
             detail['background'] = True
         self.link_quality['sent'] += 1
         self.link_quality['resent'] += attempt > 1
-        return sent_at, self._record('TX', raw, detail)
+        return sent_at, self._record('TX', raw, detail, tx_id=tx_id)
 
     def _send(self, name, value, *, background=False, prewrite=None, recipe_check=None,
               status_hold_s=None, requested_halt=None, mode_unverified=False):
@@ -1218,7 +1243,7 @@ class Connection:
                 self.pending[name].halt_sample_seen = False
             result['wire_command'] = wire_name
             raw = command_frame(wire_name, None, self.splitter.prefix).encode()
-        retry.sent_at, entry = self._write(wire_name, raw, result['value'], attempt)
+        retry.sent_at, entry = self._write(wire_name, raw, result['value'], attempt, tx_id=result['tx_id'])
         retry.tries = result['tries'] = attempt
         result['last_sent_at'] = entry['timestamp']
         self.awaiting_ack[result['tx_id']] = (name, retry.sent_at, result, retry.sent_at + REPLY_TIMEOUT)

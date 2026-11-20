@@ -61,3 +61,9 @@ def read(connection, extra_variables=()):
     return dict(schema_version=1, generated_at=agv.timestamp(),
                 agv=dict(connection_id=connection_id, sequence=sequence),
                 variables=sorted((*agv_state(sample), *extra_variables), key=lambda variable: variable['id']))
+
+
+def server_state(server):
+    scene = getattr(server, 'scene', None)
+    variables = scene.variables(server.owner, server) if scene else ()
+    return read(server.agv, variables)

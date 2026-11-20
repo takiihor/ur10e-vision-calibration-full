@@ -27,6 +27,8 @@ def atomic_json(path, value):
 
 
 class JobOwner:
+    record_event = None
+
     def __init__(self, root, *, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False,
                  allow_agv_in_recipe=False, robot_read_access=False):
         self.directory = Path(root) / '.jobs'
@@ -175,6 +177,9 @@ class JobOwner:
             self.jobs[request_id] = job
             self.active = request_id
             self.agv_visit = visit
+            if self.record_event is not None:
+                self.record_event('job', 'accepted', job_id=request_id, request_id=request_id,
+                                  module=module, state=job['state'])
             threading.Thread(target=self._run, args=(job, function), daemon=True).start()
             return dict(job)
 
@@ -227,10 +232,15 @@ class JobOwner:
         finally:
             with self.lock:
                 job['finished'] = time.time()
+                saved = False
                 try:
                     self._save(job)
+                    saved = True
                 except (OSError, TypeError, ValueError) as exc:
                     self.storage_error = str(exc)
+                if self.record_event is not None:
+                    self.record_event('job', 'outcome', job_id=job['id'], request_id=job['id'],
+                                      module=job['module'], state=job['state'], audit_saved=saved)
                 self.runner = None
                 self.motion_job = None
                 self.agv_visit = None
