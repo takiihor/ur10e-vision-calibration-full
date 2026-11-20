@@ -252,16 +252,14 @@ def test_silent_simulator_marks_link_stale_without_inventing_a_confirmation(sess
     assert state['results']['pause']['tries'] == 2
 
 
-def test_status_confirms_repeat_stop_when_agv_is_already_stopped(session, monkeypatch):
-    clock = SimpleNamespace(now=10.0)
-    monkeypatch.setattr(agv, 'monotonic', lambda: clock.now)
+def test_status_confirms_repeat_stop_when_agv_is_already_stopped(session, agv_clock):
     _, request = session
     open_simulator(request)
     send(request, 'query_status')
     send(request, 'stop')
     assert send(request, 'query_status')[1]['results']['stop']['state'] == 'confirmed by status'
     send(request, 'stop')
-    clock.now += 5
+    agv_clock.now += 5
     assert send(request, 'query_status')[1]['results']['stop']['state'] == 'confirmed by status'
 
 
@@ -271,9 +269,9 @@ def test_command_confirmation_expires_during_silent_read(session, agv_clock):
     send(request, 'query_status')
     request(dict(action='arm', armed=True, connection_id=connection_id))
     send(request, 'rotate_clockwise', connection_id)
-    send(request, 'query_status')
     agv_clock.now += 1
     assert request()[1]['results']['rotate_clockwise']['ack_elapsed_s'] == pytest.approx(1)
+    send(request, 'query_status')
     request(dict(action='silence', silent=True, connection_id=connection_id))
     agv_clock.now += agv.STALE_AFTER - 2
 
@@ -329,9 +327,8 @@ def test_captured_replies_confirm_and_only_status_refreshes_the_link(session, mo
     assert state['results']['read_speed']['state'] == 'reply: 1500 m/h'
 
 
-def test_simulator_uses_captured_wire_forms_and_reports_01_periodically(session, monkeypatch):
-    clock = SimpleNamespace(now=0.0)
-    monkeypatch.setattr(agv, 'monotonic', lambda: clock.now)
+def test_simulator_uses_captured_wire_forms_and_reports_01_periodically(session, agv_clock):
+    agv_clock.now = 0.0
     _, request = session
     connection_id = open_simulator(request)
     assert request()[1]['log'] == []
@@ -343,9 +340,9 @@ def test_simulator_uses_captured_wire_forms_and_reports_01_periodically(session,
     assert send(request, 'read_speed', connection_id)[1]['log'][-1]['hex'] == '00 FF 04 A5 5A 07 21 DC 05 08'
 
     for tick in (11.22, 22.44):
-        clock.now = tick - .01
+        agv_clock.now = tick - .01
         before = request()[1]['log']
-        clock.now = tick
+        agv_clock.now = tick
         state = request()[1]
         assert len(state['log']) == len(before) + 1
         assert state['log'][-1]['hex'] == 'A5 5A 05 01 05'
@@ -353,7 +350,7 @@ def test_simulator_uses_captured_wire_forms_and_reports_01_periodically(session,
         assert request()[1]['log'] == state['log']
 
     request(dict(action='silence', silent=True, connection_id=connection_id))
-    clock.now += 12
+    agv_clock.now += 12
     assert request()[1]['log'] == state['log']
 
 
@@ -472,7 +469,7 @@ def test_query_waits_for_reply_or_full_timeout_before_next_request(session, monk
 
     request(dict(action='silence', silent=True, connection_id=connection_id))
     state = send(request, 'query_status', connection_id)[1]
-    assert agv_clock.now == 12.10
+    assert agv_clock.now == 12.25
     assert state['results']['query_status']['state'] == 'no reply'
 
 
@@ -488,10 +485,10 @@ def test_station_arrival_uses_a_later_stop_and_measures_travel(session, agv_cloc
     assert status == 200
     assert state['results']['call_station']['state'] == agv.SENT
     agv_clock.now += 1
+    assert request()[1]['results']['call_station']['ack_elapsed_s'] == pytest.approx(1)
     state = send(request, 'query_status')[1]
     assert not state['status']['stopped']
     assert state['status']['current_station'] == 1 and state['status']['target_station'] == 2
-    assert state['results']['call_station']['ack_elapsed_s'] == pytest.approx(1)
     agv_clock.now += 4
     state = send(request, 'query_status')[1]
     assert state['status']['current_station'] == 2 and state['status']['stopped']
@@ -717,6 +714,7 @@ def test_recipe_keeps_the_radio_reply_window_clear_of_ordinary_writes(agv_clock)
         assert writes == [0x26]
         assert link.recipe_call(2, lambda *args: None) is None
         write(agv.command_frame('query_status', None, simulator.prefix).encode())
+        agv_clock.now = 10.75
         assert link.recipe_call(2, lambda *args: None) is not None
         agv_clock.now += .6
         status, _, _, ack = link.recipe_feedback()
@@ -734,11 +732,11 @@ def command_writes(state, name):
             if entry['direction'] == 'TX' and entry['decode']['command'] == name]
 
 
-@pytest.mark.parametrize(('command', 'interval', 'limit'), [
-    ('stop', 1, 5), ('pause', 1, 5), ('forward', 2, 4),
+@pytest.mark.parametrize(('command', 'interval', 'limit', 'reply_wait'), [
+    ('stop', 1.5, 5, 1), ('pause', 1.5, 5, 1), ('forward', 2, 4, 2),
 ])
 def test_unanswered_commands_resend_the_identical_frame_to_the_try_limit(
-        session, agv_clock, command, interval, limit):
+        session, agv_clock, command, interval, limit, reply_wait):
     _, request = session
     connection_id = open_simulator(request)
     request(dict(action='silence', silent=True, connection_id=connection_id))
@@ -753,7 +751,7 @@ def test_unanswered_commands_resend_the_identical_frame_to_the_try_limit(
         agv_clock.now += .01
         assert len(command_writes(request()[1], command)) == attempt
 
-    agv_clock.now += interval
+    agv_clock.now += reply_wait
     state = request()[1]
     writes = command_writes(state, command)
     assert [entry['hex'] for entry in writes] == [first['hex']] * limit
@@ -772,7 +770,7 @@ def test_retry_acknowledgement_ends_resends_without_confirming_status(session, a
     request(dict(action='silence', silent=True, connection_id=connection_id))
     send(request, 'stop', connection_id)
     request(dict(action='silence', silent=False, connection_id=connection_id))
-    agv_clock.now += 1
+    agv_clock.now += 1.5
     assert len(command_writes(request()[1], 'stop')) == 2
 
     agv_clock.now += 1
@@ -822,7 +820,7 @@ def test_stop_status_ends_resends_even_if_the_ack_was_lost(session, agv_clock, m
     connection_id = open_simulator(request)
     send(request, 'query_status', connection_id)
     send(request, 'stop', connection_id)
-    agv_clock.now += 1
+    agv_clock.now += 1.5
     assert len(command_writes(request()[1], 'stop')) == 2
 
     state = send(request, 'query_status', connection_id)[1]
@@ -847,6 +845,7 @@ def test_recipe_station_call_uses_shared_resend_and_urgent_cancel(agv_clock):
     try:
         with link.recipe_link():
             link.recipe_feedback()
+            agv_clock.now += .75
             assert link.recipe_call(2, lambda *args: None) is not None
             agv_clock.now += 2
             link.recipe_feedback()
@@ -882,7 +881,7 @@ def test_late_motion_ack_does_not_prevent_stop_resend(session, agv_clock, monkey
 
     state = request()[1]
     assert 'ack_elapsed_s' not in state['results']['stop']
-    agv_clock.now += .91
+    agv_clock.now += 1.41
     state = request()[1]
     assert len(command_writes(state, 'stop')) == 2
     assert len(command_writes(state, 'forward')) == 1
@@ -918,6 +917,66 @@ def test_timed_reports_pace_ordinary_send_but_never_delay_stop(session, agv_cloc
     stopped_at = agv_clock.now
     assert send(request, 'stop')[0] == 200
     assert agv_clock.now == stopped_at
+
+
+def test_stop_retry_cannot_collide_with_the_first_ack(session, monkeypatch, agv_clock):
+    class HalfDuplex(agv.Simulator):
+        def write(self, raw):
+            now = agv_clock.now
+            tx_end = now + .289
+            ack = self.acknowledgements[0] if self.acknowledgements else None
+            if ack is not None and now < ack and tx_end > ack - .289:
+                self.acknowledgements.popleft()
+                return len(raw)
+            if now < self.next_report and tx_end > self.next_report - .494:
+                return len(raw)
+            written = super().write(raw)
+            self.acknowledgements[-1] = now + .611
+            return written
+
+    monkeypatch.setattr(agv, 'Simulator', HalfDuplex)
+    _, request = session
+    request(dict(action='connect', mode='simulator', agv_mode=0))
+    for _ in range(4):
+        agv_clock.now += 1
+        request()
+    agv_clock.now += .067
+    send(request, 'stop')
+    agv_clock.now += .043
+    request()
+    agv_clock.now += .58
+    state = request()[1]
+    assert state['results']['stop'].get('ack_elapsed_s') == pytest.approx(.623)
+    assert len(command_writes(state, 'stop')) == 1
+
+
+@pytest.mark.parametrize(('delay', 'late'), [(.102, True), (.301, False)])
+def test_final_stop_ack_grace_window(session, monkeypatch, agv_clock, delay, late):
+    class FinalAck(agv.Simulator):
+        writes = 0
+
+        def write(self, raw):
+            self.writes += 1
+            if self.writes == 5:
+                self.acknowledgements.append(agv_clock.now + 1 + delay)
+            return len(raw)
+
+    monkeypatch.setattr(agv, 'Simulator', FinalAck)
+    _, request = session
+    open_simulator(request)
+    send(request, 'stop')
+    for _ in range(4):
+        agv_clock.now += 1.5
+        request()
+    agv_clock.now += 1
+    assert request()[1]['results']['stop']['state'] == 'no reply'
+    agv_clock.now += delay + .001
+    state = request()[1]
+    assert len(command_writes(state, 'stop')) == 5
+    assert state['results']['stop']['state'] == ('acknowledged late' if late else 'no reply')
+    assert state['link_quality']['acknowledged'] == int(late)
+    assert state['link_quality']['no_reply'] == int(not late)
+    assert state['log'][-1]['decode'].get('acknowledged_command') == ('stop' if late else None)
 
 
 @pytest.mark.parametrize(('command', 'initially_stopped', 'press_phase'), [
@@ -957,10 +1016,14 @@ def test_urgent_retry_reaches_the_next_report_gap(session, monkeypatch, agv_cloc
     assert status == 200 and len(command_writes(state, command)) == 1
     assert agv_clock.now == pressed_at and instances[0].delivered is None
 
-    gap_report = last_report + (press_phase >= agv.REPORT_GAP[0])
-    if gap_report > pressed_at:
-        agv_clock.now = gap_report
-        request()
+    early_report = last_report + (press_phase >= agv.REPORT_GAP[0])
+    agv_clock.now = max(early_report, pressed_at)
+    request()
+    agv_clock.now = early_report + .12
+    assert len(command_writes(request()[1], command)) == 1
+    gap_report = early_report + 1
+    agv_clock.now = gap_report
+    request()
     agv_clock.now = gap_report + .09
     request()
     assert instances[0].delivered is None
@@ -985,10 +1048,22 @@ def test_duplicate_stop_does_not_postpone_the_pending_retry(session, agv_clock):
     repeated = send(request, 'stop', connection_id)[1]
     assert repeated['results']['stop']['tx_id'] == first['tx_id']
     assert len(command_writes(repeated, 'stop')) == 1
-    agv_clock.now += .1
+    agv_clock.now += .61
     state = request()[1]
     assert len(command_writes(state, 'stop')) == 2
     assert state['results']['stop']['tries'] == 2
+
+
+def test_auto_poll_does_not_keep_postponing_stop_retries(session, agv_clock):
+    _, request = session
+    connection_id = open_simulator(request)
+    request(dict(action='silence', silent=True, connection_id=connection_id))
+    send(request, 'stop')
+    agv_clock.now += 1
+    status, state = send(request, 'query_status', connection_id, background=True)
+    assert status == 200 and not command_writes(state, 'query_status')
+    agv_clock.now += .5
+    assert len(command_writes(request()[1], 'stop')) == 2
 
 
 @pytest.mark.parametrize('action', ['disarm', 'disconnect', 'link_change'])
@@ -1032,7 +1107,7 @@ def test_timed_reports_allow_four_urgent_gap_retries_before_no_reply(session, mo
     for _ in range(4):
         agv_clock.now += 1
         request()
-    agv_clock.now += .5
+    agv_clock.now += .25
     send(request, command)
     for attempt in range(2, 6):
         agv_clock.now = int(agv_clock.now) + 1
@@ -1057,12 +1132,14 @@ def test_late_timed_reports_fall_back_to_urgent_retry_timer(session, agv_clock):
     request(dict(action='silence', silent=True, connection_id=cid))
     agv_clock.now += .1
     send(request, 'stop', cid)
-    agv_clock.now += 1.39
+    agv_clock.now += 1.49
     assert len(command_writes(request()[1], 'stop')) == 1
     agv_clock.now += .02
     state = request()[1]
     assert len(command_writes(state, 'stop')) == 2
-    agv_clock.now += 1
+    agv_clock.now += 1.49
+    assert len(command_writes(request()[1], 'stop')) == 2
+    agv_clock.now += .02
     assert len(command_writes(request()[1], 'stop')) == 3
 
 
@@ -1083,6 +1160,10 @@ def test_recipe_stop_retries_in_the_next_report_gap_after_recipe_exit(agv_clock)
             assert first['decode']['try'] == 1
         link.transport.loss_fraction = 0
         agv_clock.now += .09
+        assert len(command_writes(link.capability(), 'stop')) == 1
+        agv_clock.now = 15
+        link.capability()
+        agv_clock.now += .12
         state = link.capability()
         assert [tx['decode']['try'] for tx in command_writes(state, 'stop')] == [1, 2]
         assert link.transport.command_stop

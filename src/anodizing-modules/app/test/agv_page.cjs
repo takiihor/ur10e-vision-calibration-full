@@ -15,6 +15,7 @@ let storageReads = 0, storageWrites = 0;
 async function load(ports) {
   const fields = new Map();
   const window = element();
+  let stopReads = 0;
   function element(initialId) {
     const listeners = {};
     const field = {
@@ -72,9 +73,13 @@ async function load(ports) {
           commands: [{name: 'forward', label: 'Forward', motion: true}, {name: 'reverse', label: 'Reverse', motion: true}],
           link_quality: {sent: 4, acknowledged: 1, resent: 2, no_reply: 1, timed_report_interval_s: 1.2},
         });
-        if (stopSent) Object.assign(response, {...stopSent, sequence,
-          results: {stop: {...stopSent.results.stop, state: 'no reply', tries: 5}},
-          link_quality: {sent: 5, acknowledged: 0, resent: 4, no_reply: 1, timed_report_interval_s: 1.2}});
+        if (stopSent) {
+          const late = ++stopReads > 1;
+          Object.assign(response, {...stopSent, sequence,
+            results: {stop: {...stopSent.results.stop, tries: 5,
+              ...(late ? {state: 'acknowledged late', ack_elapsed_s: 1.102} : {state: 'no reply'})}},
+            link_quality: {sent: 5, acknowledged: +late, resent: 4, no_reply: +!late, timed_report_interval_s: 1.2}});
+        }
       } else if (scenario === 'rejected') return {ok: false, json: async () => ({error: 'Fixture rejection'})};
       else if (body.action === 'send') stopSent = Object.assign(response, {connected: true, connection_id: 2,
         settings: {mode: 'simulator', address: '00 01', channel: '04', port: null},
@@ -159,6 +164,10 @@ async function run() {
     assert.match(get('outcome').textContent, /^Stop sent \d\d:\d\d:\d\d\.789 · /);
     await get.refresh();
     assert.equal(get('stop-outcome').textContent, 'No reply from the AGV after 5 tries. Check the radio, then try again.');
+    assert.equal(get('outcome').textContent, get('stop-outcome').textContent);
+    await get.refresh();
+    assert.match(get('stop-outcome').textContent, /AGV acknowledged late/);
+    assert.doesNotMatch(get('stop-outcome').textContent, /No reply|waiting/);
     assert.equal(get('outcome').textContent, get('stop-outcome').textContent);
   } else {
     assert.equal(get('port').value, '');

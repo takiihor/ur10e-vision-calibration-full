@@ -141,7 +141,7 @@ class StationVisit:
     def _sample(self):
         status, stamp, updates, ack_s = self.connection.recipe_feedback()
         now = time.monotonic()
-        if stamp is None and not self.ready.is_set() and not updates:
+        if not self.ready.is_set() and (stamp is None or stamp < self.started):
             if now-self.started < agv.RECIPE_STALE_S:
                 return
             raise ValueError('AGV status is stale. Check the radio and reconnect on the AGV page.')

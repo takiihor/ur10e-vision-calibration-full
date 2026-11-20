@@ -102,6 +102,7 @@ def interrupt_vehicle(vehicle, violation):
 def fast_agv(monkeypatch):
     monkeypatch.setattr(agv, 'RECIPE_POLL_S', .04)
     monkeypatch.setattr(agv, 'RECIPE_STALE_S', .65)
+    monkeypatch.setattr(agv, 'ACK_WINDOW', .10)
 
 
 def assert_stopped(job, vehicle, violation):

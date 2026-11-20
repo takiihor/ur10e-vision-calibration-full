@@ -349,6 +349,7 @@ function resultText(name, result, viaEsc) {
   }
   if (stage === 'waiting for reply') return {text: `Waiting for the AGV to reply… ${seconds(remaining)} s`, tone: 'waiting'};
   if (stage === 'status received') return {text: `Status received (${seconds(elapsed)} s)`, tone: 'done'};
+  if (stage === 'acknowledged late') return {text: `AGV acknowledged late (${seconds(ack)} s)`, tone: 'done'};
   if (stage === 'no reply') return {text: reads.has(name) ? `No reply in 1.5 s. Check the radio. ${portRetry}`
     : `No reply from the AGV after ${result.tries} tries. Check the radio, then try again.`, tone: 'failed'};
   if (stage === 'arrived') text = `Arrived at station ${value} (${seconds(elapsed)} s)`;

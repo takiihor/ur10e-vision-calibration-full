@@ -31,8 +31,9 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 - **Shortcut.** Press Esc anywhere on the page to send one software Stop while connected. The Stop outcome shows `(Esc)` next to the send time. While disconnected, pressing Esc shows “Connect first” in the status line. Esc is the only command shortcut.
 
 ## 3. Movement is deliberate
-- **One press authorizes one command on AGV commissioning.** Stop and Pause send immediately, then can retry up to four times until an ACK or confirming status. With timed reports, each retry uses the next 100–150 ms gap after a report. The 1 s retry timer applies before timed reports are detected and after 1.5 intervals without a timed report. A repeated Stop press joins the pending Stop. An unchanged parked status on a timed stream only confirms the vehicle's current state.
+- **One press authorizes one command on AGV commissioning.** The first Stop or Pause write sends immediately. Stop and Pause can retry up to four times until an ACK or confirming status. Scheduled writes wait at least 0.75 s from the last write and use the 100–150 ms gap when timed reports are on schedule. Retries without timed reports and writes after a detected stream goes missing wait at least 1.5 s. A repeated Stop press joins the pending Stop. An unchanged parked status on a timed stream only confirms the vehicle's current state.
 - Other movement and setting commands get up to four tries at least 2 s apart. When timed reports are detected, their sends align with the measured 100–150 ms gap after a report. Stop and Pause supersede other pending retries. Disarm, disconnect and link changes cancel retries. Pick/place uses the same Stop retry timing and keeps its existing supervision and deadlines.
+- Automatic status polling waits while Stop or Pause is retrying. An unambiguous ACK within 0.3 s of a write command's no-reply outcome changes the message to “AGV acknowledged late” and updates the link counts.
 - **Arming.**
   - Movement needs a visible Armed control.
   - Armed resets on reconnect and is never restored from storage.
