@@ -6,6 +6,7 @@ import PrimeVue from 'primevue/config';
 import ConfirmationService from 'primevue/confirmationservice';
 import AgvPage from './AgvPage.vue';
 import { useAgv } from './useAgv.js';
+import { newSession, sessionKey } from '../app/anodizing_web/web/agv-record.mjs';
 
 const stamp = '2026-11-20T08:00:00.000Z';
 const settings = { mode: 'simulator', address: '00 01', channel: '04' };
@@ -148,4 +149,21 @@ it('presents the checklist and record with expandable controls and asks before c
   await flushPromises();
   expect(agv.journal.events).toHaveLength(0);
   expect(app.get('#agv-record-note').text()).toContain('New test session started.');
+});
+
+it('preserves the restart delay exactly when displaying and recording it', async () => {
+  const session = newSession();
+  session.settings['restart-seconds'] = '0.1234567890';
+  localStorage.setItem(sessionKey, JSON.stringify(session));
+  await open();
+  await app.findAll('button').find(button => button.text() === 'Settings as found').trigger('click');
+
+  const field = app.get('#agv-found-restart-seconds');
+  expect(field.element.value).toBe('0.1234567890');
+  expect(field.attributes('type')).toBe('number');
+  expect(field.attributes('step')).toBe('any');
+  await field.setValue('0.9876543210');
+  expect(JSON.parse(localStorage.getItem(sessionKey)).settings['restart-seconds']).toBe('0.9876543210');
+  await field.setValue('');
+  expect(JSON.parse(localStorage.getItem(sessionKey)).settings['restart-seconds']).toBe('');
 });

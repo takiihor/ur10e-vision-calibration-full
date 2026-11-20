@@ -61,6 +61,7 @@ it('disarms on opening an armed connection and only dispatches one labelled Esc 
   expect(element('stop-outcome').text()).toMatch(/\(Esc\).*AGV reports stopped/);
   expect(element('stop-outcome').find('.pi-check-circle[aria-hidden="true"]').exists()).toBe(true);
   expect(element('outcome').text()).toBe(element('stop-outcome').text());
+  expect(element('outcome').classes()).toContain('p-message-success');
   expect(element('pause').element.disabled).toBe(false);
   expect(element('outcome').get('.command-toast-inline').text()).toBe(element('stop-outcome').text());
   expect(document.querySelector('.p-toast').textContent.trim()).toBe('');
@@ -80,6 +81,9 @@ it('keeps command replies from a previous connection out of the current outcome'
   await flushPromises();
   await element('read_speed').trigger('click');
   expect(element('read_speed-outcome').text()).toBe('Sending…');
+  expect(element('outcome').classes()).toContain('p-message-info');
+  await vi.advanceTimersByTimeAsync(1200);
+  expect(element('outcome').classes()).toContain('p-message-warn');
   current = 3;
   await vi.advanceTimersByTimeAsync(800);
   release({ ...connected, sequence: sequence + 1, results: {
@@ -88,6 +92,7 @@ it('keeps command replies from a previous connection out of the current outcome'
   await flushPromises();
   expect(app.text()).not.toContain('1234 m/h');
   expect(element('outcome').text()).toMatch(/connection changed/i);
+  expect(element('outcome').classes()).toContain('p-message-error');
 });
 
 it('keeps navigation, urgent controls and records available when storage is denied', async () => {

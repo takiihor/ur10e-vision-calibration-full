@@ -8,7 +8,6 @@ import Button from 'primevue/button';
 import Column from 'primevue/column';
 import ConfirmDialog from 'primevue/confirmdialog';
 import DataTable from 'primevue/datatable';
-import InputNumber from 'primevue/inputnumber';
 import InputText from 'primevue/inputtext';
 import Message from 'primevue/message';
 import Panel from 'primevue/panel';
@@ -29,6 +28,7 @@ const steps = checklist.map(([title, instructions, watch], index) => ({
   number: index + 1, title, instructions, watch,
 }));
 const resultSeverity = { 'Not tested': 'secondary', Pass: 'success', Fail: 'danger', Skipped: 'warn' };
+const foundFieldType = { date: 'date', 'restart-seconds': 'number' };
 const raw = computed(() => agv.journal.log.slice(-30).reverse());
 const commands = computed(() => Object.values(agv.journal.commands).slice(-30).reverse());
 
@@ -164,11 +164,8 @@ function download(format) {
         <AccordionContent>
           <div class="controls found-fields">
             <label v-for="(label, key) in foundFields" :key="key" :for="'agv-found-' + key">{{ label }}
-              <InputNumber v-if="key === 'restart-seconds'" :input-id="'agv-found-' + key"
-                :model-value="agv.session.settings[key] ? Number(agv.session.settings[key]) : null"
-                :max-fraction-digits="6" :use-grouping="false" fluid @input="updateSetting(key, $event.value)"
-                @update:model-value="updateSetting(key, $event)" />
-              <InputText v-else :id="'agv-found-' + key" :type="key === 'date' ? 'date' : 'text'"
+              <InputText :id="'agv-found-' + key" :type="foundFieldType[key] ?? 'text'"
+                :min="key === 'restart-seconds' ? 0 : undefined" :step="key === 'restart-seconds' ? 'any' : undefined"
                 :model-value="agv.session.settings[key] ?? ''" @update:model-value="updateSetting(key, $event)" />
             </label>
           </div>

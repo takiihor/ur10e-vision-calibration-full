@@ -13,6 +13,7 @@ defineEmits(['target-stop']);
 const toast = useToast();
 const feedback = computed(() => props.agv.currentFeedback);
 const final = computed(() => ['done', 'failed'].includes(feedback.value?.tone));
+const feedbackSeverity = { done: 'success', failed: 'error', waiting: 'warn' };
 
 watch([() => feedback.value?.text, () => feedback.value?.tone], ([text, tone]) => {
   toast.removeGroup('command-result');
@@ -36,7 +37,8 @@ watch([() => feedback.value?.text, () => feedback.value?.tone], ([text, tone]) =
       <div class="head-status">
         <Tag id="agv-link" :value="agv.connectionLabel"
           :severity="agv.stale || agv.serviceError || agv.state.error ? 'danger' : 'secondary'" />
-        <Message variant="simple" :pt="{ root: { id: 'agv-outcome', role: 'status', 'aria-live': 'polite', 'data-state': feedback?.tone } }">
+        <Message variant="simple" :severity="feedbackSeverity[feedback?.tone] ?? 'info'"
+          :pt="{ root: { id: 'agv-outcome', role: 'status', 'aria-live': 'polite', 'data-state': feedback?.tone } }">
           <span id="command-result"><template v-if="!final"><StateIcon :tone="feedback?.tone" />{{ feedback?.text }}</template></span>
         </Message>
       </div>
