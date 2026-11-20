@@ -172,7 +172,7 @@ three-second freshness limit. Opening or polling the page leaves AGV and
 robot devices to their existing owners. A saved travel-pose read is passive.
 **Check live travel pose** explicitly requests the existing guarded read.
 A parked recipe binds the approvals to the connection and halt generation.
-AGV Stop or Pause clears them. The shared bar keeps AGV Stop and Pause
+AGV Stop, Pause or link closure clears them. The shared bar keeps AGV Stop and Pause
 separate from job-bound Pick/place Stop. Escape targets AGV Stop here.
 Accepted automatic work can continue in the service after a page disconnect.
 

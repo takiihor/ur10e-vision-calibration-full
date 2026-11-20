@@ -88,7 +88,8 @@ const motion = computed(() => {
   if (!sample) return null;
   const age = sample.status_age_s == null ? null : sample.status_age_s + Math.max(0, clock.value - sample.requested) / 1000;
   const changed = sample.connection_id != null && props.agv.state.sequence >= 0 &&
-    (sample.connection_id !== props.agv.state.connection_id || sample.stop_generation !== props.agv.state.stop_generation);
+    (!props.agv.state.connected || sample.connection_id !== props.agv.state.connection_id ||
+      sample.stop_generation !== props.agv.state.stop_generation);
   if (changed) return null;
   if (age != null && age >= 3) return { ...sample, parked: false, reporting: false, detail: 'AGV status is stale. Check the radio or confirm the AGV is switched off.' };
   return sample;
@@ -146,7 +147,8 @@ function approve() {
     Number.isInteger(live.connection_id) && Number.isInteger(live.stop_generation) ? live : null;
 }
 watch([approved, travelApproved], approve, { flush: 'sync' });
-watch([() => props.agv.haltRevision, () => props.agv.state.connection_id, () => props.agv.state.stop_generation], () => {
+watch([() => props.agv.haltRevision, () => props.agv.state.connected,
+  () => props.agv.state.connection_id, () => props.agv.state.stop_generation], () => {
   if (reviewed.value?.agv_motion === 'parked') clearApprovals();
 });
 watch(repeatOff, invalidateReview, { flush: 'sync' });
@@ -516,7 +518,7 @@ onUnmounted(() => {
 <template>
   <p><a href="/pick-place">Legacy Pick/place</a> · <a href="#/agv">AGV commissioning</a></p>
   <Message v-if="owner?.execution_uncertain || owner?.storage_error" severity="error" role="alert">{{ ownerReason(owner) }}</Message>
-  <Message v-if="lost" severity="warn">
+  <Message v-if="lost && !busy" severity="warn">
     Submission outcome unconfirmed. Inspect operation {{ lost }} in Current operation before sending another request.
   </Message>
   <div class="agv-grid pick-grid">

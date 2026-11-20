@@ -476,3 +476,38 @@ it('reviews a recipe job before offering a separate run with the approved hash',
   expect(posts[1].request_id).not.toBe(posts[0].request_id);
   expect(element('recipe-start').element.disabled).toBe(true);
 });
+
+it('clears parked recipe approval when the link closes before the cached recipe report changes', async () => {
+  vi.useFakeTimers();
+  let linked = true;
+  let sequence = 0;
+  open('#/pick-place', async (path, body) => {
+    if (path === '/api/status') return { owner: { jobs: [] } };
+    if (path === '/api/state') return { variables: [] };
+    if (path === '/api/agv?cached=1') return { ...connected, connected: linked, armed: false,
+      sequence: ++sequence, stop_generation: 3 };
+    if (path === '/api/teacher-defaults') return { settings: { project: 'fixture-a' } };
+    if (path.startsWith('/api/teacher-project?')) return { agv: { station: 2 } };
+    if (path === '/api/agv-robot-motion?cached=1') return {
+      connection_id: 2, stop_generation: 3, parked: true, reporting: true, status_age_s: .1,
+    };
+    if (path === '/api/robot-control') return { defaults: { collision_scene: 'reviewed-scene.json',
+      joint_bounds_rad: Array.from({ length: 6 }, () => [-2, 2]), joint_bounds_source: 'Fixture bounds' } };
+    if (body?.action === 'review_repeat') return { id: body.request_id, state: 'done', result: {
+      transfers: 1, A: 'fixture-a', B: 'fixture-a', end: 'B', approach_mm: { A: 40, B: 40 },
+      stations: { A: 2, B: 2 }, agv_motion: 'parked', settle_s: 1, recipe_sha256: 'approved-fixture',
+    } };
+    if (path === '/api/manual-pick-place') return { hardware_available: true };
+    return {};
+  });
+  await flushPromises();
+  await element('recipe-review').trigger('click');
+  await flushPromises();
+  const approval = app.get('#recipe-approved');
+  await approval.setValue(true);
+  expect(element('recipe-start').element.disabled).toBe(false);
+  linked = false;
+  await vi.advanceTimersByTimeAsync(800);
+  expect(approval.element.checked).toBe(false);
+  expect(element('recipe-start').element.disabled).toBe(true);
+});

@@ -88,7 +88,7 @@ function confirm() {
       <p>Exact step · {{ manual.robot_step.axis.length === 1 ? 'Base ' + manual.robot_step.axis.toUpperCase()
         : 'Tool-local ' + manual.robot_step.axis[1].toUpperCase() + ' rotation' }}
         {{ manual.robot_step.increment }} {{ manual.robot_step.axis.length === 1 ? 'mm' : 'degrees' }}
-        at {{ manual.robot_step.joint_speed_deg_s }} degrees/s.</p>
+        at {{ manual.robot_step.joint_speed_deg_s.toFixed(2) }} degrees/s.</p>
       <p>Start · {{ formatPose(manual.robot_step.start_tcp_pose_m_rad) }}<br>
         Target · {{ formatPose(manual.robot_step.target_tcp_pose_m_rad) }}<br>XYZ in mm, rotation vector in radians.</p>
       <p>The server checks the joint path after approval. It can curve and change TCP height or orientation.</p>
