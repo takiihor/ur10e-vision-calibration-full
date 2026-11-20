@@ -74,6 +74,17 @@ def station_limit(learned_legs):
     return min(learned_legs + 1, ARGUMENTS['call_station']['max']) if learned_legs else 0
 
 
+def arrived_station(status):
+    station = status.get('current_station')
+    if (type(station) is int and status.get('mode') == 2
+            and 1 <= station <= station_limit(status.get('max_stations', 0))
+            and status.get('station_arrival') is True and status.get('stopped') is True
+            and status.get('actual_speed_m_h') == 0 and status.get('fault_code') == 0
+            and status.get('obstacle_stop') is False):
+        return station
+    return None
+
+
 def hex_bytes(raw):
     return raw.hex(' ').upper()
 
@@ -411,6 +422,8 @@ class Confirmation:
     status_seen: bool = False
     travelling: bool = False
     earlier_query: bool = False
+    pre_halt_query: bool = False
+    halt_sample_seen: bool = False
 
 
 class ReceiveError(OSError):
@@ -467,6 +480,7 @@ class Connection:
         self.unmatched_ack = False
         self.unanswered_query = False
         self.resend = self.retry_worker = None
+        self.manual_retry_worker = None
         self.last_write_at = float('-inf')
         self.link_quality = dict.fromkeys(('sent', 'acknowledged', 'resent', 'no_reply'), 0)
         self.passive_reports = deque(maxlen=4)
@@ -534,11 +548,16 @@ class Connection:
                     self._finish_confirmation(name, 'not confirmed')
                 else:
                     result['state'] = 'waiting for status'
-        if any(now > expires_at and tx != active_tx and 'ack_elapsed_s' not in result
+        if any(now > expires_at and tx != active_tx and self._ack_outstanding(result)
                for tx, (_, _, result, expires_at) in self.awaiting_ack.items()):
             self.unmatched_ack = True
         self.awaiting_ack = {tx: item for tx, item in self.awaiting_ack.items()
                              if now <= item[3] or tx == active_tx}
+
+    @staticmethod
+    def _ack_outstanding(result):
+        # A single short ACK cannot account for multiple writes of the same command.
+        return result['tries'] > 1 or 'ack_elapsed_s' not in result
 
     def _acknowledge(self, decoded):
         # The ACK carries only vehicle ID. The vendor specifies no maximum delay.
@@ -566,7 +585,9 @@ class Connection:
             decoded.update(acknowledged_command=name, ack_elapsed_s=elapsed)
             self.link_quality['acknowledged'] += 1
             if (self.resend is not None and self.resend.name == name
-                    and not result.get('mode_unverified')):
+                    and not result.get('mode_unverified')
+                    and (result.get('requested_command') != 'stop'
+                         or self._wire_halt(self._fresh_mode()) == result['wire_command'])):
                 self.resend = None
 
     def _passive_report(self, now):
@@ -639,10 +660,8 @@ class Connection:
         self.status, self.status_hex, self.status_at = decoded, hex_bytes(raw), monotonic()
         self._passive_report(self.status_at)
         self.status_iso = timestamp()
-        station = decoded.get('current_station')
-        if (type(station) is int and decoded.get('mode') == 2
-                and 1 <= station <= station_limit(decoded.get('max_stations', 0))
-                and decoded.get('stopped') is True and decoded.get('actual_speed_m_h') == 0):
+        station = arrived_station(decoded)
+        if station is not None:
             self.last_confirmed_station = (station, self.status_iso)
         if self.recipe_active:
             self.recipe_statuses.append((decoded, self.status_at))
@@ -653,7 +672,7 @@ class Connection:
             if name == 'call_station':
                 value = self.results[name]['value']
                 learned = decoded.get('mode') == 2 and 1 <= value <= station_limit(decoded.get('max_stations', 0))
-                if learned and decoded.get('current_station') == value and decoded.get('stopped') is True:
+                if station == value:
                     self._finish_confirmation(name, 'arrived')
                 else:
                     pending.travelling = (learned and decoded.get('target_station') == value
@@ -667,17 +686,27 @@ class Connection:
                     continue
                 stopped = decoded.get('stopped') is True and decoded.get('actual_speed_m_h') == 0
                 result = self.results[name]
-                flag = 'command_stop' if result['wire_command'] == 'stop' else 'paused'
+                wire = result['wire_command']
+                if result['requested_command'] == 'stop' and self._wire_halt(decoded.get('mode')) != wire:
+                    pending.halt_sample_seen = False
+                    continue
+                flag = 'command_stop' if wire == 'stop' else 'paused'
                 flag_active = decoded.get(flag) is True
                 was_stopped = pending.before.get('stopped') is True and pending.before.get('actual_speed_m_h') == 0
-                # A repeated parked report alone cannot confirm delivery of a new urgent command.
                 changed = (stopped and not was_stopped) or (flag_active and pending.before.get(flag) is not True)
-                if stopped and (changed or 'ack_elapsed_s' in result
-                                or (self.query_at is not None and self.query_at > pending.sent_at)):
+                acknowledged = 'ack_elapsed_s' in result
+                # Even a completed query may leave a pre-halt status in flight. Require
+                # command-specific evidence and corroboration before accepting it.
+                corroborated = not pending.pre_halt_query or (flag_active and (acknowledged or pending.halt_sample_seen))
+                matches = stopped and (changed or acknowledged
+                                       or (self.query_at is not None and self.query_at > pending.sent_at))
+                if matches and corroborated:
                     result['confirmed_stopped'] = True
                     self._finish_confirmation(name, 'confirmed by status')
+                    continue
                 elif flag_active and changed:
                     result.update(confirmed_stopped=False, state='confirmed by status')
+                pending.halt_sample_seen = matches and flag_active
             elif pending.expected and all(decoded.get(key) == value for key, value in pending.expected.items()) and (
                     not pending.before or any(key in pending.before and pending.before[key] != value
                                               for key, value in pending.expected.items())):
@@ -744,7 +773,8 @@ class Connection:
         robot_configured = getattr(self.owner, 'robot_configured', False)
         return dict(robot_interlock=robot_configured, recipe_active=self.recipe_active, connected=self.transport is not None, connection_id=self.id, sequence=self.sequence, settings=self.settings,
                     connection_started_at=self.connected_iso, stop_generation=self.stop_generation,
-                    armed=self.armed, motion_block=motion_block(self.owner), status=self.status,
+                    armed=self.armed, halt_pending=bool(self._urgent_pending(now)),
+                    motion_block=motion_block(self.owner), status=self.status,
                     status_hex=self.status_hex, status_age_s=age, status_time=self.status_iso,
                     connection_age_s=None if self.connected_at is None else now - self.connected_at,
                     stale=self.stale, events=list(self.events),
@@ -956,7 +986,7 @@ class Connection:
         return sent_at, self._record('TX', raw, detail)
 
     def _send(self, name, value, *, background=False, prewrite=None, recipe_check=None,
-              status_hold_s=None, mode_unverified=False):
+              status_hold_s=None, requested_halt=None, mode_unverified=False):
         frame = command_frame(name, value, self.splitter.prefix)
         if name in URGENT:
             self._cancel_resend()
@@ -983,7 +1013,8 @@ class Connection:
             result['status_hold_s'] = status_hold_s
         if name in URGENT:
             result.update(wire_command=name, mode_unverified=mode_unverified,
-                          ambiguous_ack=any('ack_elapsed_s' not in candidate
+                          requested_command=requested_halt or name,
+                          ambiguous_ack=any(self._ack_outstanding(candidate)
                                             for _, _, candidate, _ in self.awaiting_ack.values()))
         if name != 'set_speed':
             for pending in list(self.pending):
@@ -998,15 +1029,24 @@ class Connection:
         self.results[name] = result
         self.awaiting_ack[entry['id']] = (name, sent_at, result, sent_at + REPLY_TIMEOUT)
         self.pending[name] = Confirmation(expected_status(name, value), before, sent_at,
-                                          earlier_query=name in URGENT and self.unanswered_query)
+                                          earlier_query=name in URGENT and self.unanswered_query,
+                                          pre_halt_query=name in URGENT and self.query_at is not None)
         self.resend = Resend(name, raw, sent_at, recipe_check)
         if recipe_check is None and self.settings is not None and self.retry_worker is None:
             self._start_worker()
         return sent_at
 
+    def _fresh_mode(self):
+        if self.status_at is not None and monotonic() - self.status_at < STALE_AFTER:
+            return self.status.get('mode')
+        return None
+
+    @staticmethod
+    def _wire_halt(mode):
+        return 'pause' if mode == 2 else 'stop' if mode in (0, 1) else None
+
     def _halt_command(self, *, recipe=False):
-        mode = (self.status or {}).get('mode')
-        return 'pause' if mode == 2 or (mode not in (0, 1) and recipe) else 'stop'
+        return self._wire_halt(self._fresh_mode()) or ('pause' if recipe else 'stop')
 
     def _send_urgent(self, name, *, recipe=False, connection_id=None):
         with self.lock:
@@ -1043,14 +1083,14 @@ class Connection:
                     if not waiting:
                         halt = self._halt_command(recipe=recipe) if name == 'stop' else name
                         retry = self.resend
-                        mode = (self.status or {}).get('mode')
                         if (retry is not None and retry.name in URGENT
-                                and (retry.name == halt or (mode == 0 and retry.name == 'stop'))):
+                                and self.results[retry.name]['requested_command'] == name):
                             halt = retry.name
                         else:
                             try:
                                 self._send(halt, None, status_hold_s=0 if held_at is None else now - held_at,
-                                           mode_unverified=name == 'stop' and not recipe and mode not in (0, 1, 2))
+                                           requested_halt=name,
+                                           mode_unverified=name == 'stop' and self._wire_halt(self._fresh_mode()) is None)
                             except OSError as exc:
                                 self._transport_error(exc)
                                 if recipe:
@@ -1168,12 +1208,14 @@ class Connection:
                 return False
         attempt = retry.tries + 1
         wire_name, raw = name, retry.raw
-        if name in URGENT and result['mode_unverified']:
-            mode = (self.status or {}).get('mode')
-            if mode in (0, 1, 2):
-                wire_name = self._halt_command()
-            else:
-                wire_name = 'pause' if result['wire_command'] == 'stop' else 'stop'
+        if name in URGENT and result['requested_command'] == 'stop':
+            selected = self._wire_halt(self._fresh_mode())
+            wire_name = selected or ('pause' if result['wire_command'] == 'stop' else 'stop')
+            if selected is None or wire_name != result['wire_command']:
+                # A previous wire command may still have a short ACK in flight.
+                result['mode_unverified'] = True
+            if wire_name != result['wire_command']:
+                self.pending[name].halt_sample_seen = False
             result['wire_command'] = wire_name
             raw = command_frame(wire_name, None, self.splitter.prefix).encode()
         retry.sent_at, entry = self._write(wire_name, raw, result['value'], attempt)
@@ -1201,19 +1243,36 @@ class Connection:
             except OSError as exc:
                 self._transport_error(exc)
                 return
-        if not self.send_lock.acquire(blocking=False):
-            return
+            if getattr(self.owner, 'robot_configured', False):
+                if self.manual_retry_worker is None:
+                    self.manual_retry_worker = Thread(target=self._retry_ordinary, args=(retry, True),
+                                                      name='agv-pose-check', daemon=True)
+                    self.manual_retry_worker.start()
+                return
+        self._retry_ordinary(retry)
+
+    def _retry_ordinary(self, retry, background=False):
         try:
-            if not self.owner.lock.acquire(blocking=False):
+            if not self.send_lock.acquire(blocking=False):
                 return
             try:
-                self._retry_manual(retry)
+                if not self.owner.lock.acquire(blocking=False):
+                    return
+                try:
+                    self._retry_manual(retry)
+                finally:
+                    self.owner.lock.release()
             finally:
-                self.owner.lock.release()
+                self.send_lock.release()
         finally:
-            self.send_lock.release()
+            if background:
+                with self.lock:
+                    self.manual_retry_worker = None
 
     def _retry_manual(self, retry):
+        with self.lock:
+            if self.resend is not retry:
+                return
         reason = motion_block(self.owner)
         if not reason and getattr(self.owner, 'robot_configured', False):
             from . import travel_pose
@@ -1353,6 +1412,9 @@ class Connection:
                         if action == 'disconnect':
                             if self.recipe_active:
                                 raise ValueError('Stop the active recipe before disconnecting the AGV.')
+                            self._receive()
+                            if self._urgent_pending(monotonic()):
+                                raise ValueError('AGV Stop or Pause is awaiting delivery. Wait before disconnecting.')
                             self._close()
                         elif action == 'arm' and type(body.get('armed')) is bool:
                             self.armed = body['armed']

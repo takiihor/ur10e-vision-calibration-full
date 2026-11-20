@@ -11,9 +11,3 @@ Use the locked Vue, PrimeVue and PrimeIcons dependencies and the adapted Sakai s
 Line control, site mapping and scene integration have separate implementation scope. Stage 1 uses a standalone AGV simulator for offline commissioning and introduces no supplier endpoint.
 
 See the [operator HCI guide](operator-page-hci.md) and [UI build instructions](../operator-ui/README.md).
-
-The Stop bar remains visible across both operator routes. Escape targets the AGV. Manual and Teacher Stop retain their active job ID and existing control endpoint.
-
-Home and AGV share the Nord colour preset, state labels and icons.
-
-The Python package includes offline-built Vite assets, an asset allowlist and third-party notices. The HTML entry uses the existing token guard and supplies a fresh style nonce.

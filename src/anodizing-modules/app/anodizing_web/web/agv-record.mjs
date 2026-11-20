@@ -7,6 +7,13 @@ const linkLost = 'Link lost. The AGV may still be moving. Use its e-stop if need
 const portRetry = 'Reseat the USB plug, reload this page, then select Connect.';
 const badFrame = 'Invalid AGV reply. Check the radio connection, then query status again.';
 const stationCallRequired = 'Station call needs the station-call function, set in the XBOT app. In standard mode, use Forward/Reverse.';
+const pauseStationOnly = 'In standard mode, use AGV Stop. Pause requires station-call mode.';
+
+function motionText(status, unknown = 'Unknown') {
+  const speed = status?.actual_speed_m_h;
+  if (status?.stopped === false || (speed != null && speed !== 0)) return 'Running';
+  return status?.stopped === true && speed === 0 ? 'Stopped' : unknown;
+}
 
 function stationLimit(status) {
   const legs = status?.max_stations;
@@ -31,6 +38,33 @@ function save(key, value) {
   catch { return false; }
 }
 
+function mergeJournal(stored, current) {
+  const entryKey = entry => entry.id != null ? JSON.stringify([entry.connection, entry.id]) :
+    JSON.stringify([entry.observation_id, entry.timestamp, entry.connection, entry.field, entry.text, entry.decode]);
+  const mergeEntries = (previous, next) => [...new Map(
+    [...previous, ...next].map(entry => [entryKey(entry), entry])).values()]
+    .sort((a, b) => a.timestamp.localeCompare(b.timestamp) || (a.id ?? 0) - (b.id ?? 0));
+  const cursors = {...stored.cursors};
+  const link_quality = {...stored.link_quality};
+  for (const [id, cursor] of Object.entries(current.cursors)) {
+    const old = cursors[id] ?? {log: 0, events: 0};
+    cursors[id] = {log: Math.max(old.log, cursor.log), events: Math.max(old.events, cursor.events)};
+    if (cursor.log >= old.log && current.link_quality?.[id]) link_quality[id] = current.link_quality[id];
+  }
+  const commands = {...stored.commands};
+  for (const [key, entry] of Object.entries(current.commands)) {
+    const old = commands[key];
+    if (!old) { commands[key] = entry; continue; }
+    const latest = command => command.completed_at ?? command.acknowledged_at ?? command.last_sent_at ?? command.timestamp;
+    const result = latest(old) > latest(entry) ? old : entry;
+    const requested = [...new Set([...(old.requested_commands ?? []), ...(entry.requested_commands ?? [])])];
+    commands[key] = requested.length ? {...result, requested_commands: requested} : result;
+  }
+  return {cursors, link_quality, commands, transports: {...stored.transports, ...current.transports},
+    log: mergeEntries(stored.log, current.log), events: mergeEntries(stored.events, current.events),
+    log_gap: stored.log_gap || current.log_gap};
+}
+
 const newSession = () => ({started_at: isoNow(), settings: {}, checklist: {}});
 const fieldLabels = {
   vehicle_id: 'Vehicle ID', set_speed_m_h: 'Set speed', max_stations: 'Learned legs',
@@ -50,7 +84,7 @@ const checklist = [
   ['Read status and speed', 'Check for fresh status. Select Read speed and compare the reply with the set speed in Machine details.', 'The page shows a fresh status and replies with a speed. The AGV stays parked.'],
   ['Stop and Pause while parked', 'With the AGV parked, press Stop (software) and wait for the status. Press Pause separately and wait for the status.', 'The AGV stays parked. Check the command stop and pause flags after their respective presses.'],
   ['Set speed to 500 m/h', 'Tick Armed and press the 500 m/h preset. Check Set speed in Machine details before moving.', 'The set speed reads 500 m/h (0.5 km/h). Actual speed remains zero while parked.'],
-  ['Call the next station and Stop partway', 'Call the next learned station at 500 m/h. Press Stop (software) partway, before the AGV reaches the station.', 'Observe where it stops and how long it takes. Check motion, station and command stop.'],
+  ['Call the next station and Stop partway', 'Call the next learned station at 500 m/h. Press Stop (software) partway, before the AGV reaches the station.', 'Observe where it stops and how long it takes. Check motion, station and the Pause flag. In standard mode, software Stop uses the Command stop flag.'],
   ['Pause and Resume partway', 'Call a learned station at 500 m/h. Press Pause partway and wait for the AGV to stop. Once the track is clear, press Resume yourself.', 'Check the pause flag, whether it resumes, and where it stops.'],
   ['Call every learned station', 'Press one learned station button at a time. Wait for the AGV to stop at that station before calling another.', 'Compare the physical station with the current station and arrival time on the page.'],
   ['Physical e-stop during slow motion', 'With a person at the e-stop, start one slow move and press the physical e-stop. Record when it stops. Reset only when the track is clear and the person at the e-stop is ready.', 'Does it restart on reset? Record what the page reports and what you see.'],
@@ -95,7 +129,7 @@ function resultText(name, result, viaEsc, requested = name) {
   }
   if (stage === 'waiting for reply') return {text: `Waiting for the AGV to reply… ${seconds(remaining)} s`, tone: 'waiting'};
   if (stage === 'status received') return {text: `Status received (${seconds(elapsed)} s)`, tone: 'done'};
-  if (stage === 'acknowledged late') return {text: `${urgent.has(name) ? urgentSent + ' · ' : ''}AGV acknowledged late (${seconds(ack)} s)`, tone: 'done'};
+  if (stage === 'acknowledged late') return {text: `${urgent.has(name) ? urgentSent + ' · ' : ''}AGV acknowledged late (${seconds(ack)} s)${urgent.has(name) ? ' · motion unconfirmed' : ''}`, tone: urgent.has(name) ? 'waiting' : 'done'};
   if (stage === 'no reply' && result.warning) return {text: 'No reply from the AGV. ' + result.warning, tone: 'failed'};
   if (stage === 'no reply') return {text: reads.has(name) ? `No reply in 1.5 s. Check the radio. ${portRetry}`
     : `${urgent.has(name) ? urgentSent + ' · ' : ''}No reply from the AGV after ${result.tries} tries. Check the radio, then try again.`, tone: 'failed'};
@@ -103,6 +137,9 @@ function resultText(name, result, viaEsc, requested = name) {
   else if (confirmation) {
     const reported = result.confirmed_stopped === true ? 'stopped' : (result.wire_command ?? name) === 'pause' ? 'paused' : 'command stop active';
     text = urgent.has(name) ? `${urgentSent} · AGV reports ${reported}` : 'Confirmed: AGV status shows the change';
+    if (urgent.has(name) && result.confirmed_stopped !== true) {
+      return {text: text + ' · waiting for zero speed', tone: 'waiting'};
+    }
   }
   else if (stage === 'not confirmed') text = 'Not confirmed after 5 s: check the AGV.';
   else if (stage === 'not checked') text = 'Not checked: no confirmation before another action. Check the AGV.';
@@ -171,9 +208,12 @@ function markdown(record, commands) {
       const status = proof.status;
       const station = status.mode === 0 || status.max_stations === 0 ? 'stop counter' : 'station';
       const target = status.mode === 0 ? '' : `, target ${status.target_station}`;
-      lines.push(`Reported status — ${status.stopped === true ? 'stopped' : status.stopped === false ? 'running' : 'unknown'}, ${station} ${status.current_station}${target}, ${speedText(status.actual_speed_m_h)}, battery ${status.battery_percent}%, ${faultText(status)}. Status age ${seconds(proof.status_age_s)} s${proof.stale ? ' (stale)' : ''}.`);
+      lines.push(`Reported status — ${motionText(status).toLowerCase()}, ${station} ${status.current_station}${target}, ${speedText(status.actual_speed_m_h)}, battery ${status.battery_percent}%, ${faultText(status)}. Status age ${seconds(proof.status_age_s)} s${proof.stale ? ' (stale)' : ''}.`);
     }
-    for (const command of proof.commands) lines.push(`- ${command.timestamp} · ${labelTransport(command)} · ${commands.get(command.name)?.label ?? command.name} · ${resultText(command.name, command).text}`);
+    for (const command of proof.commands) {
+      const requested = command.requested_commands?.[0] ?? command.requested_command ?? command.name;
+      lines.push(`- ${command.timestamp} · ${labelTransport(command)} · ${commands.get(command.name)?.label ?? command.name} on wire · ${resultText(command.name, command, false, requested).text}`);
+    }
     for (const event of proof.events) lines.push(`- ${event.timestamp} · ${labelTransport(event)} · ${escape(event.text)}`);
   }
   if (record.events.length) lines.push('', '## Session events', '',
@@ -182,7 +222,7 @@ function markdown(record, commands) {
   return lines.join('\n') + '\n';
 }
 
-export { connectionKey, sessionKey, journalKey, urgent, reads, linkLost, portRetry, badFrame,
+export { connectionKey, sessionKey, journalKey, urgent, reads, linkLost, badFrame, motionText, pauseStationOnly, mergeJournal,
   stationCallRequired, stationLimit, emptyJournal, isoNow, localTime, seconds, speedText, load, save, newSession,
   fieldLabels, modes, outcomesList, checklist, checklistCommands, foundFields, faultText,
   linkQualityText, resultText, eventText, connectionKeyFor, exportRecord, markdown };

@@ -70,7 +70,8 @@ def test_state_is_authenticated_read_only_and_copies_acquisition_time(service, m
     link.settings = {'mode': 'simulator'}
     link.connected_at = 9.0
     link._status_received({'mode': 2, 'max_stations': 1, 'current_station': 2,
-                           'stopped': True, 'actual_speed_m_h': 0}, b'')
+                           'stopped': True, 'actual_speed_m_h': 0, 'station_arrival': True,
+                           'fault_code': 0, 'obstacle_stop': False}, b'')
     stamp = link.status_iso
 
     def station(key='current_station'):
@@ -107,3 +108,11 @@ def test_urgent_send_for_an_old_connection_refuses_before_touching_transport(ser
     monkeypatch.setattr(link, '_send', lambda *a, **k: pytest.fail('wrote to a different AGV link'))
     with pytest.raises(ValueError, match='connection changed'):
         link.submit({'action': 'send', 'command': 'stop', 'connection_id': 1})
+
+
+def test_home_projection_does_not_report_stopped_at_nonzero_speed():
+    from anodizing_web.operator_state import agv_state
+    report = {'mode': 2, 'max_stations': 1, 'stopped': True, 'actual_speed_m_h': 500}
+    sample = (report, 'now', 10.0, True, 'simulator', False, None, 'now', None, 10.1)
+    moving = next(item for item in agv_state(sample) if item['id'] == 'agv.moving')
+    assert moving['value'] is True

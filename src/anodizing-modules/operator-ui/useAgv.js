@@ -3,7 +3,7 @@ import { request, requestError } from './api';
 import {
   badFrame, connectionKey, emptyJournal, eventText, faultText, isoNow, journalKey,
   load, newSession, reads, resultText, save, seconds, sessionKey, stationCallRequired, stationLimit, urgent,
-  connectionKeyFor,
+  connectionKeyFor, pauseStationOnly, mergeJournal,
 } from '../app/anodizing_web/web/agv-record.mjs';
 
 const initialState = { connection_id: 0, sequence: -1, results: {}, log: [] };
@@ -253,6 +253,7 @@ export function useAgv(isAgv) {
 
   function commandReason(name, value) {
     if (!state.value.connected) return 'Connect first.';
+    if (name === 'pause' && freshReport.value?.mode === 0) return pauseStationOnly;
     if (urgent.has(name)) return '';
     if (busy.value) return pendingWait;
     if (state.value.recipe_active) return 'The recipe is checking AGV status. Follow Current operation on Pick/place.';
@@ -366,8 +367,7 @@ export function useAgv(isAgv) {
     const stored = load(journalKey, null);
     const storedSession = load(sessionKey, null);
     if (storedSession && storedSession.started_at !== session.value.started_at) return;
-    if (stored?.started_at === session.value.started_at && Object.entries(stored.journal.cursors).some(([id, cursor]) =>
-      !journal.value.cursors[id] || cursor.log > journal.value.cursors[id].log || cursor.events > journal.value.cursors[id].events)) return;
+    if (stored?.started_at === session.value.started_at) journal.value = mergeJournal(stored.journal, journal.value);
     if (!save(journalKey, { started_at: session.value.started_at, journal: journal.value })) {
       recordNote.value = 'The full log could not be saved. Download JSON before leaving.';
     }
@@ -381,7 +381,7 @@ export function useAgv(isAgv) {
     }
     if (event.key === journalKey && event.newValue) {
       const stored = load(journalKey, null);
-      if (stored?.started_at === session.value.started_at && !Object.keys(journal.value.cursors).length) journal.value = stored.journal;
+      if (stored?.started_at === session.value.started_at) journal.value = mergeJournal(stored.journal, journal.value);
     }
   }
 

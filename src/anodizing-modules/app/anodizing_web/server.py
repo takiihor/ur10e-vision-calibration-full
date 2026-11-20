@@ -225,6 +225,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, {'app_id': 'anodizing_modules_v1', 'owner': self.server.owner.status(), 'data_dir': str(self.server.root),
                                     'allow_camera': self.server.allow_camera,
                                     'allow_teaching': self.server.allow_teaching, 'allow_manual': self.server.allow_manual,
+                                    'allow_manual_pick_place': self.server.owner.allow_manual_pick_place,
                                     'allow_auto_calibration': self.server.owner.allow_auto_calibration, 'allow_teacher_motion': self.server.owner.allow_teacher_motion, 'robot_model': model})
         if path == '/api/tool-power':
             return self.reply(200, tool_power.capability(self.server.owner))

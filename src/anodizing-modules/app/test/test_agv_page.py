@@ -9,7 +9,7 @@ import pytest
 @pytest.mark.skipif(not shutil.which('node'), reason='Node is unavailable')
 @pytest.mark.parametrize('scenario', [
     'reload', 'blocked', 'single-port', 'ambiguous', 'rejected', 'escape-stop', 'standard',
-    'motion-approval', 'pick-place-urgent', 'station-range', 'station-unlearned',
+    'contradictory', 'requested-evidence', 'motion-approval', 'pick-place-urgent', 'station-range', 'station-unlearned',
 ])
 def test_agv_page(scenario):
     fixture = Path(__file__).with_name('agv_page.cjs')

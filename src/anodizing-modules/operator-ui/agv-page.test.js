@@ -6,7 +6,7 @@ import PrimeVue from 'primevue/config';
 import ConfirmationService from 'primevue/confirmationservice';
 import AgvPage from './AgvPage.vue';
 import { useAgv } from './useAgv.js';
-import { newSession, sessionKey } from '../app/anodizing_web/web/agv-record.mjs';
+import { journalKey, newSession, sessionKey } from '../app/anodizing_web/web/agv-record.mjs';
 
 const stamp = '2026-11-20T08:00:00.000Z';
 const settings = { mode: 'simulator', address: '00 01', channel: '04' };
@@ -187,4 +187,36 @@ it('preserves the restart delay exactly when displaying and recording it', async
   expect(JSON.parse(localStorage.getItem(sessionKey)).settings['restart-seconds']).toBe('0.9876543210');
   await field.setValue('');
   expect(JSON.parse(localStorage.getItem(sessionKey)).settings['restart-seconds']).toBe('');
+});
+
+it('keeps a flag-only halt result in the waiting state', async () => {
+  const { resultText } = await import('../app/anodizing_web/web/agv-record.mjs');
+  const result = resultText('pause', { state: 'confirmed by status', confirmed_stopped: false,
+    sent_at: '2026-11-20T00:00:00Z' }, false, 'stop');
+  expect(result.tone).toBe('waiting');
+  expect(result.text).not.toMatch(/reports stopped/i);
+});
+
+
+it('preserves another tab’s observation and command annotation when closing at the same cursor', async () => {
+  const staleTab = await open();
+  staleTab.persistSession();
+  staleTab.persistJournal();
+  const firstApp = app;
+  const otherTab = await open();
+  expect(otherTab.journal.cursors).toEqual(staleTab.journal.cursors);
+  otherTab.journal.commands['2/4'] = { connection: '2', name: 'pause', tx_id: 4,
+    timestamp: stamp, state: 'sent', sent_at: stamp, requested_commands: ['stop'] };
+  await app.get('#agv-mark-text').setValue('Observed a parked vehicle');
+  await app.get('#agv-mark').trigger('submit');
+  const update = localStorage.getItem(journalKey);
+  expect(JSON.parse(update).journal.events).toHaveLength(1);
+  app.unmount();
+  app = firstApp;
+  window.dispatchEvent(new StorageEvent('storage', { key: journalKey, newValue: update }));
+  window.dispatchEvent(new Event('pagehide'));
+  app.unmount();
+  const reloaded = await open();
+  expect(reloaded.journal.events.map(event => event.text)).toContain('Observed a parked vehicle');
+  expect(reloaded.journal.commands['2/4'].requested_commands).toEqual(['stop']);
 });

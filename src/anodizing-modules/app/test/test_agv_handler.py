@@ -766,7 +766,7 @@ def command_writes(state, name):
 @pytest.mark.parametrize(('command', 'interval', 'limit', 'reply_wait'), [
     ('stop', 1.5, 5, 1), ('pause', 1.5, 5, 1),
 ])
-def test_unanswered_commands_resend_the_identical_frame_to_the_try_limit(
+def test_unanswered_halt_retries_to_the_try_limit(
         session, agv_clock, command, interval, limit, reply_wait):
     _, request = session
     connection_id = open_simulator(request, agv_mode=0)
@@ -776,24 +776,29 @@ def test_unanswered_commands_resend_the_identical_frame_to_the_try_limit(
 
     status, state = send(request, command, connection_id)
     assert status == 200
-    first, = command_writes(state, command)
+    def writes(state):
+        names = ('stop', 'pause') if command == 'stop' else ('pause',)
+        return [entry for entry in state['log'] if entry['direction'] == 'TX'
+                and entry['decode'].get('command') in names]
+
     for attempt in range(2, limit + 1):
         agv_clock.now += interval - .01
-        assert len(command_writes(request()[1], command)) == attempt - 1
+        assert len(writes(request()[1])) == attempt - 1
         agv_clock.now += .01
-        assert len(command_writes(request()[1], command)) == attempt
+        assert len(writes(request()[1])) == attempt
 
     agv_clock.now += reply_wait
     state = request()[1]
-    writes = command_writes(state, command)
-    assert [entry['hex'] for entry in writes] == [first['hex']] * limit
-    assert [entry['decode']['try'] for entry in writes] == list(range(1, limit + 1))
+    attempts = writes(state)
+    if command == 'pause':
+        assert len({entry['hex'] for entry in attempts}) == 1
+    assert [entry['decode']['try'] for entry in attempts] == list(range(1, limit + 1))
     assert state['results'][command]['state'] == 'no reply'
     quality = state['link_quality']
     assert (quality['sent'], quality['acknowledged'], quality['resent'], quality['no_reply']) == (
         limit + 1, 0, limit - 1, 1)
     agv_clock.now += 20
-    assert len(command_writes(request()[1], command)) == limit
+    assert len(writes(request()[1])) == limit
 
 
 def test_retry_acknowledgement_ends_resends_without_confirming_status(session, agv_clock):
@@ -853,10 +858,12 @@ def test_stop_status_ends_resends_even_if_the_ack_was_lost(session, agv_clock, m
     connection_id = open_simulator(request, agv_mode=0)
     send(request, 'query_status', connection_id)
     send(request, 'stop', connection_id)
-    agv_clock.now += 1.5
-    assert len(command_writes(request()[1], 'stop')) == 1
-
-    state = send(request, 'query_status', connection_id)[1]
+    transport = request.connection.transport
+    agv_clock.now += .5
+    transport._report()
+    assert request()[1]['results']['stop']['confirmed_stopped'] is False
+    agv_clock.now += .5
+    state = request()[1]
     assert state['results']['stop']['state'] == 'confirmed by status'
     assert 'ack_elapsed_s' not in state['results']['stop']
     agv_clock.now += 2
@@ -1217,7 +1224,7 @@ def test_auto_poll_does_not_keep_postponing_stop_retries(session, agv_clock):
     assert len(command_writes(request()[1], 'stop')) == 2
 
 
-@pytest.mark.parametrize('action', ['disarm', 'disconnect', 'link_change'])
+@pytest.mark.parametrize('action', ['disarm'])
 def test_pending_urgent_retry_survives_disarm_on_the_same_link(session, agv_clock, action):
     _, request = session
     _, state = request(dict(action='connect', mode='simulator', agv_mode=0))
@@ -1758,3 +1765,168 @@ def test_pause_flag_does_not_confirm_stop_at_nonzero_speed(session, agv_clock):
     state = request()[1]
     assert state['status']['actual_speed_m_h'] == 0
     assert state['results']['pause']['confirmed_stopped'] is True
+
+
+def test_stale_mode_stop_reselects_after_fresh_mode_change(session, agv_clock):
+    _, request = session
+    open_simulator(request, agv_mode=0)
+    send(request, 'query_status')
+    transport = request.connection.transport
+    transport.mode, transport.stopped = 2, False
+    agv_clock.now += agv.STALE_AFTER + .1
+    send(request, 'stop')
+    transport._report()
+    request()
+    agv_clock.now += 1.51
+    state = request()[1]
+    assert command_writes(state, 'pause')
+    assert transport.stopped
+
+
+@pytest.mark.parametrize(('field', 'value'), [
+    ('station_arrival', False), ('actual_speed_m_h', 100),
+    ('obstacle_stop', True), ('fault_code', 1),
+])
+def test_station_arrival_and_cache_require_safe_arrival_evidence(session, agv_clock, field, value):
+    _, request = session
+    cid = open_simulator(request)
+    send(request, 'query_status')
+    request(dict(action='arm', armed=True, connection_id=cid))
+    assert send(request, 'call_station', cid, value=2)[0] == 200
+    link = request.connection
+    with link.lock:
+        previous = link.last_confirmed_station
+        status = dict(link.status, current_station=2, target_station=2, stopped=True,
+                      actual_speed_m_h=0, station_arrival=True, obstacle_stop=False, fault_code=0)
+        status[field] = value
+        link._status_received(status, b'')
+        assert link.results['call_station']['state'] != 'arrived'
+        assert link.last_confirmed_station == previous
+
+
+def test_disconnect_refuses_pending_halt_and_keeps_retry_on_link(session, agv_clock):
+    _, request = session
+    cid = open_simulator(request, agv_mode=0)
+    send(request, 'query_status')
+    request(dict(action='silence', silent=True, connection_id=cid))
+    send(request, 'stop')
+    code, state = request(dict(action='disconnect', connection_id=cid))
+    assert code == 400 and state['error']
+    agv_clock.now += 1.51
+    state = request()[1]
+    assert state['connected'] and len(command_writes(state, 'stop')) == 2
+
+
+def test_timed_report_does_not_clear_pre_stop_query_ambiguity(agv_clock, half_duplex):
+    link = agv.Connection(SimpleNamespace(lock=RLock(), closing=False, active=None,
+                                          storage_error=None, execution_uncertain=False))
+    try:
+        link.submit(dict(action='connect'))
+        with link.lock:
+            link.transport.stopped = False
+            link.transport._report()
+            link._receive()
+            link.transport.delay = 1.15
+            link.transport.stopped = True
+            link._send('query_status', None, background=True)
+            link.transport.stopped = False
+            link.transport._report()
+            link._receive()
+        started = agv_clock.now
+        state = link.submit(dict(action='send', command='stop'))
+        halt = state.get('urgent_command', 'stop')
+        link.transport.pending_status = started + 1.15
+        link.transport.stopped = True
+        agv_clock.now += 1.16
+        state = link.capability()
+        assert not state['results'][halt].get('confirmed_stopped', False)
+    finally:
+        link.close()
+
+
+def test_blocked_pose_retry_does_not_block_halt_retry(session, monkeypatch):
+    from anodizing_web import travel_pose
+    from time import sleep
+    owner, request = session
+    cid = open_simulator(request, agv_mode=0)
+    send(request, 'query_status')
+    request(dict(action='arm', armed=True, connection_id=cid))
+    request(dict(action='silence', silent=True, connection_id=cid))
+    assert send(request, 'forward', cid)[0] == 200
+    owner.robot_configured = True
+    entered, release = Event(), Event()
+
+    def blocked_pose(owner):
+        entered.set()
+        release.wait(4)
+        return ''
+
+    monkeypatch.setattr(travel_pose, 'motion_block', blocked_pose)
+    try:
+        assert entered.wait(3)
+        assert send(request, 'stop')[0] == 200
+        sleep(1.7)
+        state = request.connection.commissioning()
+        assert len(command_writes(state, 'stop')) >= 2
+    finally:
+        release.set()
+
+
+def test_second_ack_for_retried_speed_cannot_acknowledge_halt(session, agv_clock):
+    _, request = session
+    cid = open_simulator(request, agv_mode=0)
+    send(request, 'query_status')
+    request(dict(action='arm', armed=True, connection_id=cid))
+    request(dict(action='silence', silent=True, connection_id=cid))
+    send(request, 'set_speed', cid, value=500)
+    agv_clock.now += 2
+    state = request()[1]
+    assert len(command_writes(state, 'set_speed')) == 2
+    link = request.connection
+    with link.lock:
+        link._acknowledge({})
+    agv_clock.now += 1.51
+    request()  # Expire the acknowledged record before the halt.
+    state = send(request, 'stop')[1]
+    halt = state['urgent_command']
+    with link.lock:
+        link._acknowledge({})
+    agv_clock.now += 1.51
+    state = request()[1]
+    assert 'ack_elapsed_s' not in state['results'][halt]
+    assert len(command_writes(state, 'stop')) + len(command_writes(state, 'pause')) >= 2
+
+
+def test_pre_halt_parked_reply_with_old_pause_flag_needs_corroboration(agv_clock, half_duplex):
+    link = agv.Connection(SimpleNamespace(lock=RLock(), closing=False, active=None,
+                                          storage_error=None, execution_uncertain=False))
+    try:
+        link.submit(dict(action='connect'))
+        with link.lock:
+            link.transport.stopped = True
+            link.transport.paused = True
+            link.transport._report()
+            link._receive()
+            link.transport.delay = 1.15
+            link._send('query_status', None, background=True)
+            link.transport.stopped = False
+            link.transport.paused = False
+            link.transport._report()
+            link._receive()
+        started = agv_clock.now
+        state = link.submit(dict(action='send', command='stop'))
+        halt = state['urgent_command']
+        assert halt == 'pause'
+        link.transport.pending_status = started + 1.15
+        link.transport.stopped = True
+        link.transport.paused = True
+        agv_clock.now += 1.16
+        state = link.capability()
+        assert state['status']['paused'] is True
+        assert not state['results'][halt].get('confirmed_stopped', False)
+        with link.lock:
+            link.transport._report()
+            link._receive()
+        assert link.capability()['results'][halt].get('confirmed_stopped') is True
+    finally:
+        link.close()

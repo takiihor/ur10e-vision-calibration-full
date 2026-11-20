@@ -197,3 +197,31 @@ it('lets the operator disarm a stale link without re-enabling movement', async (
   expect(armed).toBe(false);
   expect(element('armed').element.disabled).toBe(true);
 });
+
+it('disables station-call Pause in standard mode while leaving software Stop available', async () => {
+  const sent = [];
+  open('#/', async (path, body) => {
+    if (path === '/api/state') return { variables: [] };
+    if (path === '/api/status') return { owner: {} };
+    if (body) sent.push(body);
+    return { ...connected, armed: false, sequence: 1, status_age_s: 0.1,
+      status: { mode: 0, stopped: false, actual_speed_m_h: 500 }, commands: [], results: {} };
+  });
+  await flushPromises();
+  expect(element('pause').element.disabled).toBe(true);
+  expect(element('stop').element.disabled).toBe(false);
+  expect(app.get('.stop-bar').text()).toMatch(/station.call/i);
+  expect(app.get('.stop-bar').text()).toMatch(/standard mode.*stop/i);
+  await element('pause').trigger('click');
+  expect(sent.some(body => body.command === 'pause')).toBe(false);
+});
+
+it('identifies disconnected AGV transport and enabled manual pick/place capability', async () => {
+  open('#/', async path => path === '/api/state' ? { variables: [] } :
+    path === '/api/status' ? { app_id: 'anodizing_modules_v1', owner: {}, allow_manual: false,
+      allow_manual_pick_place: true } : { connected: false, sequence: 1, commands: [], results: {} });
+  await flushPromises();
+  expect(app.text()).not.toMatch(/Simulation/);
+  expect(app.text()).toMatch(/AGV.*(disconnected|no connection)/i);
+  expect(app.text()).toMatch(/pick\/place.*enabled/i);
+});

@@ -33,13 +33,16 @@ def agv_state(sample):
                     quality='unknown' if value is None else 'fresh', reason=reason if value is None else None)
 
     stopped = report.get('stopped')
+    speed = report.get('actual_speed_m_h')
+    moving = True if stopped is False or (speed is not None and speed != 0) else (
+        False if stopped is True and speed == 0 else None)
     yield event('connected', 'AGV connected', connected, opened_at)
     yield event('transport', 'Transport', mode if connected else None, opened_at)
     yield event('last_confirmed_station', 'Last confirmed station',
                 last_station[0] if connected and last_station else None,
                 last_station[1] if connected and last_station else None, 'station',
                 'No station arrival has been confirmed on this connection.')
-    yield reported('moving', 'Moving', not stopped if type(stopped) is bool else None)
+    yield reported('moving', 'Moving', moving)
     yield reported('current_station', 'Current station', report.get('current_station') if station_mode else None, 'station')
     yield reported('target_station', 'Target station', report.get('target_station') if station_mode else None, 'station')
     for key, name, field, unit in (

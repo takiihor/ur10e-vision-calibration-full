@@ -22,10 +22,10 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 ## 2. Stop and Pause
 - **Placement.** Stop and Pause stay in one fixed position at the top and are always visible. Scroll, reflow or an open panel never moves them.
 - **Availability.**
-  - They are enabled whenever a link is open.
+  - Software Stop stays available while the link is open. Pause is a station-call control. A fresh standard-mode report disables Pause and points the operator to software Stop.
   - They never ask for confirmation.
   - They never wait behind another request.
-- **Feedback.** Name the command sent. Software Stop sends Stop in standard mode (0) and Pause in station-call mode (2). It starts with Stop and can try Pause if the operating mode has yet to be identified. “AGV reports stopped” requires a fresh report with the stopped flag and zero speed. An ACK or a stop flag alone leaves the motion outcome unconfirmed.
+- **Feedback.** Identify the requested action and retain the wire command in the record. Software Stop sends Stop in standard mode (0) and Pause in station-call mode (2). Each retry uses fresh mode evidence when available. With no fresh mode, software Stop starts with Stop and can try Pause. “AGV reports stopped” requires a fresh stopped flag and zero speed. An ACK or a stop flag alone leaves the motion outcome unconfirmed.
 - Pick/place reads the AGV link independently of the robot travel-pose check. Escape sends a Stop request even while the travel-pose feedback is unavailable.
 - **It is not an e-stop.** Label it "Stop (software)", and keep the line "Not an emergency stop. Use the AGV's e-stop." next to it. Never style it red-on-yellow, which ISO 13850 reserves for emergency stops.
 - **Size.** Make Stop and Pause the largest controls on the page: at least 64 px tall, with space around them.
@@ -34,8 +34,8 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 ## 3. Movement is deliberate
 - **One press authorizes one command on AGV commissioning.** The page shows “Sending…” immediately. With a status query in flight and timed reports absent, the first Stop or Pause write waits for the reply or until 0.95 s after the query write, whichever comes first. Otherwise the first write sends immediately. Stop and Pause can retry up to four times after the first write. A confirming status can end retries. An ACK can end retries only when it identifies the outstanding halt unambiguously. Scheduled writes wait at least 0.75 s from the last write and use the 100–150 ms gap when timed reports are on schedule. Retries without timed reports wait at least 1.5 s. Ordinary commands wait for an open read to finish. A repeated Stop press joins the pending Stop. An unchanged parked status on a timed stream or from a query sent before the command only confirms the vehicle's current state.
 - Repeatable movement and setting commands get up to four tries at least 2 s apart. Relative 180° rotation gets one write and reports uncertain delivery when no reply arrives. Each movement write needs valid, fresh feedback. A station call also needs station-call mode and a learned destination.
-- When timed reports are detected, scheduled writes align with the measured 100–150 ms gap after a report. Stop and Pause invalidate earlier movement approvals and supersede ordinary retries. Disarm or recipe handoff on the same link preserves a pending halt. The service refuses new foreground requests during the urgent delivery window.
-- Without timed reports, the page polls every 1.2 s and the recipe polls every 0.9 s, subject to the open reply window. Automatic polls yield to an urgent write waiting for a status reply, its pending ACK and its retries. A report that could answer a pre-halt query updates telemetry while halt delivery remains unconfirmed. An unambiguous ACK within 0.3 s of a write command's no-reply outcome changes the message to “AGV acknowledged late” and updates the link counts.
+- When timed reports are detected, scheduled writes align with the measured 100–150 ms gap after a report. Stop and Pause invalidate earlier movement approvals and supersede ordinary retries. Disarm or recipe handoff on the same link preserves a pending halt. Disconnect and new foreground requests wait for the bounded urgent delivery window.
+- Without timed reports, the service polls for commissioning and the recipe polls every 0.9 s, subject to the open reply window. Polling yields to urgent sends and retries. A pre-halt query reply can arrive after an intervening timed report. When a query preceded the halt, confirmation requires the corresponding halt flag with zero speed and a stopped bit, corroborated by another qualifying status or a matched ACK. An earlier command with unresolved ACKs makes the short ACK ambiguous. A late matched ACK updates link counts while motion confirmation still depends on status.
 - **Arming.**
   - Movement needs a visible Armed control.
   - Armed resets on reconnect and is never restored from storage.
@@ -44,8 +44,8 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 - Standalone MCU gripper actuation requires AGV parked or an operator confirmation that it is switched off. If the AGV starts reporting during a job declared switched off, the job is interrupted. The read-sensors button stays available under the existing MCU rules.
 - **Disabled controls say why.** For example "Tick Armed to enable movement", "Connect first" or "A robot job is running". A greyed-out button with no reason is a bug.
 - **Validate input before sending.** Set speed defaults to 500 m/h, the slowest setting. Check ranges (speed 500–4000 m/h, stations 1–N) and explain any limit next to the field.
-- In station-call mode (2), the raw RS485 `max_stations` field counts learned legs beyond the start. A count of 1 gives two call targets, stations 1 and 2. A zero count disables calls. The simulator setting counts physical stations including the start, so set it to 2 for a two-station simulation.
-- In standard mode (0), show the stop counter and distance to the stop line. Forward and Reverse are the vehicle command names. The Stations panel explains how to enable station call in the XBOT app.
+- In station-call mode (2), the raw RS485 `max_stations` field counts learned legs beyond the start. A count of 1 gives targets 1 and 2. A zero count disables calls. The simulator counts physical stations including the start. An arrival requires a matching learned station, the arrival and stopped flags, zero speed and clear fault and obstacle fields.
+- In standard mode (0), show the stop counter and distance to the stop line. Use Forward and Reverse as the vehicle command names. The Stations panel explains how to enable station call in the XBOT app.
 
 ## 4. Feedback timing
 | After a press | The page must show |
@@ -100,7 +100,7 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 ## 8. Errors and recovery
 - **Prevent first, explain second.** Disable impossible actions and validate input. Ask for confirmation only for actions that destroy data, such as "New test session"; never for Stop or Pause.
 - **Every error names its fix.** For example:
-  - permission denied: refresh serial permissions for the service user on the IPC;
+- permission denied: refresh the serial permissions for the service user on the IPC;
   - port missing: reseat the plug, reload;
   - link lost mid-move: the AGV may still be moving, use its e-stop.
 - **Reload-safe.** The test session (checklist, notes, settings as found) saves as you go and survives a reload. Storage failures must not break the page.
@@ -121,7 +121,7 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 - **Simulator evidence is never presented as hardware evidence.** The record states the transport used.
 
 ## Review checklist (part of "done" for any operator page)
-- [ ] Stop and Pause stay in place, stay enabled while a link is open, and show “Sending…” on press. An open query reply is the only reason the first write waits for a wire slot.
+- [ ] Stop and Pause stay in place and show "Sending…" on press. Software Stop stays available on an open link. A fresh standard-mode report disables Pause and explains the available Stop action.
 - [ ] Every press shows "Sending…" within 0.1 s and ends in exactly one worded outcome, beside the control and in the status line.
 - [ ] Sent, replied, confirmed and observed are never conflated.
 - [ ] The link's age is always visible; stale shows as a red alarm with an action.

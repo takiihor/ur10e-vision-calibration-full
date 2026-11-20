@@ -114,6 +114,42 @@ class MCUTests(unittest.TestCase):
             self.assertEqual(self.finish('mcu-sensor-read')['state'], 'done')
         self.assertEqual(sock.sent, [b'0'])
 
+    def test_refused_handoff_releases_reservation_for_sensor_and_shutdown(self):
+        from contextlib import contextmanager
+        from anodizing_web.recipe_agv import StationVisit
+
+        @contextmanager
+        def refused(_visit):
+            raise ValueError('AGV handoff refused')
+            yield
+
+        sock = FakeSocket(b'FSR1:1/FSR2:2')
+        with (mock.patch.object(StationVisit, 'watch', refused),
+              mock.patch.object(mcu.socket, 'create_connection', return_value=sock)):
+            self.submit()
+            job = self.finish()
+            self.assertEqual(job['state'], 'failed')
+            self.assertIn('AGV handoff refused', job['error'])
+            self.assertEqual(sock.sent, [])
+            try:
+                self.submit('0', 'mcu-sensor-after-refusal')
+                sensor = self.finish('mcu-sensor-after-refusal')
+                sensor_error = None
+            except ValueError as exc:
+                sensor, sensor_error = None, str(exc)
+            shutdown = threading.Thread(target=self.owner.shutdown, daemon=True)
+            shutdown.start()
+            shutdown.join(.3)
+            shutdown_finished = not shutdown.is_alive()
+            if not shutdown_finished:
+                with self.owner.lock:
+                    self.owner.mcu_pending = None
+                shutdown.join(1)
+        self.assertIsNone(sensor_error, sensor_error)
+        self.assertEqual(sensor['state'], 'done')
+        self.assertEqual(sock.sent, [b'0'])
+        self.assertTrue(shutdown_finished, 'shutdown remained blocked by refused MCU request')
+
     def test_serial_report_before_dispatch_cancels_declared_off_actuation(self):
         self.owner.agv = link = agv.Connection(self.owner)
         self.addCleanup(link.close)

@@ -21,7 +21,11 @@ const targetOutcome = ref({});
 const targetSending = new Set();
 let timer, observer, checking = false, retired = false;
 
-const transport = computed(() => agv.state.connected && agv.state.settings?.mode === 'serial' ? 'Serial AGV' : 'Simulation');
+const transport = computed(() => {
+  if (agv.state.sequence === -1 || agv.serviceError) return 'AGV transport · Unknown';
+  if (!agv.state.connected) return 'AGV transport · Disconnected';
+  return agv.state.settings?.mode === 'serial' ? 'AGV transport · Serial' : 'AGV transport · Simulator';
+});
 const active = computed(() => service.value?.owner?.jobs?.find(job => job.id === service.value.owner.active));
 const targets = computed(() => (service.value?.owner?.stop_targets ?? []).map(({ kind, job_id }) => ({
   kind, job_id,
@@ -123,7 +127,8 @@ onUnmounted(() => {
           <dl v-if="service && !offline" class="capabilities">
             <dt>Camera</dt><dd>{{ service.allow_camera ? 'Enabled' : 'Disabled' }}</dd>
             <dt>Teaching hardware</dt><dd>{{ service.allow_teaching ? 'Enabled' : 'Disabled' }}</dd>
-            <dt>Manual robot controls</dt><dd>{{ service.allow_manual ? 'Enabled' : 'Disabled' }}</dd>
+            <dt>Pendant calibration</dt><dd>{{ service.allow_manual ? 'Enabled' : 'Disabled' }}</dd>
+            <dt>Manual Pick/place</dt><dd>{{ service.allow_manual_pick_place ? 'Enabled' : 'Disabled' }}</dd>
           </dl>
         </template>
       </Card>

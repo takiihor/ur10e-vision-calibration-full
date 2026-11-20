@@ -1,4 +1,4 @@
-import { connectionKey, sessionKey, journalKey, urgent, reads, linkLost, portRetry, badFrame,
+import { connectionKey, sessionKey, journalKey, urgent, reads, linkLost, badFrame, motionText, pauseStationOnly, mergeJournal,
   stationCallRequired, stationLimit, emptyJournal, isoNow, localTime, seconds, speedText, load, save, newSession,
   fieldLabels, modes, outcomesList, checklist, checklistCommands, foundFields, faultText,
   linkQualityText, resultText, eventText, connectionKeyFor, exportRecord, markdown } from './agv-record.mjs';
@@ -20,6 +20,15 @@ let state = {connection_id: 0, sequence: -1, results: {}};
 let capability, busy = false, fetching = false, nextRefresh = 0;
 let lastPressed, networkError = false, reportError = '', lastMaximum, renderedStatus, renderedLog, renderedEvent;
 let audio, reportErrorUntil = 0;
+let receivedAt = performance.now();
+
+function statusAge() {
+  return state.status_age_s == null ? null : state.status_age_s + (performance.now() - receivedAt) / 1000;
+}
+
+function statusStale() {
+  return state.stale || statusAge() >= (state.recipe_active ? 3 : 5);
+}
 
 function make(tag, text, attributes = {}) {
   const node = Object.assign(document.createElement(tag), attributes);
@@ -32,6 +41,10 @@ function saveSession() {
 }
 
 function saveJournal() {
+  const currentSession = load(sessionKey, null);
+  if (currentSession && currentSession.started_at !== session.started_at) return;
+  const stored = load(journalKey, null);
+  if (stored?.started_at === session.started_at) journal = mergeJournal(stored.journal, journal);
   if (!save(journalKey, {started_at: session.started_at, journal})) {
     display('record-note', 'The full log could not be saved in the browser. Download JSON before leaving.');
   }
@@ -76,7 +89,9 @@ function buildChecklist() {
       session.checklist[number] = {...saved, result: result.value, notes: notes.value, evidence: {
         marked_at: marked, status: state.status ?? null, status_age_s: state.status_age_s ?? null,
         connected: !!state.connected, stale: !!state.stale, transport: state.settings?.mode ?? null,
-        commands: Object.values(journal.commands).filter(entry => during(entry) && checklistCommands[index].includes(entry.name)), events: journal.events.filter(during),
+        commands: Object.values(journal.commands).filter(entry => during(entry) &&
+          (entry.requested_commands ?? [entry.requested_command ?? entry.name])
+            .some(command => checklistCommands[index].includes(command))), events: journal.events.filter(during),
       }};
       saveSession();
       show();
@@ -191,13 +206,14 @@ function disabled(id, reason) {
 
 function commandReason(name, preset) {
   if (!state.connected) return 'Connect first.';
+  if (name === 'pause' && !statusStale() && state.status?.mode === 0) return pauseStationOnly;
   if (urgent.has(name)) return '';
   if (name === 'call_station' && state.status?.mode === 0) return stationCallRequired;
   if (state.recipe_active && !commands.get(name)?.motion) return 'The recipe is checking AGV status. Follow Current operation on Pick/place.';
   if (commands.get(name)?.motion) {
     if (state.motion_block) return state.motion_block;
     if (!state.armed) return 'Tick Armed to enable movement.';
-    if (state.stale || !state.status) return 'Wait for a fresh AGV status report.';
+    if (statusStale() || networkError || !state.status) return 'Wait for a fresh AGV status report.';
     if (![0, 2].includes(state.status.mode)) return 'Select standard or station-call mode in the XBOT app first.';
     if (state.status.fault_code || state.status.obstacle_stop) return 'Clear the reported AGV fault or obstacle before continuing.';
     if (name === 'resume' && state.status.mode === 0) return 'Resume requires station-call mode.';
@@ -212,14 +228,11 @@ function commandReason(name, preset) {
 }
 
 function renderStatus() {
-  const status = state.status;
+  const status = state.connected && !statusStale() && !networkError ? state.status : null;
   const standard = status?.mode === 0;
   const maximum = standard ? undefined : stationLimit(status);
   $('manual-station').hidden = standard;
   $('target-readout').hidden = standard;
-  $('direction-note').hidden = !standard;
-  if (commands.has('forward')) display('forward', standard ? 'Forward' : 'Forward');
-  if (commands.has('reverse')) display('reverse', standard ? 'Reverse' : 'Reverse');
   display('station-note', standard ? stationCallRequired : maximum === 0
     ? 'No route learned yet. Teach the route with the AGV’s green button; see the XBOT station guide (V1.61, pp. 2–3).'
     : maximum > 0 ? `${maximum} stations on the learned route. Current station is marked on its button.`
@@ -242,13 +255,14 @@ function renderStatus() {
   display('transport', state.connected ? state.settings.mode === 'simulator' ? 'Simulator' : 'Serial AGV' : 'No open connection');
   $('link-quality').hidden = !state.connected || !state.link_quality;
   if (state.link_quality) display('link-quality', linkQualityText(state.link_quality));
-  if (renderedStatus === state.status_hex) return;
-  renderedStatus = state.status_hex;
+  const liveStatus = status ? state.status_hex : null;
+  if (renderedStatus === liveStatus) return;
+  renderedStatus = liveStatus;
   const bool = value => value === true ? 'On' : value === false ? 'Off' : 'Unknown';
   const actual = status?.actual_speed_m_h;
   display('station-label', standard ? 'Stop counter (not a station number in standard mode)'
     : maximum === 0 ? 'Stop counter (no route learned)' : 'Current station');
-  display('state-motion', status?.stopped === true ? 'Stopped' : status?.stopped === false ? 'Running' : '—');
+  display('state-motion', motionText(status));
   display('state-station', String(status?.current_station ?? '—'));
   display('state-target', String(status?.target_station ?? '—'));
   display('state-speed', actual == null ? '—' : speedText(actual) + (actual ? actual < 0 ? ' · Reverse' : ' · Forward' : ''));
@@ -266,13 +280,13 @@ function renderStatus() {
     return [make('dt', title), make('dd', field === 'set_speed_m_h' ? speedText(value)
       : typeof value === 'boolean' ? bool(value) : String(value))];
   }));
-  display('raw', state.status_hex ?? '');
+  display('raw', liveStatus ?? '');
 }
 
 function renderOutcome(id) {
   const element = controls.get(id)?.outcome;
   const outcome = outcomes.get(id);
-  const feedback = resultText(outcome?.name, outcome?.result, outcome?.viaEsc) ?? outcome?.direct;
+  const feedback = resultText(outcome?.name, outcome?.result, outcome?.viaEsc, outcome?.requested) ?? outcome?.direct;
   if (element) {
     if (element.textContent !== (feedback?.text ?? '')) element.textContent = feedback?.text ?? '';
     element.dataset.state = feedback?.tone ?? '';
@@ -303,7 +317,8 @@ function render() {
       : !Number.isInteger(stationCount) || stationCount < 0 || stationCount > 255 || $('stations-config').value === ''
         ? 'Enter a simulator station count from 0 to 255.' : '');
   disabled('connect', connectReason);
-  disabled('disconnect', !state.connected ? 'Connect first.' : state.recipe_active ? 'Stop the active recipe before disconnecting.' : busy ? 'Wait for the current request.' : '');
+  disabled('disconnect', !state.connected ? 'Connect first.' : state.recipe_active ? 'Stop the active recipe before disconnecting.' :
+    state.halt_pending ? 'AGV Stop or Pause is awaiting delivery. Wait before disconnecting.' : busy ? 'Wait for the current request.' : '');
   disabled('armed', !state.connected ? 'Connect first.' : busy ? 'Wait for the current request.' : state.motion_block || '');
   disabled('silence', busy ? 'Wait for the current request.' : '');
   $('armed').checked = state.armed || false;
@@ -320,15 +335,16 @@ function render() {
     renderOutcome(id);
   }
   if (!lastPressed && capability) display('outcome', state.connected ? '' : 'Select Connect to begin.');
-  const age = state.status_age_s;
+  const age = statusAge();
+  const stale = state.connected && statusStale();
   const elapsed = age == null ? 'no status report yet' : `last status report ${seconds(age)} s ago`;
   const error = networkError || state.error;
   display('link', error ? `Error · ${elapsed}` : !state.connected ? 'Disconnected'
-    : state.stale ? `Link stale · ${elapsed}` : `Connected · ${elapsed}`);
-  $('link').dataset.state = error || state.stale ? 'failed' : '';
+    : stale ? `Link stale · ${elapsed}` : `Connected · ${elapsed}`);
+  $('link').dataset.state = error || stale ? 'failed' : '';
 
   const alarms = [];
-  if (state.stale && state.connected) alarms.push('Link stale. The AGV may still be moving. Use its e-stop if needed. Check the radio before moving again.');
+  if (stale) alarms.push('Link stale. The AGV may still be moving. Use its e-stop if needed. Check the radio before moving again.');
   if (error) alarms.push(networkError ? state.connected ? linkLost : 'Page service unavailable. Reload and reconnect when safe.' : state.error);
   if (state.status?.fault_code) alarms.push(faultText(state.status) + '. Check the machine and consult the manual before moving.');
   if (state.status?.obstacle_stop === true) alarms.push('Obstacle stop active. Check the track and clear it when safe.');
@@ -382,7 +398,7 @@ function ingest(next, connection) {
   for (const [name, result] of [...(next.replaced ?? []), ...Object.entries(next.results)]) {
     const key = `${connection}/${result.tx_id}`;
     if (result.background || !result.tx_id || (!journal.commands[key] && !entries.some(entry => entry.id === result.tx_id))) continue;
-    journal.commands[key] = {connection, name, timestamp: result.sent_at, ...result};
+    journal.commands[key] = {...journal.commands[key], connection, name, timestamp: result.sent_at, ...result};
   }
 }
 
@@ -410,6 +426,7 @@ function apply(next) {
   if (next.error && next.error !== state.error) reportError = '';
   if (performance.now() >= reportErrorUntil) reportError = '';
   state = next;
+  receivedAt = performance.now();
   if (next.ports || changed && capability) showPorts(next.ports ?? capability.ports);
   ingest(next, connection);
   for (const [id, item] of outcomes) {
@@ -487,7 +504,12 @@ async function post(body, {id, priority = false, viaEsc = false} = {}) {
         const current = state.results[name];
         const fromResponse = result.results[name];
         const newest = connectionKeyFor(state) === resultConnection && current?.tx_id === fromResponse?.tx_id ? current : fromResponse;
-        outcomes.set(id, {name, result: newest, connection: resultConnection, viaEsc});
+        outcomes.set(id, {name, requested: body.command, result: newest, connection: resultConnection, viaEsc});
+        const entry = journal.commands[`${resultConnection}/${newest.tx_id}`];
+        if (priority && entry) {
+          entry.requested_commands = [...new Set([...(entry.requested_commands ?? []), body.command])];
+          saveJournal();
+        }
       } else {
         const connected = result.settings?.mode === 'simulator' ? 'Simulator' : 'Serial AGV';
         const text = {connect: 'Connected · ' + connected, disconnect: 'Disconnected.',
@@ -509,6 +531,7 @@ async function post(body, {id, priority = false, viaEsc = false} = {}) {
 }
 
 function sendCommand(command, id, preset, viaEsc = false) {
+  if (command === 'pause' && commandReason(command, preset)) return;
   const body = {action: 'send', command, value: commandValue(command, preset), background: false};
   if (commands.get(command)?.motion) body.stop_generation = state.stop_generation;
   return post(body, {id, priority: urgent.has(command), viaEsc});
@@ -516,6 +539,7 @@ function sendCommand(command, id, preset, viaEsc = false) {
 
 async function tick() {
   const now = performance.now();
+  if (renderedStatus != null && statusStale()) render();
   if (fetching || now < nextRefresh) return;
   fetching = true;
   nextRefresh = now + (state.connected ? 500 : 2000);
@@ -611,6 +635,6 @@ if (['simulator', 'serial'].includes(savedSettings?.mode)) $('mode').value = sav
 for (const id of ['address', 'channel']) if (typeof savedSettings?.[id] === 'string') $(id).value = savedSettings[id];
 if ('ResizeObserver' in window) new ResizeObserver(entries =>
   document.body.style.setProperty('--agv-top-height', entries[0].target.offsetHeight + 'px')).observe(document.querySelector('.agv-safety'));
-window.addEventListener('pagehide', () => { saveSession(); saveJournal(); });
+window.addEventListener('pagehide', saveJournal);
 void tick();
 setInterval(tick, 200);

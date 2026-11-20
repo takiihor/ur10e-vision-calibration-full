@@ -234,6 +234,8 @@ class JobOwner:
                 self.runner = None
                 self.motion_job = None
                 self.agv_visit = None
+                if job['module'] == 'mcu' and self.mcu_pending == job['id']:
+                    self.mcu_pending = None
                 self.active = None
 
     def event(self, job_id, event):

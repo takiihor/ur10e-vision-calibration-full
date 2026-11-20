@@ -18,7 +18,7 @@ import OperatorButton from './OperatorButton.vue';
 import StateIcon from './StateIcon.vue';
 import AgvRecord from './AgvRecord.vue';
 import {
-  faultText, fieldLabels, linkQualityText, localTime, modes, speedText, stationCallRequired, stationLimit,
+  faultText, fieldLabels, linkQualityText, localTime, modes, motionText, speedText, stationCallRequired, stationLimit,
 } from '../app/anodizing_web/web/agv-record.mjs';
 
 const { agv } = defineProps({ agv: { type: Object, required: true } });
@@ -29,7 +29,9 @@ const zero = computed(() => maximum.value === 0);
 const stationMode = computed(() => status.value?.mode === 2 && maximum.value > 0);
 const age = computed(() => agv.age == null ? 'No status report yet.' : `Last report ${agv.age.toFixed(1)} s ago.`);
 const disconnectReason = computed(() => !agv.state.connected ? 'Connect first.' :
-  agv.state.recipe_active ? 'Stop the active recipe before disconnecting.' : agv.busy ? 'Wait for the current request.' : '');
+  agv.state.recipe_active ? 'Stop the active recipe before disconnecting.' :
+    agv.state.halt_pending ? 'AGV Stop or Pause is awaiting delivery. Wait before disconnecting.' :
+      agv.busy ? 'Wait for the current request.' : '');
 const portsBusy = ref(false);
 const transports = [{ label: 'Simulator', value: 'simulator' }, { label: 'Serial port', value: 'serial' }];
 const portOptions = computed(() => agv.ports.map(({ device, description }) => ({
@@ -44,8 +46,7 @@ const bool = value => value === true ? 'On' : value === false ? 'Off' : 'Unknown
 const stats = computed(() => {
   const report = status.value;
   const speed = report?.actual_speed_m_h;
-  const running = report?.stopped === false || (speed != null && speed !== 0);
-  const motion = running ? 'Running' : report?.stopped === true && speed === 0 ? 'Stopped' : 'Unknown';
+  const motion = motionText(report);
   const actual = speed == null ? 'Unknown' : speedText(speed) + (speed ? speed < 0 ? ' · Reverse' : ' · Forward' : '');
   const stations = standard.value || zero.value
     ? [{ label: 'Stop counter', icon: 'hashtag', value: report?.current_station ?? 'Unknown', glance: true }]
@@ -63,8 +64,6 @@ const stats = computed(() => {
 });
 
 function label(name) {
-  if (standard.value && name === 'forward') return 'Forward';
-  if (standard.value && name === 'reverse') return 'Reverse';
   return agv.commands.get(name)?.label ?? name;
 }
 
@@ -271,7 +270,6 @@ function connect() {
               :why="agv.commandReason(name)" :outcome="agv.feedback(name)" @press="agv.send(name)" />
           </template>
         </div>
-        <p v-if="standard">Verify the travel direction for the installed vehicle and track.</p>
         <Accordion v-if="extra.length" class="agv-disclosure">
           <AccordionPanel value="more">
             <AccordionHeader>More commands</AccordionHeader>

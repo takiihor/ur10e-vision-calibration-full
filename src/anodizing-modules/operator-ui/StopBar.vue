@@ -27,7 +27,7 @@ watch([() => feedback.value?.text, () => feedback.value?.tone], ([text, tone]) =
       <div class="stop-actions">
         <OperatorButton id="stop" label="AGV Stop (software)" urgent stop shortcut
           :why="agv.commandReason('stop')" :outcome="agv.feedback('stop')" @press="agv.send('stop')" />
-        <OperatorButton id="pause" label="AGV Pause" urgent
+        <OperatorButton id="pause" label="AGV Pause (station-call mode)" urgent
           :why="agv.commandReason('pause')" :outcome="agv.feedback('pause')" @press="agv.send('pause')" />
       </div>
       <div v-if="targets.length" class="stop-actions">

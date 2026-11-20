@@ -22,7 +22,7 @@ export function requestError(error, connected) {
     ? 'The page lost contact with its service. Use the AGV’s e-stop if needed. Reload and check the link.'
     : 'Page service unavailable. Reload the page and select Connect.';
   const message = error.message;
-  if (/^(Serial permission denied\.|Serial port is busy or missing\.|A robot job is running|Choose a learned station|Tick Armed|The AGV connection changed|Stop, Pause or disarming cancelled|The recipe is checking|Link lost\.|Could not find a gap|Robot state is uncertain|Job storage failed)/.test(message)) {
+  if (/^(Serial permission denied\.|Serial port is busy or missing\.|A robot job is running|Choose a learned station|Tick Armed|The AGV connection changed|Stop, Pause or disarming cancelled|The recipe is checking|Link lost\.|Could not find a gap|Robot state is uncertain|Job storage failed|AGV Stop or Pause is awaiting)/.test(message)) {
     return 'Refused · ' + message;
   }
   return 'Refused. Check the connection and settings, then query status.';

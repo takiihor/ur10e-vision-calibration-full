@@ -352,3 +352,23 @@ def test_agv_page_blocks_motion_during_a_switched_off_job(tmp_path, monkeypatch)
         release.set()
         owner.shutdown()
         link.close()
+
+
+@pytest.mark.parametrize(('field', 'value'), [
+    ('station_arrival', False), ('actual_speed_m_h', 100),
+    ('obstacle_stop', True), ('fault_code', 1),
+])
+def test_capture_station_requires_safe_arrival_evidence(tmp_path, field, value):
+    from anodizing_web.teaching import agv_capture
+
+    owner = JobOwner(tmp_path)
+    link = agv.Connection(owner)
+    try:
+        connect_parked(link)
+        with link.lock:
+            link.status = dict(link.status, **{field: value})
+        result = agv_capture(link, 7)
+        assert result['station'] == 7
+        assert result['source'] == 'operator'
+    finally:
+        link.close()

@@ -146,10 +146,6 @@ def _run(owner, body, project, host, digest, dispatch_guard=None):
                 owner.execution_uncertain = True
         _record(owner, job, evidence, dispatched and actuator)
         raise ValueError(str(exc)+' No automatic resend. Inspect this request and the physical item state.') from exc
-    finally:
-        if not body.get('parent'):
-            with owner.lock:
-                owner.mcu_pending = None
 
 
 def _child(owner, body, project, host, digest):

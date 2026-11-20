@@ -60,7 +60,8 @@ function updateTest(number, field, value) {
       marked_at: marked, status: agv.state.status ?? null, status_age_s: agv.age,
       connected: Boolean(agv.state.connected), stale: agv.stale, transport: agv.state.settings?.mode ?? null,
       commands: Object.values(agv.journal.commands).filter(entry => during(entry) &&
-        (entry.requested_commands ?? [entry.name]).some(command => checklistCommands[number - 1].includes(command))),
+        (entry.requested_commands ?? [entry.requested_command ?? entry.name])
+          .some(command => checklistCommands[number - 1].includes(command))),
       events: agv.journal.events.filter(during),
     };
   }
@@ -82,7 +83,8 @@ function observed() {
   const text = markText.value.trim();
   if (!text) return;
   const timestamp = isoNow();
-  agv.journal.events.push({ timestamp, field: 'observed', text, connection: connectionKeyFor(agv.state) });
+  agv.journal.events.push({ timestamp, field: 'observed', text, connection: connectionKeyFor(agv.state),
+    observation_id: crypto.randomUUID() });
   markText.value = '';
   agv.recordNote = 'Observed event recorded at ' + localTime(timestamp) + '.';
   agv.persistSession();

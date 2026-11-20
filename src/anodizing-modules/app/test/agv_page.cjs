@@ -69,6 +69,11 @@ async function load(ports) {
       if (!body) {
         Object.assign(response, {serial_available: true, ports, commands: [],
           settings: {mode: 'simulator', address: '00 99', channel: '08', port: null}});
+        if (scenario === 'requested-evidence') Object.assign(response, {
+          connected: true, status_hex: 'station report', status_age_s: .2,
+          status: {mode: 2, max_stations: 3, stopped: false, actual_speed_m_h: 500},
+          commands: [],
+        });
         if (scenario === 'motion-approval') Object.assign(response, {
           connected: true, armed: true, stop_generation: 7, status_hex: 'station report', status_age_s: .2,
           status: {mode: 2, current_station: 1, max_stations: 3, stopped: true},
@@ -80,6 +85,10 @@ async function load(ports) {
           status: {mode: 2, current_station: 2, max_stations: scenario === 'station-range' ? 1 : 0, stopped: true},
           commands: [{name: 'call_station', label: 'Call station', motion: true,
             argument: {label: 'Station number', min: 1, max: 255, default: 1}}],
+        });
+        if (scenario === 'contradictory') Object.assign(response, {
+          connected: true, status_hex: 'moving report', status_age_s: .2,
+          status: {mode: 2, max_stations: 3, stopped: true, actual_speed_m_h: 500},
         });
         if (scenario === 'standard') Object.assign(response, {
           connected: true, status_hex: 'standard report', status_age_s: .2,
@@ -95,6 +104,11 @@ async function load(ports) {
             link_quality: {sent: 5, acknowledged: +late, resent: 4, no_reply: +!late, timed_report_interval_s: 1.2}});
         }
       } else if (scenario === 'rejected') return {ok: false, json: async () => ({error: 'Fixture rejection'})};
+      else if (scenario === 'requested-evidence' && ['stop', 'pause'].includes(body.command)) Object.assign(response, {
+        connected: true, settings: {mode: 'simulator'}, urgent_command: 'pause',
+        log: [{id: sequence, timestamp: new Date().toISOString(), direction: 'TX', decode: {command: 'pause'}}],
+        results: {pause: {tx_id: sequence, state: 'sent', sent_at: new Date().toISOString()}}
+      });
       else if (scenario === 'motion-approval' && body.command === 'forward') Object.assign(response, {
         connected: true, armed: true, stop_generation: 7, settings: {mode: 'simulator'},
         results: {forward: {tx_id: sequence, state: 'sent', sent_at: '2026-11-19T12:34:56.789Z'}},
@@ -129,9 +143,27 @@ function selectSerial(get) {
 
 async function run() {
   const get = await load(scenario === 'reload' || scenario === 'ambiguous' ? [onboard, radio, other] : [onboard, radio]);
+  if (scenario === 'requested-evidence') {
+    await get('pause').emit('click');
+    await get('stop').emit('click');
+    get('result-4').value = 'Pass';
+    get('result-4').emit('change');
+    const session = JSON.parse(storage.get('ano-agv-commissioning'));
+    const commands = session.checklist['4'].evidence.commands;
+    assert.equal(commands.length, 1);
+    assert.equal(commands[0].name, 'pause');
+    assert.ok(commands[0].requested_commands.includes('stop'));
+    assert.ok(!commands[0].requested_commands.includes('pause'));
+    return;
+  }
+  if (scenario === 'contradictory') {
+    assert.equal(get('state-motion').textContent, 'Running');
+  }
   if (scenario === 'standard') {
     assert.equal(get('forward').textContent, 'Forward');
     assert.equal(get('reverse').textContent, 'Reverse');
+    assert.ok(get('pause').disabled);
+    assert.match(get('pause-why').textContent, /standard mode.*Stop/i);
     assert.match(get('station-note').textContent, /station-call function/);
     assert.match(get('station-label').textContent, /Stop counter/);
     assert.match(get('link-quality').textContent, /Sent 4.*Acknowledged 1.*Resent 2.*No reply 1.*1.2 s/);
@@ -194,7 +226,7 @@ async function run() {
     await get('forward').emit('click');
     assert.equal(requests.at(-1).stop_generation, 7);
     await get('stop').emit('click');
-    assert.match(get('stop-outcome').textContent, /Pause sent/);
+    assert.match(get('stop-outcome').textContent, /Stop sent/);
   } else if (scenario === 'escape-stop') {
     const press = (key, repeat = false) => get('mark-text').emit('keydown', {key, repeat, preventDefault() {}});
     await press('Escape');
@@ -254,7 +286,9 @@ async function pickPlaceUrgent() {
       if (options.body) requests.push(JSON.parse(options.body));
       const body = options.body && JSON.parse(options.body);
       return {ok: true, json: async () => {
-        if (route === '/api/agv-link') return {connected: true, results: reply ? {pause: reply} : {}};
+        if (route === '/api/agv-link') return {connected: true, status_age_s: .2,
+          status: {mode: 0, current_station: 1, stopped: false, actual_speed_m_h: 500},
+          results: reply ? {pause: reply} : {}};
         if (route === '/api/agv' && body?.command === 'stop')
           return {connected: true, recipe_active: true, urgent_command: 'pause', results: {pause: sent}};
         return {};
@@ -265,9 +299,11 @@ async function pickPlaceUrgent() {
   keyboard.keydown({key: 'Escape', repeat: false, preventDefault() {}});
   assert.equal(field('pick-agv-outcome').textContent, 'Sending…');
   assert.equal(field('pick-agv-stop').disabled, false);
+  assert.equal(field('pick-agv-pause').disabled, true);
+  assert.match(field('pick-agv-pause-why').textContent, /standard mode.*Stop/i);
   await new Promise(setImmediate);
   assert.deepEqual(requests, [{action: 'send', command: 'stop'}]);
-  assert.match(field('pick-agv-outcome').textContent, /Pause sent.*\(Esc\)/);
+  assert.match(field('pick-agv-outcome').textContent, /Stop sent.*\(Esc\)/);
   reply = {...sent, state: 'confirmed by status', confirmed_stopped: false};
   await timers.shift()();
   assert.match(field('pick-agv-outcome').textContent, /pause active/i);

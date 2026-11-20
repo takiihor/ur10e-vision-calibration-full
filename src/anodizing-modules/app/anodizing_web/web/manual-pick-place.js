@@ -240,7 +240,10 @@
     display('pick-agv-alert',stale?'AGV may still be moving. Use its e-stop. Check the radio.':
       machine?.fault_code?`AGV fault ${machine.fault_code} · ${machine.fault_description}. Check the AGV.`:
       machine?.obstacle_stop?'AGV obstacle stop. Check the line before continuing.':'');
-    for(const command of ['stop','pause'])el('pick-agv-'+command).disabled=!agv?.connected;
+    const standard=agv?.connected&&!stale&&machine?.mode===0;
+    el('pick-agv-stop').disabled=!agv?.connected;
+    el('pick-agv-pause').disabled=!agv?.connected||standard;
+    display('pick-agv-pause-why',standard?'In standard mode, use AGV Stop. Pause requires station-call mode.':'');
     for(const urgent of urgentByCommand.values())renderUrgent(urgent,agv);
   }
   function renderUrgent(urgent,agv){
@@ -307,7 +310,7 @@
       if(urgentByCommand.get(command)!==urgent)return;
       const wire=state.urgent_command??command;
       const {sent_at:sent,tx_id:tx}=state.results[wire];
-      const label=wire==='stop'?'Stop':'Pause';
+      const label=command==='stop'?'Stop':'Pause';
       const text=`${label} sent ${new Date(sent).toLocaleTimeString('en-GB',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit',fractionalSecondDigits:3})}.${esc?' (Esc)':''}`;
       Object.assign(urgent,{wire,tx,connection:state.connection_id,text});
       urgentFeedback(urgent,text,'waiting');
