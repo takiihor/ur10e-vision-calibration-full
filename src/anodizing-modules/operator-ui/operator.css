@@ -146,6 +146,11 @@ button.p-button[aria-current="true"] { box-shadow: inset 0 0 0 2px currentColor;
 .port-picker { align-items: end; }
 .movement[data-armed="true"] { background: var(--p-operator-raised); border-color: var(--p-operator-warning); }
 .movement[data-armed="true"] label[for="agv-armed"] { color: var(--p-operator-warning); }
+.pick-grid details > summary { cursor: pointer; padding-block: .65rem; font-weight: 650; }
+.pick-grid .pick-check { display: flex; align-items: center; gap: .65rem; min-height: 44px; margin-block: .5rem; }
+.pick-grid .field-row small { display: block; margin-top: .25rem; }
+.pick-readout { border: 1px solid var(--p-operator-pressed); border-radius: 6px; padding: .65rem; overflow-wrap: anywhere; }
+.pick-grid pre { max-height: 24rem; white-space: pre-wrap; overflow: auto; overflow-wrap: anywhere; }
 .record-dialog { width: min(30rem, 92vw); }
 .p-dialog-mask { padding-top: min(var(--operator-header-height), 30vh); }
 

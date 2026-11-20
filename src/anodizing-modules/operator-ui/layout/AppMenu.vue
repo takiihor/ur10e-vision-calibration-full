@@ -13,8 +13,11 @@ const model = [
     { label: 'Scene', url: '#/scene', icon: 'pi pi-fw pi-map' },
     { label: 'Line', url: '#/line', icon: 'pi pi-fw pi-chart-line' },
     { label: 'Recorder', url: '#/records', icon: 'pi pi-fw pi-file' },
-    { label: 'Pick/place', url: '/pick-place', icon: 'pi pi-fw pi-box', legacy: true },
+    { label: 'Pick/place', url: '#/pick-place', icon: 'pi pi-fw pi-box' },
 ];
+
+const moduleUrl = route => route?.replace(/^#\/tests\/(robot|mcu|tool-power)$/, '#/pick-place')
+    .replace(/^#\/(?:line|tests\/line-api)(?:\/.*)?$/, '#/line').replace(/^#\/tests\//, '#/') || '#/';
 </script>
 
 <template>
@@ -24,7 +27,7 @@ const model = [
                 <div class="layout-menuitem-root-text">Modules</div>
                 <ul class="layout-submenu">
                     <AppMenuItem v-for="item in model" :key="item.url" :item="item"
-                        :active="item.url === (route?.replace(/^#\/(?:line|tests\/line-api)(?:\/.*)?$/, '#/line').replace(/^#\/tests\//, '#/') || '#/')" @navigate="$emit('navigate')" />
+                        :active="item.url === moduleUrl(route)" @navigate="$emit('navigate')" />
                 </ul>
             </li>
         </ul>

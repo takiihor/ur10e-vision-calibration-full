@@ -10,7 +10,7 @@ const initialState = { connection_id: 0, sequence: -1, results: {}, log: [] };
 const pendingWait = 'Wait for the current request.';
 const connectionChanged = 'Connection changed. Check the AGV before trying again.';
 
-export function useAgv(isAgv, isScene, alternateStop) {
+export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
   const state = shallowRef(initialState);
   const capability = shallowRef(null);
   const report = shallowRef(null);
@@ -22,6 +22,7 @@ export function useAgv(isAgv, isScene, alternateStop) {
   const outcomes = reactive(new Map());
   const latest = ref('');
   const busy = ref(false);
+  const haltRevision = ref(0);
   const armedHere = ref(false);
   let resetPending = false;
   let firstAgvRead = true;
@@ -56,7 +57,7 @@ export function useAgv(isAgv, isScene, alternateStop) {
     state.value.status_age_s + Math.max(0, clock.value - receivedAt) / 1000);
   const stale = computed(() => Boolean(state.value.connected && (
     state.value.stale || (age.value ?? (state.value.connection_age_s ?? 0) + Math.max(0, clock.value - receivedAt) / 1000) >=
-      (state.value.recipe_active ? 3 : 5))));
+      (state.value.recipe_active || pickRoute?.value ? 3 : 5))));
   const freshReport = computed(() => state.value.connected && !stale.value ? state.value.status : null);
   const connectionLabel = computed(() => {
     const elapsed = age.value == null ? 'no status report yet' : `last status report ${seconds(age.value)} s ago`;
@@ -193,6 +194,7 @@ export function useAgv(isAgv, isScene, alternateStop) {
   async function post(body, id, viaEsc = false) {
     const priority = urgent.has(body.command);
     if ((!priority && busy.value) || (priority && outcomes.get(id)?.started != null)) return;
+    if (priority) haltRevision.value++;
     if (!priority) busy.value = true;
     const generation = state.value.connection_id;
     const timeout = priority ? 4000 : 8000;
@@ -458,7 +460,7 @@ export function useAgv(isAgv, isScene, alternateStop) {
 
   return reactive({
     state, capability, form, commands, ports, age, stale, freshReport, connectionLabel, alarms,
-    connectionLocked, connectReason, armed, armReason, busy, stateError, portError,
+    connectionLocked, connectReason, armed, armReason, busy, haltRevision, stateError, portError,
     variableInfo,
     line: computed(() => report.value?.line),
     variables: computed(() => [...(report.value?.variables.values() ?? [])]),

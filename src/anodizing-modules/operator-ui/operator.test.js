@@ -119,9 +119,9 @@ it('keeps urgent controls outside the Sakai shell and routes between marked modu
   const menu = wrapper.get('nav[aria-label="Modules"]');
   const links = menu.findAll('a');
   expect(links.slice(1).map(link => link.attributes('href'))).toEqual([
-    '/calibration', '/teaching', '#/agv', '#/scene', '#/line', '#/records', '/pick-place',
+    '/calibration', '/teaching', '#/agv', '#/scene', '#/line', '#/records', '#/pick-place',
   ]);
-  expect(links.slice(1).map(link => link.findAll('.p-tag').map(tag => tag.text()).join(''))).toEqual(['Legacy', 'Legacy', '', '', '', '', 'Legacy']);
+  expect(links.slice(1).map(link => link.findAll('.p-tag').map(tag => tag.text()).join(''))).toEqual(['Legacy', 'Legacy', '', '', '', '', '']);
   expect(wrapper.find('.stop-bar').exists()).toBe(false);
   expect(app.get('.stop-bar').find('#agv-stop').exists()).toBe(true);
   expect(wrapper.findAll('.home-grid .p-card')).toHaveLength(2);
@@ -432,4 +432,47 @@ it('routes Escape to the active line clear on the test page and keeps the bound 
   await navigate('#/line');
   expect(app.get('#agv-line-stop').text()).toContain('Line Stop');
   expect(app.find('#line-arm').exists()).toBe(false);
+});
+
+it('reviews a recipe job before offering a separate run with the approved hash', async () => {
+  const posts = [];
+  const saved = { project: 'fixture-a', target: { board: 'fixture-board' } };
+  open('#/pick-place', async (path, body) => {
+    if (body) posts.push({ path, ...body });
+    if (path === '/api/status') return { owner: { jobs: [] } };
+    if (path === '/api/state') return { variables: [] };
+    if (path === '/api/agv?cached=1') return { ...connected, connected: false, armed: false, sequence: 1 };
+    if (path === '/api/teacher-defaults') return { settings: saved };
+    if (path.startsWith('/api/teacher-project?')) return { tank: 'Tank03', agv: { station: 2, source: 'operator' } };
+    if (path === '/api/agv-robot-motion?cached=1') return { detail: 'AGV disconnected.' };
+    if (path === '/api/agv-travel-pose?cached=1') return { allow_agv_in_recipe: false };
+    if (path === '/api/robot-control') return { defaults: { collision_scene: 'reviewed-scene.json',
+      joint_bounds_rad: Array.from({ length: 6 }, () => [-2, 2]), joint_bounds_source: 'Fixture bounds' } };
+    if (path === '/api/manual-pick-place' && !body) return { hardware_available: true };
+    if (body?.action === 'review_repeat') return { id: body.request_id, state: 'running' };
+    if (path.startsWith('/api/jobs/')) return { id: posts[0].request_id, state: 'done', result: {
+      transfers: 1, A: 'fixture-a', B: 'fixture-a', end: 'B', approach_mm: { A: 40, B: 40 },
+      stations: { A: 2, B: 2 }, agv_motion: 'off', settle_s: 1, recipe_sha256: 'approved-fixture',
+    } };
+    if (body?.action === 'REPEAT') return { id: body.request_id, state: 'running', agv_motion: 'off' };
+    return {};
+  });
+  await flushPromises();
+  expect(app.get('h1').text()).toBe('Pick/place');
+  expect(app.text()).toContain('Tank03');
+  expect(app.get('a[href="/pick-place"]').text()).toContain('Legacy');
+  const check = id => app.get('#' + id).setValue(true);
+  await check('repeat-off');
+  expect(element('recipe-start').element.disabled).toBe(true);
+  await element('recipe-review').trigger('click');
+  await flushPromises();
+  expect(posts).toHaveLength(1);
+  expect(posts[0]).toMatchObject({ action: 'review_repeat', agv_off: true, station_a: 2, station_b: 2 });
+  expect(element('recipe-start').element.disabled).toBe(true);
+  await check('recipe-approved');
+  await element('recipe-start').trigger('click');
+  await flushPromises();
+  expect(posts[1]).toMatchObject({ action: 'REPEAT', recipe_sha256: 'approved-fixture', automatic_test_approved: true });
+  expect(posts[1].request_id).not.toBe(posts[0].request_id);
+  expect(element('recipe-start').element.disabled).toBe(true);
 });

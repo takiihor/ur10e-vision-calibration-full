@@ -12,6 +12,7 @@ import ScenePage from './ScenePage.vue';
 import RecordsPage from './RecordsPage.vue';
 import LinePage from './LinePage.vue';
 import LineTestPanel from './LineTestPanel.vue';
+import PickPlacePage from './PickPlacePage.vue';
 import { request } from './api';
 import { useAgv } from './useAgv';
 
@@ -21,9 +22,12 @@ const isScene = computed(() => ['#/scene', '#/tests/scene'].includes(route.value
 const isRecords = computed(() => ['#/records', '#/tests/records'].includes(route.value));
 const lineRoute = computed(() => /^#\/(line|tests\/line-api)(?:\/(tank|signals|alarms|catalog|diagnostics))?$/.exec(route.value));
 const lineTest = computed(() => lineRoute.value?.[1] === 'tests/line-api');
+const pickRoute = computed(() => /^#\/(?:pick-place|tests\/(pick-place|robot|mcu|tool-power))$/.exec(route.value));
+const pickTitles = { robot: 'Robot steps', mcu: 'MCU gripper commands', 'tool-power': 'Tool power' };
 const title = computed(() => isAgv.value ? 'AGV commissioning' : isScene.value ? 'Scene' : isRecords.value ? 'Recorder' :
-  lineRoute.value ? (lineTest.value ? 'Unified line test' : 'Line reads') : 'Home');
-const agv = useAgv(isAgv, isScene, lineEscape);
+  lineRoute.value ? (lineTest.value ? 'Unified line test' : 'Line reads') :
+  pickRoute.value ? (pickTitles[pickRoute.value[1]] ?? 'Pick/place') : 'Home');
+const agv = useAgv(isAgv, isScene, lineEscape, pickRoute);
 const sceneConfig = ref(null);
 const sceneError = ref('');
 let sceneRead = false;
@@ -51,6 +55,7 @@ const lineStopRequest = ref(null);
 const lineState = computed(() => service.value?.line_test);
 const lineActive = computed(() => lineState.value?.active);
 const targetSending = new Set();
+const manualStopId = ref('');
 let timer, observer, checking = false, retired = false;
 
 const transport = computed(() => {
@@ -87,20 +92,24 @@ async function stopTarget(target) {
   const key = target.kind + '/' + target.job_id;
   if (targetSending.has(key)) return;
   targetSending.add(key);
+  if (target.kind === 'manual') manualStopId.value = target.job_id;
+  const started = Date.now();
+  const at = new Date(started).toLocaleTimeString();
   function show(text, tone) {
-    const outcome = { text, tone };
+    const outcome = { text: tone === 'running' ? text : `${at} · ${text}`, tone,
+      pending: tone === 'running' || tone === 'waiting' };
     targetOutcome.value[key] = outcome;
     agv.showOutcome(key, outcome, tone === 'running');
   }
   show('Sending…', 'running');
-  const wait = setTimeout(() => show('Stopping… Check the machine.', 'waiting'), 1000);
+  const wait = setInterval(() => show(`Waiting for Stop reply… ${Math.max(0, Math.ceil((8000 - Date.now() + started) / 1000))} s`, 'waiting'), 1000);
   try {
     await request(target.path, { job_id: target.job_id, action: 'stop' });
     show('Stop requested. Check the machine for confirmation.', 'done');
   } catch {
     show('Stop unconfirmed. Use the robot’s e-stop if needed and open the module for details.', 'failed');
   } finally {
-    clearTimeout(wait);
+    clearInterval(wait);
     targetSending.delete(key);
     void refreshService();
   }
@@ -159,10 +168,12 @@ function navigate() {
   const wasLine = lineRoute.value;
   const wasRecords = isRecords.value;
   const wasLineTest = lineTest.value;
+  const wasPick = pickRoute.value;
   route.value = location.hash;
   if (wasLine && !lineRoute.value) agv.retireOutcome('line-read');
   if (wasLineTest && !lineTest.value) agv.retireOutcome('line-test');
   if (wasRecords && !isRecords.value) agv.retireOutcome('recorder');
+  if (wasPick && !pickRoute.value) agv.retireOutcome('pick-place');
   document.title = title.value + ' · Operator app';
   if (isAgv.value) agv.enterAgv();
   if (isScene.value) void loadScene();
@@ -216,6 +227,9 @@ onUnmounted(() => {
           @outcome="(outcome, choose) => agv.showOutcome('line-test', outcome, choose)" />
       </template>
     </LinePage>
+    <PickPlacePage v-else-if="pickRoute" :owner="offline ? null : service?.owner" :agv="agv"
+      :stop-id="manualStopId" :tool="pickRoute[1]" @changed="refreshService"
+      @outcome="(outcome, choose) => agv.showOutcome('pick-place', outcome, choose)" />
     <div v-else class="home-grid">
       <Card class="panel home-card" aria-labelledby="service-heading">
         <template #title><h2 id="service-heading">Service</h2></template>
