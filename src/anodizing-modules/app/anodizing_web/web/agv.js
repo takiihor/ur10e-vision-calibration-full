@@ -409,6 +409,9 @@ function render() {
   disabled('disconnect', !state.connected ? 'Connect first.' : state.recipe_active ? 'Stop the active recipe before disconnecting.' : busy ? 'Wait for the current request.' : '');
   disabled('armed', !state.connected ? 'Connect first.' : busy ? 'Wait for the current request.' : state.motion_block || '');
   disabled('auto', !state.connected ? 'Connect first.' : '');
+  if (state.connected && state.link_quality?.timed_report_interval_s && !state.stale) {
+    display('auto-why', 'Timed reports are updating status.');
+  }
   disabled('silence', busy ? 'Wait for the current request.' : '');
   $('armed').checked = state.armed || false;
   $('movement').dataset.armed = String(!!state.armed);

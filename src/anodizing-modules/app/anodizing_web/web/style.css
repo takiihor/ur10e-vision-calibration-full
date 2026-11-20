@@ -119,6 +119,7 @@ body[data-module="agv"] main { max-width: 1440px; }
 .agv-control small, .agv-link-actions small, .agv-urgent [id$="-why"] { display: block; color: #42556a; }
 .agv-stations [aria-current="true"] { border: 2px solid #1d4ed8; box-shadow: inset 0 0 0 1px #1d4ed8; }
 #agv-manual-station, #agv-speed { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: end; gap: 8px; margin-top: 8px; }
+#agv-manual-station[hidden] { display: none; }
 #agv-manual-station > div, #agv-speed > div { align-self: start; padding-top: 25px; }
 #agv-speed .agv-presets { grid-column: 1 / -1; align-self: auto; padding: 0; margin: 0; }
 .agv-movement[data-armed="true"] { background: #eff6ff; border-color: #89a8cb; }
