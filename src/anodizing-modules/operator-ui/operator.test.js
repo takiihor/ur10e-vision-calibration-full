@@ -108,16 +108,20 @@ it('keeps navigation, urgent controls and records available when storage is deni
 });
 
 it('keeps urgent controls outside the Sakai shell and routes between marked modules', async () => {
-  open('#/', async path => path === '/api/state' ? { variables: [] } :
-    path === '/api/status' ? { app_id: 'anodizing_modules_v1' } : { ...connected, armed: false });
+  open('#/', async path => {
+    if (path === '/api/state') return { variables: [] };
+    if (path === '/api/status') return { app_id: 'anodizing_modules_v1' };
+    if (path === '/api/scene') return { tanks: [] };
+    return { ...connected, armed: false };
+  });
   await flushPromises();
   const wrapper = app.get('.layout-wrapper');
   const menu = wrapper.get('nav[aria-label="Modules"]');
   const links = menu.findAll('a');
   expect(links.slice(1).map(link => link.attributes('href'))).toEqual([
-    '/calibration', '/teaching', '#/agv', '/pick-place',
+    '/calibration', '/teaching', '#/agv', '#/scene', '/pick-place',
   ]);
-  expect(links.slice(1).map(link => link.findAll('.p-tag').map(tag => tag.text()).join(''))).toEqual(['Legacy', 'Legacy', '', 'Legacy']);
+  expect(links.slice(1).map(link => link.findAll('.p-tag').map(tag => tag.text()).join(''))).toEqual(['Legacy', 'Legacy', '', '', 'Legacy']);
   expect(wrapper.find('.stop-bar').exists()).toBe(false);
   expect(app.get('.stop-bar').find('#agv-stop').exists()).toBe(true);
   expect(wrapper.findAll('.home-grid .p-card')).toHaveLength(2);
@@ -132,6 +136,12 @@ it('keeps urgent controls outside the Sakai shell and routes between marked modu
   await flushPromises();
   expect(wrapper.get('a[href="#/agv"]').attributes('aria-current')).toBe('page');
   expect(document.activeElement).toBe(wrapper.get('h1').element);
+  location.hash = '#/tests/scene';
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+  await flushPromises();
+  expect(wrapper.get('a[href="#/scene"]').attributes('aria-current')).toBe('page');
+  expect(wrapper.get('h1').text()).toBe('Scene');
+  expect(app.get('.stop-bar').find('#agv-stop').exists()).toBe(true);
 });
 
 it('keeps Manual and Teacher Stop bound to their jobs while Escape targets the AGV across navigation', async () => {

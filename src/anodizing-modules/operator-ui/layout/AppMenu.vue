@@ -2,7 +2,7 @@
 <script setup>
 import AppMenuItem from './AppMenuItem.vue';
 
-defineProps({ isAgv: Boolean });
+defineProps({ route: String });
 defineEmits(['navigate']);
 
 const model = [
@@ -10,6 +10,7 @@ const model = [
     { label: 'Calibration', url: '/calibration', icon: 'pi pi-fw pi-camera', legacy: true },
     { label: 'Teaching', url: '/teaching', icon: 'pi pi-fw pi-book', legacy: true },
     { label: 'AGV', url: '#/agv', icon: 'pi pi-fw pi-truck' },
+    { label: 'Scene', url: '#/scene', icon: 'pi pi-fw pi-map' },
     { label: 'Pick/place', url: '/pick-place', icon: 'pi pi-fw pi-box', legacy: true },
 ];
 </script>
@@ -21,7 +22,7 @@ const model = [
                 <div class="layout-menuitem-root-text">Modules</div>
                 <ul class="layout-submenu">
                     <AppMenuItem v-for="item in model" :key="item.url" :item="item"
-                        :active="item.url === (isAgv ? '#/agv' : '#/')" @navigate="$emit('navigate')" />
+                        :active="item.url === (route === '#/tests/scene' ? '#/scene' : route || '#/')" @navigate="$emit('navigate')" />
                 </ul>
             </li>
         </ul>

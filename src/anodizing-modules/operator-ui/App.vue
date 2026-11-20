@@ -8,11 +8,31 @@ import Tag from 'primevue/tag';
 import AppLayout from './layout/AppLayout.vue';
 import StopBar from './StopBar.vue';
 import AgvPage from './AgvPage.vue';
+import ScenePage from './ScenePage.vue';
 import { request } from './api';
 import { useAgv } from './useAgv';
 
-const isAgv = ref(location.hash === '#/agv');
-const agv = useAgv(isAgv);
+const route = ref(location.hash);
+const isAgv = computed(() => route.value === '#/agv');
+const isScene = computed(() => ['#/scene', '#/tests/scene'].includes(route.value));
+const title = computed(() => isAgv.value ? 'AGV commissioning' : isScene.value ? 'Scene' : 'Home');
+const agv = useAgv(isAgv, isScene);
+const sceneConfig = ref(null);
+const sceneError = ref('');
+let sceneRead = false;
+
+async function loadScene() {
+  if (sceneConfig.value || sceneRead) return;
+  sceneRead = true;
+  sceneError.value = '';
+  try {
+    sceneConfig.value = await request('/api/scene', null, 3000);
+  } catch {
+    sceneError.value = 'Scene setup unavailable. Check the service and reload.';
+  } finally {
+    sceneRead = false;
+  }
+}
 const heading = ref();
 const safety = ref();
 const service = ref(null);
@@ -73,14 +93,16 @@ async function stopTarget(target) {
 }
 
 function navigate() {
-  isAgv.value = location.hash === '#/agv';
-  document.title = isAgv.value ? 'AGV commissioning · Operator app' : 'Home · Operator app';
+  route.value = location.hash;
+  document.title = title.value + ' · Operator app';
   if (isAgv.value) agv.enterAgv();
+  if (isScene.value) void loadScene();
   void nextTick(() => heading.value?.focus());
 }
 
 onMounted(() => {
-  document.title = isAgv.value ? 'AGV commissioning · Operator app' : 'Home · Operator app';
+  document.title = title.value + ' · Operator app';
+  if (isScene.value) void loadScene();
   window.addEventListener('hashchange', navigate);
   void refreshService();
   timer = setInterval(refreshService, 1500);
@@ -106,9 +128,11 @@ onUnmounted(() => {
   <div ref="safety" class="layout-stop">
     <StopBar :agv="agv" :targets="targets" :target-outcomes="targetOutcome" @target-stop="stopTarget" />
   </div>
-  <AppLayout :is-agv="isAgv" :transport="transport">
-    <h1 ref="heading" tabindex="-1">{{ isAgv ? 'AGV commissioning' : 'Home' }}</h1>
+  <AppLayout :route="route" :transport="transport">
+    <h1 ref="heading" tabindex="-1">{{ title }}</h1>
     <AgvPage v-if="isAgv" :agv="agv" />
+    <ScenePage v-else-if="isScene" :config="sceneConfig" :config-error="sceneError"
+      :state-error="agv.stateError" :variable="agv.variableInfo" />
     <div v-else class="home-grid">
       <Card class="panel home-card" aria-labelledby="service-heading">
         <template #title><h2 id="service-heading">Service</h2></template>

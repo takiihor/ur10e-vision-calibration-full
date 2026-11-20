@@ -2,12 +2,12 @@
 <script setup>
 import AppMenu from './AppMenu.vue';
 
-defineProps({ open: Boolean, isAgv: Boolean });
+defineProps({ open: Boolean, route: String });
 defineEmits(['navigate']);
 </script>
 
 <template>
     <aside id="operator-nav" class="layout-sidebar" :inert="!open || undefined" :aria-hidden="open ? undefined : true">
-        <AppMenu :is-agv="isAgv" @navigate="$emit('navigate')" />
+        <AppMenu :route="route" @navigate="$emit('navigate')" />
     </aside>
 </template>

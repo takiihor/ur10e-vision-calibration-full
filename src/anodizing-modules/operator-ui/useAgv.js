@@ -10,7 +10,7 @@ const initialState = { connection_id: 0, sequence: -1, results: {}, log: [] };
 const pendingWait = 'Wait for the current request.';
 const connectionChanged = 'Connection changed. Check the AGV before trying again.';
 
-export function useAgv(isAgv) {
+export function useAgv(isAgv, isScene) {
   const state = shallowRef(initialState);
   const capability = shallowRef(null);
   const report = shallowRef(null);
@@ -29,6 +29,7 @@ export function useAgv(isAgv) {
   let fetching = false;
   let lastPoll = -Infinity;
   let statePoll = false;
+  let lastStatePoll = -Infinity;
   let badFrameUntil = 0;
   let retired = false;
 
@@ -341,11 +342,12 @@ export function useAgv(isAgv) {
   }
 
   async function refreshState() {
-    if (statePoll) return;
+    if (statePoll || clock.value - lastStatePoll < (isScene?.value ? 190 : 990)) return;
     statePoll = true;
+    lastStatePoll = clock.value;
     try {
       const response = await request('/api/state', null, 3000);
-      if (response.agv && (!report.value || response.agv.connection_id >= report.value.connection_id &&
+      if (!retired && response.agv && (!report.value || response.agv.connection_id >= report.value.connection_id &&
           response.agv.sequence >= report.value.sequence)) {
         reportReceivedAt = performance.now();
         report.value = { ...response.agv, variables: new Map(response.variables.map(variable => [variable.id, variable])) };
@@ -402,7 +404,7 @@ export function useAgv(isAgv) {
     persistJournal();
   }
 
-  let timer, statusTimer;
+  let timer;
   onMounted(() => {
     window.addEventListener('keydown', escape, true);
     window.addEventListener('pagehide', persistJournal);
@@ -413,13 +415,12 @@ export function useAgv(isAgv) {
     timer = setInterval(() => {
       clock.value = performance.now();
       void refresh();
+      void refreshState();
     }, 200);
-    statusTimer = setInterval(refreshState, 1000);
   });
   onUnmounted(() => {
     retired = true;
     clearInterval(timer);
-    clearInterval(statusTimer);
     window.removeEventListener('keydown', escape, true);
     window.removeEventListener('pagehide', persistJournal);
     window.removeEventListener('storage', storageChanged);
@@ -432,16 +433,22 @@ export function useAgv(isAgv) {
     void refresh();
   }
 
+  function variableInfo(id) {
+    if (!report.value || (id.startsWith('agv.') && report.value.connection_id !== state.value.connection_id)) return null;
+    const item = report.value.variables.get(id);
+    if (!item || item.age_ms == null) return item;
+    const age_ms = item.age_ms + Math.max(0, clock.value - reportReceivedAt);
+    if (item.freshness.kind === 'max_age_ms' && age_ms >= item.freshness.max_age_ms) {
+      return { ...item, age_ms, quality: 'stale', value: null };
+    }
+    return { ...item, age_ms };
+  }
+
   return reactive({
     state, capability, form, commands, ports, age, stale, freshReport, connectionLabel, alarms,
     connectionLocked, connectReason, armed, armReason, busy, stateError, portError,
-    variable(name) {
-      if (!report.value || report.value.connection_id !== state.value.connection_id) return null;
-      const item = report.value.variables.get('agv.' + name);
-      if (item?.freshness.kind === 'max_age_ms' &&
-          item.age_ms + Math.max(0, clock.value - reportReceivedAt) >= item.freshness.max_age_ms) return null;
-      return item?.value ?? null;
-    },
+    variableInfo,
+    variable: name => variableInfo('agv.' + name)?.value ?? null,
     session, journal, recordNote, sound, serviceError,
     currentFeedback: computed(() => feedback(latest.value)),
     frameError: computed(() => clock.value < badFrameUntil ? badFrame : ''),

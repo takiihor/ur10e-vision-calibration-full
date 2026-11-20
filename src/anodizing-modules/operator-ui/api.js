@@ -1,8 +1,8 @@
-export async function request(path, body, timeout = 8000) {
+async function fetchLocal(path, body, timeout, cache) {
   const token = document.querySelector('meta[name="module-token"]').content;
   const options = {
     headers: { 'X-Module-Token': token },
-    cache: 'no-store',
+    cache,
     signal: AbortSignal.timeout(timeout),
   };
   if (body) {
@@ -10,10 +10,20 @@ export async function request(path, body, timeout = 8000) {
     options.headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(body);
   }
-  const response = await fetch(path, options);
+  return fetch(path, options);
+}
+
+export async function request(path, body, timeout = 8000) {
+  const response = await fetchLocal(path, body, timeout, 'no-store');
   const value = await response.json();
   if (!response.ok) throw Object.assign(new Error(value.error), { status: response.status });
   return value;
+}
+
+export async function requestBytes(path, cache = 'no-cache') {
+  const response = await fetchLocal(path, null, 8000, cache);
+  if (!response.ok) throw new Error('Display asset unavailable.');
+  return response.arrayBuffer();
 }
 
 export function requestError(error, connected) {

@@ -25,3 +25,30 @@ The commissioning view uses the same connection, checklist, notes and record sto
 The AGV reports learned legs. Station calls include the start as station 1, up to station 255. A report of zero learned legs disables station calls. The simulator input counts physical stations, so setting it to two produces a report of one learned leg.
 
 The Sakai follow-up was verified with fake ports, software tests and the in-process simulator. Field serial, radio timing, physical e-stop and site acceptance require hardware verification.
+
+## Local Scene configuration
+
+The Scene and Scene test routes share one display. Open `/operator/#/scene` or `/operator/#/tests/scene`. The drawing, geometry, tank names and status mapping belong in the service's private data directory. The sample below is synthetic.
+
+Add a `scene` section to `<data-dir>/site-profile.json` and restart the service after changes.
+
+```json
+{
+  "scene": {
+    "drawing": { "path": "local-drawing.glb", "sha256": "<64 lowercase hex digits>" },
+    "track": { "start_m": [0, 0, 0], "end_m": [4, 0, 0], "stations_m": { "1": 0, "2": 4 } },
+    "robot_mount": { "xyz_m": [0, 0.35, 0], "rpy_rad": [0, 0, 0] },
+    "tanks": [
+      { "id": "Tank01", "anchor_m": [1, 1, 1], "status_key": "FixtureStatus" }
+    ]
+  }
+}
+```
+
+- Supply a self-contained GLB 2.0 under 12 MB with metre units, the drawing origin and +Y up. Keep it under the data directory and record its SHA-256 after export. An invalid drawing hides the placement and leaves the label list available.
+- Enter endpoints in drawing metres. Station keys are canonical integers from 1 to 255. Distances are distinct metres from the start along the track. Enter the robot mount in AGV display coordinates with +X along the entered track and +Y up. Give roll, pitch and yaw in radians. The display uses the entered reference for the mount and labels the geometry as entered, not measured.
+- Enter one anchor for each tank, even when several tanks share a mesh. IDs use `Tank01` through `Tank99`. An optional local `label` overrides the numbered title. An optional `status_key` names the future line variable, without the `line.` prefix. Use the same key only when both labels describe the same reported signal.
+- To exercise the stage offline, start the launcher with `--simulate-scene` and all hardware flags off. Add `"scripted_line": { "FixtureStatus": "Occupied" }` inside `scene` for a synthetic status. Accepted fixture words are Occupied, Empty, Open, Closed, Active and Inactive. Choose the AGV simulator separately when a station label is needed.
+- Enter the saved Teaching project directory relative to the data directory and choose **Load project**. Only the selected project's saved tank ID marks a label. The local GLB and project are served at runtime and stay out of the bundle.
+
+The Scene's lazy WebGL chunk uses the same pinned three.js version as the legacy robot preview. Bring the three.js package in the prepared offline npm cache when building. Legacy tool, camera and collision preview workflows remain at `/preview/tool-envelope.html`.

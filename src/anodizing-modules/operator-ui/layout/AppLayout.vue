@@ -4,7 +4,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import AppSidebar from './AppSidebar.vue';
 import AppTopbar from './AppTopbar.vue';
 
-const props = defineProps({ isAgv: Boolean, transport: String });
+const props = defineProps({ route: String, transport: String });
 const isDesktop = ref(window.innerWidth >= 992);
 const staticMenuInactive = ref(false);
 const mobileMenuActive = ref(false);
@@ -29,7 +29,7 @@ function updateViewport() {
     if (isDesktop.value) hideMobileMenu();
 }
 
-watch(() => props.isAgv, hideMobileMenu);
+watch(() => props.route, hideMobileMenu);
 onMounted(() => window.addEventListener('resize', updateViewport));
 onUnmounted(() => window.removeEventListener('resize', updateViewport));
 </script>
@@ -37,7 +37,7 @@ onUnmounted(() => window.removeEventListener('resize', updateViewport));
 <template>
     <div class="layout-wrapper layout-static" :class="containerClass">
         <AppTopbar :menu-open="menuOpen" :transport="transport" @toggle-menu="toggleMenu" @navigate="hideMobileMenu" />
-        <AppSidebar :open="menuOpen" :is-agv="isAgv" @navigate="hideMobileMenu" />
+        <AppSidebar :open="menuOpen" :route="route" @navigate="hideMobileMenu" />
         <main id="main" class="layout-main-container" :inert="mobileMenuActive || undefined">
             <div class="layout-main">
                 <slot />
