@@ -54,8 +54,9 @@ def test_scene_serves_only_configured_versioned_glb(service, tmp_path, scene_pro
     url = config['drawing']['url']
     status, headers, raw = request(service, url)
     assert (status, headers['Content-Type'], raw) == (200, 'model/gltf-binary', (tmp_path / 'synthetic.glb').read_bytes())
-    assert 'immutable' in headers['Cache-Control']
-    assert request(service, url, token='wrong')[0] == 403
+    assert headers['Cache-Control'] == 'private, no-cache'
+    assert request(service, url, etag=headers['ETag'])[0] == 304
+    assert request(service, url, token='wrong', etag=headers['ETag'])[0] == 403
     assert request(service, url + 'x')[0] == 404
     assert request(service, '/operator/synthetic.glb')[0] == 404
 

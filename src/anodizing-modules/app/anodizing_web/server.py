@@ -225,7 +225,7 @@ class Handler(BaseHTTPRequestHandler):
             if drawing and path == drawing['url']:
                 return self.send_asset(self.server.scene.data, 'model/gltf-binary',
                                        etag='"' + drawing['sha256'] + '"',
-                                       cache_control='private, max-age=31536000, immutable')
+                                       cache_control='private, no-cache')
             return self.reply(404, {'error': 'Drawing is unavailable.'})
         if path == '/api/status':
             try:

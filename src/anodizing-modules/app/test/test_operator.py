@@ -11,11 +11,13 @@ import pytest
 from anodizing_web import agv, server
 
 
-def request(service, path, token='secret', host='127.0.0.1:8870', origin=None, method='GET'):
+def request(service, path, token='secret', host='127.0.0.1:8870', origin=None, method='GET', etag=None):
     handler = server.Handler.__new__(server.Handler)
     handler.server = service
     handler.client_address = ('127.0.0.1', 1234)
     extra = f'Origin: {origin}\r\n' if origin is not None else ''
+    if etag is not None:
+        extra += f'If-None-Match: {etag}\r\n'
     handler.rfile = BytesIO(f'{method} {path} HTTP/1.1\r\nHost: {host}\r\n'
                             f'X-Module-Token: {token}\r\n{extra}\r\n'.encode())
     handler.wfile = BytesIO()
