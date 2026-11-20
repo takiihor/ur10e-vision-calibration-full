@@ -63,9 +63,16 @@ async function load(ports) {
       const body = options.body && JSON.parse(options.body);
       if (body) requests.push(body);
       const response = {connection_id: 1, sequence: ++sequence, connected: false, armed: false, log: [], results: {}};
-      if (!body) Object.assign(response, {serial_available: true, ports, commands: [],
-        settings: {mode: 'simulator', address: '00 99', channel: '08', port: null}});
-      else if (scenario === 'rejected') return {ok: false, json: async () => ({error: 'Fixture rejection'})};
+      if (!body) {
+        Object.assign(response, {serial_available: true, ports, commands: [],
+          settings: {mode: 'simulator', address: '00 99', channel: '08', port: null}});
+        if (scenario === 'standard') Object.assign(response, {
+          connected: true, status_hex: 'standard report', status_age_s: .2,
+          status: {mode: 0, current_station: 7, max_stations: 1, position_units: 20, stopped: true},
+          commands: [{name: 'forward', label: 'Forward', motion: true}, {name: 'reverse', label: 'Reverse', motion: true}],
+          link_quality: {sent: 4, acknowledged: 1, resent: 2, no_reply: 1, timed_report_interval_s: 1.2},
+        });
+      } else if (scenario === 'rejected') return {ok: false, json: async () => ({error: 'Fixture rejection'})};
       else if (body.action === 'send') Object.assign(response, {connected: true, connection_id: 2,
         settings: {mode: 'simulator', address: '00 01', channel: '04', port: null},
         results: {stop: {tx_id: sequence, state: 'sent', sent_at: '2026-11-19T12:34:56.789Z'}}});
@@ -86,6 +93,13 @@ function selectSerial(get) {
 
 async function run() {
   const get = await load(scenario === 'reload' || scenario === 'ambiguous' ? [onboard, radio, other] : [onboard, radio]);
+  if (scenario === 'standard') {
+    assert.equal(get('forward').textContent, 'Forward');
+    assert.equal(get('reverse').textContent, 'Reverse');
+    assert.match(get('station-note').textContent, /station-call function/);
+    assert.match(get('station-label').textContent, /Stop counter/);
+    assert.match(get('link-quality').textContent, /Sent 4.*Acknowledged 1.*Resent 2.*No reply 1.*1.2 s/);
+  }
   if (scenario === 'reload') {
     selectSerial(get);
     get('port').value = radio.device;

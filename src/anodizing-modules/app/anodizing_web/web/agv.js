@@ -11,7 +11,8 @@ const controls = new Map(), commands = new Map(), outcomes = new Map();
 const linkLost = 'Link lost. The AGV may still be moving. Use its e-stop if needed.';
 const portRetry = 'Reseat the USB plug, reload this page, then select Connect.';
 const badFrame = 'Invalid AGV reply. Check the radio connection, then query status again.';
-const emptyJournal = () => ({log: [], events: [], commands: {}, transports: {}, cursors: {}, log_gap: false});
+const stationCallRequired = 'Station call needs the station-call function, set in the XBOT app. In standard mode, use Forward/Reverse.';
+const emptyJournal = () => ({log: [], events: [], commands: {}, transports: {}, link_quality: {}, cursors: {}, log_gap: false});
 const isoNow = () => new Date().toISOString();
 const localTime = stamp => new Date(stamp).toLocaleTimeString('en-GB', {
   hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3, hour12: false,
@@ -50,14 +51,14 @@ const fieldLabels = {
   roller_left_blocked: 'Roller left beam blocked', roller_right_blocked: 'Roller right beam blocked',
   lift_state: 'Lift endpoint', attachment_active: 'Attachment active', roller_speed: 'Roller speed (device value)',
 };
-const modes = {0: 'normal', 1: 'station editing', 2: 'station calling'};
+const modes = {0: 'standard', 1: 'station editing', 2: 'station calling'};
 const eventFields = {
   current_station: 'Current station', target_station: 'Target station', fault_code: 'Fault code',
   obstacle_stop: 'Obstacle stop', command_stop: 'Command stop', paused: 'Pause flag',
 };
 const outcomesList = ['Not tested', 'Pass', 'Fail', 'Skipped'];
 const checklist = [
-  ['Read status and speed', 'Turn on auto-poll and select Query status. Select Read speed and compare the reply with the set speed in Machine details.', 'The page shows a fresh status and replies with a speed. The AGV stays parked.'],
+  ['Read status and speed', 'Check for fresh status. If the AGV does not send timed reports, turn on auto-poll and select Query status. Select Read speed and compare the reply with the set speed in Machine details.', 'The page shows a fresh status and replies with a speed. The AGV stays parked.'],
   ['Stop and Pause while parked', 'With the AGV parked, press Stop (software) and wait for the status. Press Pause separately and wait for the status.', 'The AGV stays parked. Check the command stop and pause flags after their respective presses.'],
   ['Set speed to 500 m/h', 'Tick Armed and press the 500 m/h preset. Check Set speed in Machine details before moving.', 'The set speed reads 500 m/h (0.5 km/h). Actual speed remains zero while parked.'],
   ['Call the next station and Stop partway', 'Call the next learned station at 500 m/h. Press Stop (software) partway, before the AGV reaches the station.', 'Observe where it stops and how long it takes. Check motion, station and command stop.'],
@@ -250,6 +251,7 @@ function disabled(id, reason) {
 function commandReason(name, preset) {
   if (!state.connected) return 'Connect first.';
   if (urgent.has(name)) return '';
+  if (name === 'call_station' && state.status?.mode === 0) return stationCallRequired;
   if (state.recipe_active && !commands.get(name)?.motion) return 'The recipe is checking AGV status. Follow Current operation on Pick/place.';
   if (commands.get(name)?.motion) {
     if (state.motion_block) return state.motion_block;
@@ -270,8 +272,14 @@ function faultText(status) {
 
 function renderStatus() {
   const status = state.status;
-  const maximum = status?.max_stations;
-  display('station-note', maximum === 0
+  const standard = status?.mode === 0;
+  const maximum = standard ? undefined : status?.max_stations;
+  $('manual-station').hidden = standard;
+  $('target-readout').hidden = standard;
+  $('direction-note').hidden = !standard;
+  if (commands.has('forward')) display('forward', standard ? 'Forward' : 'Forward');
+  if (commands.has('reverse')) display('reverse', standard ? 'Reverse' : 'Reverse');
+  display('station-note', standard ? stationCallRequired : maximum === 0
     ? 'No route learned yet (AGV reports 0 stations). Teach the route with the AGV’s green button; see the XBOT station guide (V1.61, pp. 2–3). Manual numbers may be unrecognised.'
     : maximum > 0 ? `${maximum} learned stations. Current station is marked on its button.`
       : 'Query status to see whether the AGV has learned a route. Manual station numbers are unverified.');
@@ -291,11 +299,14 @@ function renderStatus() {
     else button.removeAttribute('aria-current');
   }
   display('transport', state.connected ? state.settings.mode === 'simulator' ? 'Simulator' : 'Serial AGV' : 'No open connection');
+  $('link-quality').hidden = !state.connected || !state.link_quality;
+  if (state.link_quality) display('link-quality', linkQualityText(state.link_quality));
   if (renderedStatus === state.status_hex) return;
   renderedStatus = state.status_hex;
   const bool = value => value === true ? 'On' : value === false ? 'Off' : 'Unknown';
   const actual = status?.actual_speed_m_h;
-  display('station-label', maximum === 0 ? 'Stop counter (no route learned)' : 'Current station');
+  display('station-label', standard ? 'Stop counter (not a station number in standard mode)'
+    : maximum === 0 ? 'Stop counter (no route learned)' : 'Current station');
   display('state-motion', status?.stopped === true ? 'Stopped' : status?.stopped === false ? 'Running' : '—');
   display('state-station', String(status?.current_station ?? '—'));
   display('state-target', String(status?.target_station ?? '—'));
@@ -304,16 +315,23 @@ function renderStatus() {
   display('state-fault', faultText(status));
   $('state-fault').dataset.state = status?.fault_code ? 'failed' : '';
   display('state-flags', status ? [
-    `Mode ${status.mode} · ${modes[status.mode] ?? 'unknown'}`, `Station arrival ${bool(status.station_arrival)}`,
+    `Mode ${status.mode} · ${modes[status.mode] ?? 'unknown'}`, `${standard ? 'Stop line' : 'Station'} arrival ${bool(status.station_arrival)}`,
     `Obstacle stop ${bool(status.obstacle_stop)}`, `Command stop ${bool(status.command_stop)}`, `Pause ${bool(status.paused)}`,
-  ].join('  /  ') : 'Awaiting a status reply.');
+  ].join('  /  ') : 'Awaiting a status report.');
   $('status').replaceChildren(...Object.entries(fieldLabels).flatMap(([field, label]) => {
     if (!(field in (status ?? {}))) return [];
     const value = status[field];
-    return [make('dt', label), make('dd', field === 'set_speed_m_h' ? speedText(value)
+    const title = standard && field === 'position_units' ? 'Distance to the stop line (units)' : label;
+    return [make('dt', title), make('dd', field === 'set_speed_m_h' ? speedText(value)
       : typeof value === 'boolean' ? bool(value) : String(value))];
   }));
   display('raw', state.status_hex ?? '');
+}
+
+function linkQualityText(quality) {
+  const {sent, acknowledged, resent, no_reply: noReply, timed_report_interval_s: interval} = quality;
+  const counts = `Sent ${sent} · Acknowledged ${acknowledged} · Resent ${resent} · No reply ${noReply}`;
+  return interval == null ? counts : `${counts} · Timed reports every ${seconds(interval)} s`;
 }
 
 function resultText(name, result, viaEsc) {
@@ -330,19 +348,25 @@ function resultText(name, result, viaEsc) {
     return {text: `AGV replied: ${reply} (${seconds(elapsed)} s)${Number.isFinite(amount) ? ' · ' + speedText(amount).split(' · ')[1] : ''}`, tone: 'done'};
   }
   if (stage === 'waiting for reply') return {text: `Waiting for the AGV to reply… ${seconds(remaining)} s`, tone: 'waiting'};
-  if (stage === 'no reply') return {text: `No reply in 1.5 s. Check the radio. ${portRetry}`, tone: 'failed'};
+  if (stage === 'status received') return {text: `Status received (${seconds(elapsed)} s)`, tone: 'done'};
+  if (stage === 'no reply') return {text: reads.has(name) ? `No reply in 1.5 s. Check the radio. ${portRetry}`
+    : `No reply from the AGV after ${result.tries} tries. Check the radio, then try again.`, tone: 'failed'};
   if (stage === 'arrived') text = `Arrived at station ${value} (${seconds(elapsed)} s)`;
-  else if (confirmation) text = urgent.has(name) ? `${urgentSent} · AGV reports stopped` : 'Confirmed: AGV status shows the change';
+  else if (confirmation) {
+    const reported = result.confirmed_stopped !== false ? 'stopped' : name === 'pause' ? 'paused' : 'command stop active';
+    text = urgent.has(name) ? `${urgentSent} · AGV reports ${reported}` : 'Confirmed: AGV status shows the change';
+  }
   else if (stage === 'not confirmed') text = 'Not confirmed after 5 s: check the AGV.';
   else if (stage === 'not checked') text = 'Not checked: no confirmation before another action. Check the AGV.';
-  else if (stage === 'travelling') text = `Going to station ${value}…${$('auto').checked ? '' : ' Select Query status to check arrival.'}`;
+  else if (stage === 'travelling') text = `Going to station ${value}…${$('auto').checked || state.link_quality?.timed_report_interval_s ? '' : ' Select Query status to check arrival.'}`;
   else {
     const sentText = urgent.has(name) ? urgentSent :
       name === 'call_station' ? `Going to station ${value}…` : `Sent at ${sent}`;
-    const waiting = !$('auto').checked && (ack != null || !remaining)
+    const waiting = !$('auto').checked && !state.link_quality?.timed_report_interval_s && (ack != null || !remaining)
       ? 'waiting for a status (auto-poll is off). Select Query status.'
       : remaining > 0 ? `waiting for the AGV to confirm… ${Math.ceil(remaining)} s` : 'waiting for a status. Check the link.';
-    return {text: [sentText, acknowledged, waiting, result.warning].filter(Boolean).join(' · '), tone: 'waiting'};
+    const attempt = result.tries > 1 ? `Try ${result.tries}` : '';
+    return {text: [sentText, attempt, acknowledged, waiting, result.warning].filter(Boolean).join(' · '), tone: 'waiting'};
   }
   return {text: [text, acknowledged, result.warning].filter(Boolean).join(' · '),
     tone: confirmation || stage === 'arrived' ? 'done' : stage === 'travelling' ? 'waiting' : 'failed'};
@@ -401,7 +425,7 @@ function render() {
   }
   if (!lastPressed && capability) display('outcome', state.connected ? 'Query status to check the AGV.' : 'Select Connect to begin.');
   const age = state.status_age_s;
-  const elapsed = age == null ? 'no status reply yet' : `last status reply ${seconds(age)} s ago`;
+  const elapsed = age == null ? 'no status report yet' : `last status report ${seconds(age)} s ago`;
   const error = networkError || state.error;
   display('link', error ? `Error · ${elapsed}` : !state.connected ? 'Disconnected'
     : state.stale ? `Link stale · ${elapsed}` : `Connected · ${elapsed}`);
@@ -435,7 +459,8 @@ function eventText(event, status) {
     return event.after ? 'Link stale' : event.disconnected ? 'Stale alarm cleared on disconnect' : 'Link recovered';
   }
   if (event.field === 'transport_error') return event.after ? 'Transport error' : 'Transport recovered';
-  const title = event.field === 'current_station' && status?.max_stations === 0 ? 'Stop counter' : eventFields[event.field];
+  const title = event.field === 'current_station' && (status?.mode === 0 || status?.max_stations === 0)
+    ? 'Stop counter' : eventFields[event.field];
   const value = item => item === true ? 'on' : item === false ? 'off' : item;
   return `${title}: ${value(event.before)} → ${value(event.after)}`;
 }
@@ -469,6 +494,7 @@ function ingest(next, connection) {
   cursor.events = events.at(-1)?.id ?? cursor.events;
   journal.cursors[connection] = cursor;
   if (next.settings) journal.transports[connection] = next.settings;
+  if (next.settings && next.link_quality) (journal.link_quality ??= {})[connection] = next.link_quality;
   for (const [name, result] of [...(next.replaced ?? []), ...Object.entries(next.results)]) {
     const key = `${connection}/${result.tx_id}`;
     if (result.background || !result.tx_id || (!journal.commands[key] && !entries.some(entry => entry.id === result.tx_id))) continue;
@@ -607,7 +633,8 @@ function sendCommand(command, id, preset, viaEsc = false) {
 
 async function tick() {
   const now = performance.now();
-  if (!busy && !polling && !state.recipe_active && state.connected && $('auto').checked && now >= nextPoll) {
+  const freshTimedReports = state.link_quality?.timed_report_interval_s && !state.stale;
+  if (!busy && !polling && !state.recipe_active && state.connected && $('auto').checked && !freshTimedReports && now >= nextPoll) {
     polling = true;
     try { await sendCommand('query_status'); }
     finally { polling = false; }
@@ -634,6 +661,7 @@ function exportRecord() {
     journal.commands[`${connection}/${result.tx_id}`]));
   return {exported_at: isoNow(), started_at: session.started_at, connection: state.settings,
     transports: Object.entries(journal.transports).map(([connection, settings]) => ({connection, ...settings})), auto_poll: $('auto').checked, armed: state.armed,
+    link_quality: journal.link_quality ?? {},
     simulator_silent: state.silent, results, settings: session.settings,
     checklist: Object.fromEntries(checklist.map(([title], index) => [index + 1,
       {title, result: 'Not tested', notes: '', ...session.checklist[index + 1]}])),
@@ -648,8 +676,12 @@ function markdown(record) {
   const tests = Object.entries(record.checklist);
   const lines = ['| Test | Result |', '| --- | --- |', ...tests.map(([number, test]) => `| ${number}. ${test.title} | ${test.result} |`),
     '', '# AGV commissioning report', '', `Transport — ${record.transports.length ? [...new Set(record.transports.map(item => transportName(item.mode)))].join(', ') : 'No connection'}`,
-    '', `Exported — ${record.exported_at}`, '', '## Settings as found', '',
-    ...Object.entries(foundFields).map(([id, label]) => `- ${label} — ${escape(record.settings[id]) || 'Unrecorded'}`)];
+    '', `Exported — ${record.exported_at}`];
+  if (Object.keys(record.link_quality).length) lines.push('', '## Link quality', '',
+    ...Object.entries(record.link_quality).map(([connection, quality]) =>
+      `- ${transportByConnection.get(connection)} · ${connection} · ${linkQualityText(quality)}`));
+  lines.push('', '## Settings as found', '',
+    ...Object.entries(foundFields).map(([id, label]) => `- ${label} — ${escape(record.settings[id]) || 'Unrecorded'}`));
   for (const [number, test] of tests) {
     lines.push('', `## ${number}. ${test.title}`, '', `Result — ${test.result}`, '', `Notes — ${escape(test.notes) || 'None'}`);
     const proof = test.evidence;
@@ -657,8 +689,9 @@ function markdown(record) {
     lines.push('', `Observed — ${proof.marked_at} · ${transportName(proof.transport)}`);
     if (proof.status) {
       const status = proof.status;
-      const station = status.max_stations === 0 ? 'stop counter' : 'station';
-      lines.push(`Reported status — ${status.stopped === true ? 'stopped' : status.stopped === false ? 'running' : 'unknown'}, ${station} ${status.current_station}, target ${status.target_station}, ${speedText(status.actual_speed_m_h)}, battery ${status.battery_percent}%, ${faultText(status)}. Status age ${seconds(proof.status_age_s)} s${proof.stale ? ' (stale)' : ''}.`);
+      const station = status.mode === 0 || status.max_stations === 0 ? 'stop counter' : 'station';
+      const target = status.mode === 0 ? '' : `, target ${status.target_station}`;
+      lines.push(`Reported status — ${status.stopped === true ? 'stopped' : status.stopped === false ? 'running' : 'unknown'}, ${station} ${status.current_station}${target}, ${speedText(status.actual_speed_m_h)}, battery ${status.battery_percent}%, ${faultText(status)}. Status age ${seconds(proof.status_age_s)} s${proof.stale ? ' (stale)' : ''}.`);
     }
     for (const command of proof.commands) lines.push(`- ${command.timestamp} · ${labelTransport(command)} · ${commands.get(command.name)?.label ?? command.name} · ${resultText(command.name, command).text}`);
     for (const event of proof.events) lines.push(`- ${event.timestamp} · ${labelTransport(event)} · ${escape(event.text)}`);
@@ -735,6 +768,7 @@ $('new-session').addEventListener('click', () => {
   lastPressed = undefined;
   journal.cursors[connectionKeyFor(state)] = {log: state.log?.at(-1)?.id ?? 0, events: state.events?.at(-1)?.id ?? 0};
   if (state.connected) journal.transports[connectionKeyFor(state)] = state.settings;
+  if (state.connected && state.link_quality) journal.link_quality[connectionKeyFor(state)] = state.link_quality;
   $('sound').checked = false;
   for (const id of Object.keys(foundFields)) $(id).value = '';
   checklist.forEach((_, index) => $('test-' + (index + 1)).dispatchEvent(new Event('agv-reset')));

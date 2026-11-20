@@ -17,6 +17,7 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
   | **Observed** | The operator ticked that they saw it. |
 
 - **The link's age is always visible.** Raise a stale-link alarm after 3 s in a recipe or 5 s on the AGV commissioning page (see 6).
+- Timed 485 reports refresh the link without an auto-poll. Use **Status received** for a Query status outcome because the same report can also arrive on its own. Read speed has a distinct reply frame.
 
 ## 2. Stop and Pause
 - **Placement.** Stop and Pause stay in one fixed position at the top and are always visible. Scroll, reflow or an open panel never moves them.
@@ -30,13 +31,14 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 - **Shortcut.** Press Esc anywhere on the page to send one software Stop while connected. The Stop outcome shows `(Esc)` next to the send time. While disconnected, pressing Esc shows “Connect first” in the status line. Esc is the only command shortcut.
 
 ## 3. Movement is deliberate
-- **One press, one command on AGV commissioning.** A supervised Pick/place recipe can sequence station calls only after its review and explicit approval.
+- **One press authorizes one command on AGV commissioning.** The link can resend the same frame until the AGV acknowledges it or a later status confirms it. Stop and Pause send immediately, with up to five tries about 1 s apart. Other movement and setting commands get up to four tries at least 2 s apart. When timed reports are detected, ordinary sends align with the measured 100–150 ms gap after a report. Stop, Pause, disarm and disconnect cancel pending retries. The Pick/place recipe keeps its existing supervision and deadlines.
 - **Arming.**
   - Movement needs a visible Armed control.
   - Armed resets on reconnect and is never restored from storage.
   - While Armed is on, the page shows it plainly, for example by tinting the movement column.
 - **Disabled controls say why.** For example "Tick Armed to enable movement", "Connect first" or "A robot job is running". A greyed-out button with no reason is a bug.
 - **Validate input before sending.** Set speed defaults to 500 m/h, the slowest setting. Check ranges (speed 500–4000 m/h, stations 1–N) and explain any limit next to the field.
+- In standard mode (0), show the stop counter and distance to the stop line. Forward and Reverse are the vehicle command names. The Stations panel explains how to enable station call in the XBOT app.
 
 ## 4. Feedback timing
 | After a press | The page must show |
@@ -78,7 +80,7 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 
 ## 7. Glanceable layout
 - **Top bar (sticky):**
-  - the connection banner: Disconnected / Connected · last reply n s ago / **Link stale** / Error;
+  - the connection banner: Disconnected / Connected · last status report n s ago / **Link stale** / Error;
   - Stop and Pause.
 - **Main column:**
   - big state readouts first: moving or stopped, current station → target, speed, battery, fault;
@@ -106,7 +108,8 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
   - the session (operator, site, AGV, radio, app settings as found);
   - each test (result, notes, evidence);
   - events;
-  - the full TX/RX log.
+  - the full TX/RX log with the try number on each send;
+  - per-connection link quality: frames sent, commands acknowledged by a short ACK, retry frames, commands with no reply, and the detected timed-report interval.
 - **Two exports:** a readable report (summary table first) and the full JSON.
 - **Simulator evidence is never presented as hardware evidence.** The record states the transport used.
 

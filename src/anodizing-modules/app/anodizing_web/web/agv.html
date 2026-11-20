@@ -43,12 +43,13 @@
     <dl class="agv-readouts">
       <div><dt>Motion</dt><dd id="agv-state-motion">—</dd></div>
       <div><dt id="agv-station-label">Current station</dt><dd id="agv-state-station">—</dd></div>
-      <div><dt>Target station</dt><dd id="agv-state-target">—</dd></div>
+      <div id="agv-target-readout"><dt>Target station</dt><dd id="agv-state-target">—</dd></div>
       <div><dt>Actual speed</dt><dd id="agv-state-speed">—</dd></div>
       <div><dt>Battery</dt><dd id="agv-state-battery">—</dd></div>
       <div><dt>Fault</dt><dd id="agv-state-fault">—</dd></div>
     </dl>
-    <p id="agv-state-flags" class="agv-flags">Awaiting a status reply.</p>
+    <p id="agv-state-flags" class="agv-flags">Awaiting a status report.</p>
+    <p id="agv-link-quality" class="agv-flags" hidden></p>
     <details><summary>Machine details</summary><dl id="agv-status"></dl></details>
   </section>
   <section class="agv-panel" aria-labelledby="agv-stations-title">
@@ -90,6 +91,7 @@
     <div id="agv-armed-outcome"></div>
     <div id="agv-speed"></div>
     <div id="agv-moves" class="agv-controls"></div>
+    <p id="agv-direction-note" hidden>Verify the travel direction for the installed vehicle and track.</p>
     <details><summary>More commands</summary><div id="agv-more" class="agv-controls"></div></details>
   </section>
 </aside>
@@ -97,7 +99,7 @@
 <div class="agv-workflow">
   <section class="agv-panel" aria-labelledby="agv-checklist-title">
     <h2 id="agv-checklist-title">Commissioning checklist</h2>
-    <p><strong>Before testing</strong> Confirm the robot is idle, the track is clear, a person is at the AGV’s e-stop, and auto-poll is on.</p>
+    <p><strong>Before testing</strong> Confirm the robot is idle, the track is clear, a person is at the AGV’s e-stop, and fresh status is visible. Use auto-poll if the AGV does not send timed reports.</p>
     <p>The AGV may restart by itself in Auto mode or when automatic restart is enabled. Check both settings before moving.</p>
     <div id="agv-checklist"></div>
   </section>
