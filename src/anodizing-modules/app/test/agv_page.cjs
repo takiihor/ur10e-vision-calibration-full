@@ -70,7 +70,8 @@ async function load(ports) {
         if (scenario === 'motion-approval') Object.assign(response, {
           connected: true, armed: true, stop_generation: 7, status_hex: 'station report', status_age_s: .2,
           status: {mode: 2, current_station: 1, max_stations: 3, stopped: true},
-          commands: [{name: 'forward', label: 'Forward', motion: true}],
+          commands: [{name: 'forward', label: 'Forward', motion: true},
+            {name: 'rotate_clockwise', label: 'Rotate', motion: true}],
         });
         if (scenario === 'standard') Object.assign(response, {
           connected: true, status_hex: 'standard report', status_age_s: .2,
@@ -89,6 +90,11 @@ async function load(ports) {
       else if (scenario === 'motion-approval' && body.command === 'forward') Object.assign(response, {
         connected: true, armed: true, stop_generation: 7, settings: {mode: 'simulator'},
         results: {forward: {tx_id: sequence, state: 'sent', sent_at: '2026-11-19T12:34:56.789Z'}},
+      });
+      else if (scenario === 'motion-approval' && body.command === 'rotate_clockwise') Object.assign(response, {
+        connected: true, armed: true, stop_generation: 7, settings: {mode: 'simulator'},
+        results: {rotate_clockwise: {tx_id: sequence, state: 'no reply', tries: 1,
+          sent_at: '2026-11-19T12:34:56.789Z', warning: 'Delivery is uncertain. Check the AGV before trying again.'}},
       });
       else if (scenario === 'motion-approval' && body.command === 'stop') Object.assign(response, {
         connected: true, armed: true, stop_generation: 8, urgent_command: 'pause', settings: {mode: 'simulator'},
@@ -154,6 +160,9 @@ async function run() {
     assert.equal(storageWrites, 0);
     assert.equal(get('disconnect').disabled, true);
   } else if (scenario === 'motion-approval') {
+    await get('rotate_clockwise').emit('click');
+    assert.match(get('rotate_clockwise-outcome').textContent, /Delivery is uncertain/);
+    await get.refresh();
     await get('forward').emit('click');
     assert.equal(requests.at(-1).stop_generation, 7);
     await get('stop').emit('click');

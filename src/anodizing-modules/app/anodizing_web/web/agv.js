@@ -256,10 +256,11 @@ function commandReason(name, preset) {
   if (commands.get(name)?.motion) {
     if (state.motion_block) return state.motion_block;
     if (!state.armed) return 'Tick Armed to enable movement.';
-    if (name !== 'set_speed') {
-      if (state.stale || !state.status) return 'Wait for a fresh AGV status report.';
-      if (state.status.fault_code || state.status.obstacle_stop) return 'Clear the reported AGV fault or obstacle before moving.';
-    }
+    if (state.stale || !state.status) return 'Wait for a fresh AGV status report.';
+    if (![0, 2].includes(state.status.mode)) return 'Select standard or station-call mode in the XBOT app first.';
+    if (state.status.fault_code || state.status.obstacle_stop) return 'Clear the reported AGV fault or obstacle before continuing.';
+    if (name === 'resume' && state.status.mode === 0) return 'Resume requires station-call mode.';
+    if (name === 'call_station' && !state.status.max_stations) return 'Learn the route before calling a station.';
   }
   if (busy) return 'Wait for the current request.';
   const value = commandValue(name, preset);
@@ -354,6 +355,7 @@ function resultText(name, result, viaEsc) {
   if (stage === 'waiting for reply') return {text: `Waiting for the AGV to reply… ${seconds(remaining)} s`, tone: 'waiting'};
   if (stage === 'status received') return {text: `Status received (${seconds(elapsed)} s)`, tone: 'done'};
   if (stage === 'acknowledged late') return {text: `AGV acknowledged late (${seconds(ack)} s)`, tone: 'done'};
+  if (stage === 'no reply' && result.warning) return {text: 'No reply from the AGV. ' + result.warning, tone: 'failed'};
   if (stage === 'no reply') return {text: reads.has(name) ? `No reply in 1.5 s. Check the radio. ${portRetry}`
     : `No reply from the AGV after ${result.tries} tries. Check the radio, then try again.`, tone: 'failed'};
   if (stage === 'arrived') text = `Arrived at station ${value} (${seconds(elapsed)} s)`;
