@@ -256,6 +256,10 @@ function commandReason(name, preset) {
   if (commands.get(name)?.motion) {
     if (state.motion_block) return state.motion_block;
     if (!state.armed) return 'Tick Armed to enable movement.';
+    if (name !== 'set_speed') {
+      if (state.stale || !state.status) return 'Wait for a fresh AGV status report.';
+      if (state.status.fault_code || state.status.obstacle_stop) return 'Clear the reported AGV fault or obstacle before moving.';
+    }
   }
   if (busy) return 'Wait for the current request.';
   const value = commandValue(name, preset);
@@ -354,7 +358,7 @@ function resultText(name, result, viaEsc) {
     : `No reply from the AGV after ${result.tries} tries. Check the radio, then try again.`, tone: 'failed'};
   if (stage === 'arrived') text = `Arrived at station ${value} (${seconds(elapsed)} s)`;
   else if (confirmation) {
-    const reported = result.confirmed_stopped !== false ? 'stopped' : name === 'pause' ? 'paused' : 'command stop active';
+    const reported = result.confirmed_stopped === true ? 'stopped' : (result.wire_command ?? name) === 'pause' ? 'paused' : 'command stop active';
     text = urgent.has(name) ? `${urgentSent} · AGV reports ${reported}` : 'Confirmed: AGV status shows the change';
   }
   else if (stage === 'not confirmed') text = 'Not confirmed after 5 s: check the AGV.';
@@ -567,7 +571,7 @@ function requestError(error) {
   if (!error.api) return state.connected ? linkLost : 'Page service unavailable. Reload this page, then select Connect.';
   const raw = error.message;
   if (raw === linkLost || /^(Serial permission denied\.|Serial port is busy or missing\.)/.test(raw)) return raw;
-  if (/^(Tick Armed|A robot job is running|Choose a learned station|Connect an AGV|Service is closing|Job storage failed|Robot state is uncertain)/.test(raw)) {
+  if (/^(Tick Armed|A robot job is running|Choose a learned station|Connect an AGV|Service is closing|Job storage failed|Robot state is uncertain|AGV movement needs|Stop, Pause or disarming cancelled|AGV Stop or Pause is awaiting)/.test(raw)) {
     return 'Refused: ' + raw[0].toLowerCase() + raw.slice(1);
   }
   if (error.status === 403) return 'Refused: page access expired. Reload the page.';
@@ -598,10 +602,11 @@ async function post(body, {id, priority = false, viaEsc = false} = {}) {
     if (id && outcomes.get(id) === pending) {
       if (body.command) {
         const resultConnection = connectionKeyFor(result);
-        const current = state.results[body.command];
-        const fromResponse = result.results[body.command];
-        const newest = connectionKeyFor(state) === resultConnection && current?.tx_id === fromResponse.tx_id ? current : fromResponse;
-        outcomes.set(id, {name: body.command, result: newest, connection: resultConnection, viaEsc});
+        const name = result.urgent_command ?? body.command;
+        const current = state.results[name];
+        const fromResponse = result.results[name];
+        const newest = connectionKeyFor(state) === resultConnection && current?.tx_id === fromResponse?.tx_id ? current : fromResponse;
+        outcomes.set(id, {name, result: newest, connection: resultConnection, viaEsc});
       } else {
         const connected = result.settings?.mode === 'simulator' ? 'Simulator' : 'Serial AGV';
         const text = {connect: 'Connected · ' + connected, disconnect: 'Disconnected.',
@@ -623,8 +628,9 @@ async function post(body, {id, priority = false, viaEsc = false} = {}) {
 }
 
 function sendCommand(command, id, preset, viaEsc = false) {
-  return post({action: 'send', command, value: commandValue(command, preset), background: false},
-    {id, priority: urgent.has(command), viaEsc});
+  const body = {action: 'send', command, value: commandValue(command, preset), background: false};
+  if (commands.get(command)?.motion) body.stop_generation = state.stop_generation;
+  return post(body, {id, priority: urgent.has(command), viaEsc});
 }
 
 async function tick() {

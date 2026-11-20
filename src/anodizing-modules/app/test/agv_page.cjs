@@ -67,6 +67,11 @@ async function load(ports) {
       if (!body) {
         Object.assign(response, {serial_available: true, ports, commands: [],
           settings: {mode: 'simulator', address: '00 99', channel: '08', port: null}});
+        if (scenario === 'motion-approval') Object.assign(response, {
+          connected: true, armed: true, stop_generation: 7, status_hex: 'station report', status_age_s: .2,
+          status: {mode: 2, current_station: 1, max_stations: 3, stopped: true},
+          commands: [{name: 'forward', label: 'Forward', motion: true}],
+        });
         if (scenario === 'standard') Object.assign(response, {
           connected: true, status_hex: 'standard report', status_age_s: .2,
           status: {mode: 0, current_station: 7, max_stations: 1, position_units: 20, stopped: true},
@@ -81,6 +86,14 @@ async function load(ports) {
             link_quality: {sent: 5, acknowledged: +late, resent: 4, no_reply: +!late, timed_report_interval_s: 1.2}});
         }
       } else if (scenario === 'rejected') return {ok: false, json: async () => ({error: 'Fixture rejection'})};
+      else if (scenario === 'motion-approval' && body.command === 'forward') Object.assign(response, {
+        connected: true, armed: true, stop_generation: 7, settings: {mode: 'simulator'},
+        results: {forward: {tx_id: sequence, state: 'sent', sent_at: '2026-11-19T12:34:56.789Z'}},
+      });
+      else if (scenario === 'motion-approval' && body.command === 'stop') Object.assign(response, {
+        connected: true, armed: true, stop_generation: 8, urgent_command: 'pause', settings: {mode: 'simulator'},
+        results: {pause: {tx_id: sequence, state: 'sent', sent_at: '2026-11-19T12:34:56.789Z'}},
+      });
       else if (body.action === 'send') stopSent = Object.assign(response, {connected: true, connection_id: 2,
         settings: {mode: 'simulator', address: '00 01', channel: '04', port: null},
         results: {stop: {tx_id: sequence, state: 'sent', sent_at: '2026-11-19T12:34:56.789Z'}}});
@@ -140,6 +153,11 @@ async function run() {
     await get('connect').emit('click');
     assert.equal(storageWrites, 0);
     assert.equal(get('disconnect').disabled, true);
+  } else if (scenario === 'motion-approval') {
+    await get('forward').emit('click');
+    assert.equal(requests.at(-1).stop_generation, 7);
+    await get('stop').emit('click');
+    assert.match(get('stop-outcome').textContent, /Pause sent/);
   } else if (scenario === 'escape-stop') {
     const press = (key, repeat = false) => get('mark-text').emit('keydown', {key, repeat, preventDefault() {}});
     await press('Escape');
@@ -177,4 +195,53 @@ async function run() {
   }
 }
 
-run().catch(error => { console.error(error); process.exitCode = 1; });
+async function pickPlaceUrgent() {
+  const source = fs.readFileSync(path.join(__dirname, '../anodizing_web/web/manual-pick-place.js'), 'utf8');
+  const fields = new Map();
+  const field = id => {
+    if (!fields.has(id)) fields.set(id, {id, value: '', valueAsNumber: NaN, checked: false, dataset: {},
+      checkValidity: () => true, addEventListener(type, fn) { this[type] = fn; }, setAttribute() {}});
+    return fields.get(id);
+  };
+  const keyboard = {};
+  const timers = [];
+  const sent = {state: 'sent', tx_id: 1, sent_at: '2026-11-19T12:34:56.789Z', tries: 1};
+  let reply = null;
+  vm.runInNewContext(source, {
+    document: {getElementById: field, querySelector: () => ({content: 'fixture'}),
+      addEventListener(type, fn) { keyboard[type] = fn; }},
+    window: {}, localStorage: {getItem: () => null},
+    setTimeout: callback => timers.push(callback),
+    fetch: async (route, options) => {
+      if (route === '/api/agv-travel-pose') return new Promise(() => {});
+      if (options.body) requests.push(JSON.parse(options.body));
+      const body = options.body && JSON.parse(options.body);
+      return {ok: true, json: async () => {
+        if (route === '/api/agv-link') return {connected: true, results: reply ? {pause: reply} : {}};
+        if (route === '/api/agv' && body?.command === 'stop')
+          return {connected: true, recipe_active: true, urgent_command: 'pause', results: {pause: sent}};
+        return {};
+      }};
+    },
+  }, {filename: 'manual-pick-place.js'});
+  await new Promise(setImmediate);
+  keyboard.keydown({key: 'Escape', repeat: false, preventDefault() {}});
+  assert.equal(field('pick-agv-outcome').textContent, 'Sending…');
+  assert.equal(field('pick-agv-stop').disabled, false);
+  await new Promise(setImmediate);
+  assert.deepEqual(requests, [{action: 'send', command: 'stop'}]);
+  assert.match(field('pick-agv-outcome').textContent, /Pause sent.*\(Esc\)/);
+  reply = {...sent, state: 'confirmed by status', confirmed_stopped: false};
+  await timers.shift()();
+  assert.match(field('pick-agv-outcome').textContent, /pause active/i);
+  assert.doesNotMatch(field('pick-agv-outcome').textContent, /reports stopped/);
+  reply = {...sent, state: 'no reply', tries: 4};
+  await timers.shift()();
+  assert.match(field('pick-agv-outcome').textContent, /No reply.*4 tries/);
+  assert.equal(field('pick-agv-outcome').textContent, field('pick-agv-stop-outcome').textContent);
+}
+
+(scenario === 'pick-place-urgent' ? pickPlaceUrgent() : run()).catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

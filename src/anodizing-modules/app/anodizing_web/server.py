@@ -203,6 +203,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, travel_pose.state(self.server.owner))
         if path == '/api/agv':
             return self.reply(200, self.server.agv.capability())
+        if path == '/api/agv-link':
+            return self.reply(200, self.server.agv.link_state())
         if path == '/api/agv-robot-motion':
             from .recipe_agv import motion_state
             return self.reply(200, dict(motion_state(self.server.agv, poll=True), active=self.server.owner.active))

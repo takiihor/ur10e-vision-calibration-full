@@ -4,12 +4,19 @@
   let pending=JSON.parse(storage.getItem(sendKey)||'null'), requestId=pending?.request_id||storage.getItem(jobKey);
   let posting=false, state, feedback='';
   function clearPending(){pending=null;storage.removeItem(sendKey);}
+  function agvReason(command){
+    return command==='0'||state.parent?'':window.agvMotion?.reason('mcu')??'Checking AGV state…';
+  }
   function show(value){
     state=value;
     const last=state.last_known;
     const reply=last?`Last request ${last.command}: ${last.status}. Reply: ${JSON.stringify(last.rx_text)}. Hex: ${last.rx_hex||'(empty)'}.${last.fsr?` FSR1: ${last.fsr[0]}; FSR2: ${last.fsr[1]}.`:''} ${last.error||''}`:'No MCU reply recorded.';
     $('mcu-status').textContent=[reply,state.detail,feedback,pending?'Submission outcome unknown. Check this request. Refresh does not resend.':'',requestId?'Request ID: '+requestId+'.':''].filter(Boolean).join(' ');
-    for(const button of buttons)button.disabled=posting||(pending?button.dataset.mcu!==pending.body.command:!state.available);
+    for(const button of buttons){
+      const why=pending?'':agvReason(button.dataset.mcu);
+      button.disabled=posting||(pending?button.dataset.mcu!==pending.body.command:!state.available||!!why);
+      button.title=why;
+    }
     $('mcu-check').disabled=posting||!requestId;
     document.dispatchEvent(new CustomEvent('mcu-request-status',{detail:posting?'MCU request pending. Wait for its reply.':state.confirmation_detail}));
   }
@@ -31,10 +38,14 @@
         if(!pending){
           show(await api('/api/mcu'));
           if(!state.available)throw new Error(state.detail||'MCU commands are unavailable.');
-          pending={request_id:crypto.randomUUID(),body:{project:field('project'),command:button.dataset.mcu,parent:state.parent}};
+          const command=button.dataset.mcu, why=agvReason(command);
+          if(why)throw new Error(why);
+          pending={request_id:crypto.randomUUID(),body:{project:field('project'),command,parent:state.parent,
+            agv_off:command!=='0'&&!state.parent&&window.agvMotion.off('mcu')}};
         }
         requestId=pending.request_id;storage.setItem(sendKey,JSON.stringify(pending));
         let job=await api('/api/mcu',{...pending.body,request_id:pending.request_id});
+        if(job.agv_motion)window.agvMotion.submitted('mcu',job);
         storage.setItem(jobKey,job.id);clearPending();
         while(['running','waiting'].includes(job.state)){
           await new Promise(resolve=>setTimeout(resolve,300));
@@ -55,6 +66,8 @@
     }catch(error){feedback=error.message+' No automatic submission.';}
     await refresh().catch(fail);
   });
+  function refreshApproval(){if(state)show(state);}
+  document.addEventListener('agv-motion-status',refreshApproval);
   document.addEventListener('manual-owner-status',()=>refresh().catch(fail));
   refresh().catch(fail);
 })();

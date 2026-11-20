@@ -33,7 +33,7 @@
     return state.parked?'':state.detail;
   }
   function render(){
-    let chosen=accepted?.job===active&&accepted?.off;
+    const chosen=accepted?.job===active&&accepted?.off&&!state.reporting;
     for(const [scope,{checkbox,line}] of scopes){
       checkbox.disabled=!!active;
       const isOff=off(scope)&&!state.reporting||chosen&&accepted.scope===scope;

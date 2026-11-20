@@ -2,7 +2,8 @@
 (() => {
   const el=id=>document.getElementById(id), token=document.querySelector('meta[name="module-token"]').content;
   let capability=null, ownerStatus=null, posting=false, generation=0, recipe=null;
-  let travel=null, lastUrgent=null;
+  let travel=null, lastUrgent=null, agvApproval=null, liveAgv=null;
+  const urgentByCommand=new Map();
   const stations=['a','b'].map(end=>({end, field:el('repeat-station-'+end), project:null, record:null,
     edited:false, loading:false}));
   const stationFields=['repeat-station-a','repeat-station-b','repeat-agv-timeout','repeat-agv-speed-cap'];
@@ -67,7 +68,8 @@
     const startWhy=(window.agvMotion?.reason('repeat')??'Checking AGV state…')||reviewWhy||(!recipe?'Review the current recipe.':
       crosses&&!drive?'Check-only mode needs both endpoints at the same station.':
       !el('repeat-approved').checked?'Approve the bounded automatic test.':
-      crosses&&!el('repeat-agv-confirmed').checked?'Confirm the AGV app mode, clear line and e-stop coverage.':'');
+      crosses&&!el('repeat-agv-confirmed').checked?'Confirm the AGV app mode, clear line and e-stop coverage.':
+      recipe.agv_motion!=='off'&&!agvApproval?'Check the live AGV status and approve the test again.':'');
     el('repeat-review').disabled=!!reviewWhy;
     el('repeat-review').title=reviewWhy;
     el('repeat-approved').disabled=!recipe||!!blocked;
@@ -86,12 +88,21 @@
     const value=await response.json();if(!response.ok)throw new Error(value.error||'Request failed.');return value;
   }
   function invalidateRecipe(){
-    recipe=null;el('repeat-approved').checked=false;el('repeat-agv-confirmed').checked=false;
+    recipe=null;agvApproval=null;el('repeat-approved').checked=false;el('repeat-agv-confirmed').checked=false;
     display('repeat-approval-stations','');
     display('repeat-summary','Settings changed. Review the recipe before Start.');
   }
   document.addEventListener('test-profile-applied',()=>{el('manual-setup').checked=false;invalidateRecipe();loadStations();render();});
-  document.addEventListener('agv-motion-status',render);
+  document.addEventListener('agv-motion-status',event=>{
+    liveAgv=event.detail;
+    if(agvApproval&&(liveAgv.connection_id!==agvApproval.connection_id||liveAgv.stop_generation!==agvApproval.stop_generation)){
+      agvApproval=null;
+      el('repeat-approved').checked=false;
+      el('repeat-agv-confirmed').checked=false;
+      display('repeat-message','AGV approval expired. Check the live AGV status and approve the test again.');
+    }
+    render();
+  });
   document.addEventListener('agv-confirmation-change',event=>{
     if(event.detail==='repeat'){generation++;invalidateRecipe();render();}
   });
@@ -175,8 +186,14 @@
     if(id==='repeat-place-project')loadStations();
     generation++;invalidateRecipe();render();
   });
-  el('repeat-approved').addEventListener('change',render);
-  el('repeat-agv-confirmed').addEventListener('change',render);
+  function approveRepeat(){
+    const ready=recipe?.agv_motion==='parked'&&liveAgv?.parked&&Number.isInteger(liveAgv.stop_generation)&&el('repeat-approved').checked&&
+      (recipe.stations.A===recipe.stations.B||el('repeat-agv-confirmed').checked);
+    agvApproval=ready?{connection_id:liveAgv.connection_id,stop_generation:liveAgv.stop_generation}:null;
+    render();
+  }
+  el('repeat-approved').addEventListener('change',approveRepeat);
+  el('repeat-agv-confirmed').addEventListener('change',approveRepeat);
   el('repeat-review').addEventListener('click',async()=>{
     if(el('repeat-review').disabled)return;
     const review=++generation;invalidateRecipe();posting=true;render();
@@ -202,7 +219,7 @@
   });
   el('repeat-start').addEventListener('click',async()=>{
     if(el('repeat-start').disabled)return;
-    const body={...repeatBody('REPEAT'),automatic_test_approved:true,recipe_sha256:recipe.recipe_sha256,
+    const body={...repeatBody('REPEAT'),...agvApproval,automatic_test_approved:true,recipe_sha256:recipe.recipe_sha256,
       agv_manual_confirmed:el('repeat-agv-confirmed').checked};
     display('repeat-message','Sending automatic test…');
     posting=true;invalidateRecipe();render();
@@ -224,13 +241,37 @@
       machine?.fault_code?`AGV fault ${machine.fault_code} · ${machine.fault_description}. Check the AGV.`:
       machine?.obstacle_stop?'AGV obstacle stop. Check the line before continuing.':'');
     for(const command of ['stop','pause'])el('pick-agv-'+command).disabled=!agv?.connected;
-    if(!lastUrgent)return;
-    const result=agv?.results?.[lastUrgent.command];
-    if(result?.sent_at===lastUrgent.sent){
-      if(result.state==='confirmed by status') urgentFeedback(lastUrgent.command,lastUrgent.text+
-        (lastUrgent.command==='stop'?' · AGV reports stopped.':' · AGV reports paused and stopped.'));
-      if(result.state==='not confirmed')urgentFeedback(lastUrgent.command,lastUrgent.text+' · Stop state unconfirmed. Use the AGV e-stop if needed.');
+    for(const urgent of urgentByCommand.values())renderUrgent(urgent,agv);
+  }
+  function renderUrgent(urgent,agv){
+    const {wire,connection,tx,text}=urgent;
+    if(!tx)return;
+    const result=agv?.results?.[wire];
+    let detail='', tone='waiting';
+    if(!agv?.connected||(connection!=null&&agv.connection_id!==connection)){
+      detail='AGV link lost. Use the AGV e-stop if needed.';tone='failed';
+    }else if(result?.tx_id>tx){
+      detail='A newer AGV command replaced this outcome. Check the AGV.';tone='failed';
+    }else if(result?.tx_id===tx){
+      if(result.state==='confirmed by status'){
+        if(result.confirmed_stopped===true){detail='AGV reports stopped.';tone='done';}
+        else detail=(result.wire_command??wire)==='pause'?'AGV reports pause active. Check whether it has stopped.':
+          'AGV reports command stop active. Check whether it has stopped.';
+      }else if(result.state==='no reply'){
+        detail=`No reply after ${result.tries} tries. Use the AGV e-stop if needed.`;tone='failed';
+      }else if(result.state==='not confirmed'||result.state==='not checked'){
+        detail='Stop state unconfirmed. Use the AGV e-stop if needed.';tone='failed';
+      }else if(result.state==='acknowledged late')detail='AGV acknowledged late. Check whether it has stopped.';
+      else if(result.ack_elapsed_s!=null)detail='AGV acknowledged. Waiting for a status report.';
+      else if(result.remaining_s>0)detail=`Waiting for the AGV… ${Math.ceil(result.remaining_s)} s.`;
+      else if(result.state==='waiting for status')detail='Waiting for a status report. Check the radio.';
     }
+    if(detail)urgentFeedback(urgent,text+' · '+detail,tone);
+  }
+  async function refreshAgv(){
+    try{renderAgv(await request('/api/agv-link'));}
+    catch{display('pick-agv-link','AGV link status unavailable. Check the service connection.');}
+    finally{setTimeout(refreshAgv,750);}
   }
   async function refreshTravel(){
     try{
@@ -241,7 +282,6 @@
       display('travel-pose-value',pose?`Saved ${new Date(pose.saved_at).toLocaleString()} · joints (°): ${pose.joints_rad.map(v=>(v*180/Math.PI).toFixed(1)).join(', ')}`:
         'No AGV travel pose saved.');
       display('travel-pose-live',travel.detail);
-      renderAgv(travel.agv);
     }catch{
       display('travel-pose-live','Travel pose unavailable. Check the service connection.');
     }finally{
@@ -249,23 +289,33 @@
       setTimeout(refreshTravel,750);
     }
   }
-  function urgentFeedback(command,text){
-    display('pick-agv-'+command+'-outcome',text);
-    display('pick-agv-outcome',text);
+  function urgentFeedback(urgent,text,tone){
+    const ids=['pick-agv-'+urgent.command+'-outcome'];
+    if(lastUrgent===urgent)ids.push('pick-agv-outcome');
+    for(const id of ids){
+      display(id,text);
+      el(id).dataset.state=tone;
+    }
   }
   async function sendUrgent(command,esc=false){
-    if(!travel?.agv?.connected){urgentFeedback(command,'Connect first on the AGV page.');return;}
-    urgentFeedback(command,'Sending…');
-    lastUrgent=null;
+    const urgent={command};
+    lastUrgent=urgent;
+    urgentByCommand.set(command,urgent);
+    urgentFeedback(urgent,'Sending…','running');
     try{
       const state=await request('/api/agv',{action:'send',command});
-      const sent=state.results[command].sent_at;
-      const label=command==='stop'?'Stop':'Pause';
+      if(urgentByCommand.get(command)!==urgent)return;
+      const wire=state.urgent_command??command;
+      const {sent_at:sent,tx_id:tx}=state.results[wire];
+      const label=wire==='stop'?'Stop':'Pause';
       const text=`${label} sent ${new Date(sent).toLocaleTimeString('en-GB',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit',fractionalSecondDigits:3})}.${esc?' (Esc)':''}`;
-      lastUrgent={command,sent,text};
-      urgentFeedback(command,text);
-      if(!state.recipe_active)request('/api/agv',{action:'send',command:'query_status',background:true}).catch(()=>{});
-    }catch{urgentFeedback(command,'AGV command could not be confirmed. Use its e-stop.');}
+      Object.assign(urgent,{wire,tx,connection:state.connection_id,text});
+      urgentFeedback(urgent,text,'waiting');
+    }catch(error){
+      if(urgentByCommand.get(command)!==urgent)return;
+      urgentFeedback(urgent,error.message==='Connect an AGV transport first.'?'Connect first on the AGV page.':
+        'AGV command could not be confirmed. Use its e-stop if needed.','failed');
+    }
   }
   for(const command of ['stop','pause'])
     el('pick-agv-'+command).addEventListener('click',()=>sendUrgent(command));
@@ -280,6 +330,7 @@
       'Automatic test ended. '+(job.error||'Check Current operation before starting a new run.'));
   });
   loadStations();
+  void refreshAgv();
   void refreshTravel();
   el('manual-setup').checked=false;
   el('manual-item-state').value='';render();
