@@ -727,6 +727,22 @@ def test_recipe_keeps_the_radio_reply_window_clear_of_ordinary_writes(agv_clock)
     link.close()
 
 
+@pytest.mark.parametrize('agv_mode', [0, 2])
+def test_recipe_receives_fresh_status_with_and_without_timed_reports(agv_clock, monkeypatch, agv_mode):
+    monkeypatch.setattr(agv.Connection, '_start_worker', lambda *args, **kwargs: None)
+    link = agv.Connection(SimpleNamespace(lock=RLock(), closing=False, active=None,
+                                          storage_error=None, execution_uncertain=False))
+    try:
+        link.submit(dict(action='connect', mode='simulator', agv_mode=agv_mode))
+        with link.recipe_link():
+            for _ in range(16):
+                agv_clock.now += .5
+                status, status_at, _, _ = link.recipe_feedback()
+                assert status is not None and agv_clock.now - status_at <= 1
+    finally:
+        link.close()
+
+
 def command_writes(state, name):
     return [entry for entry in state['log']
             if entry['direction'] == 'TX' and entry['decode']['command'] == name]
@@ -901,6 +917,66 @@ def test_standard_simulator_reports_status_without_requests_and_rejects_station_
     request(dict(action='arm', armed=True, connection_id=cid))
     status, refused = send(request, 'call_station', cid, value=1)
     assert status == 400 and 'station-call function' in refused['error']
+
+
+def test_query_only_simulator_gets_background_status_without_page_requests(session):
+    _, request = session
+    open_simulator(request)
+    Event().wait(6.2)
+    state = request()[1]
+    assert len(command_writes(state, 'query_status')) >= 3
+    assert state['status_age_s'] < 2.5
+    assert not state['stale']
+    assert not [event for event in state['events'] if event['field'] == 'link_stale' and event['after']]
+
+
+def test_query_replies_do_not_extend_timed_report_presence(agv_clock, monkeypatch):
+    monkeypatch.setattr(agv.Connection, '_start_worker', lambda *args, **kwargs: None)
+    link = agv.Connection(SimpleNamespace(lock=RLock(), closing=False, active=None,
+                                          storage_error=None, execution_uncertain=False))
+    try:
+        link.submit(dict(action='connect', mode='simulator', agv_mode=0))
+        for _ in range(4):
+            agv_clock.now += 1
+            state = link.capability()
+        assert state['link_quality']['timed_report_interval_s'] == pytest.approx(1)
+        link.transport.mode = 2
+        last_report = agv_clock.now
+        for offset in (.12, 1.7):
+            agv_clock.now = last_report + offset
+            link.submit(dict(action='send', command='query_status', connection_id=link.id))
+        agv_clock.now = last_report + 2.49
+        assert link.capability()['link_quality']['timed_report_interval_s'] == pytest.approx(1)
+        agv_clock.now = last_report + 2.51
+        state = link.capability()
+        assert state['status_age_s'] < 1
+        assert state['link_quality']['timed_report_interval_s'] is None
+    finally:
+        link.close()
+
+
+def test_background_read_protects_reply_window_but_not_stop(agv_clock, monkeypatch):
+    class NoStatusReply(agv.Simulator):
+        def write(self, raw):
+            if agv.parse_frame(raw, offset=3).command == 0x26:
+                return len(raw)
+            return super().write(raw)
+
+    monkeypatch.setattr(agv, 'Simulator', NoStatusReply)
+    monkeypatch.setattr(agv.Connection, '_start_worker', lambda *args, **kwargs: None)
+    link = agv.Connection(SimpleNamespace(lock=RLock(), closing=False, active=None,
+                                          storage_error=None, execution_uncertain=False))
+    try:
+        link.submit(dict(action='connect'))
+        agv_clock.now += agv.REPLY_TIMEOUT
+        link._poll_status(link.transport)
+        started = agv_clock.now
+        link.submit(dict(action='send', command='stop'))
+        assert agv_clock.now == started
+        link.submit(dict(action='send', command='read_speed', connection_id=link.id))
+        assert agv_clock.now - started >= agv.REPLY_TIMEOUT
+    finally:
+        link.close()
 
 
 def test_timed_reports_pace_ordinary_send_but_never_delay_stop(session, agv_clock):

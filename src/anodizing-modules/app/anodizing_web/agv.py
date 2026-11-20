@@ -25,6 +25,7 @@ DEFAULT_PREFIX = b'\x00\x01\x04'
 REPLY_TIMEOUT = 1.5
 WRITE_TIMEOUT = .5
 STALE_AFTER = 5
+PAGE_POLL_S = 1
 RECIPE_STALE_S = 3
 RECIPE_POLL_S = .5
 UNIDENTIFIED_INTERVAL = 11.22
@@ -533,6 +534,7 @@ class Connection:
                 self.resend = None
 
     def _passive_report(self, now):
+        # A query reply and a timed report have the same wire format.
         if self.query_at is not None and now - self.query_at <= REPLY_TIMEOUT:
             return
         self.passive_reports.append(now)
@@ -542,18 +544,20 @@ class Connection:
             if interval >= .2 and all(abs(gap - interval) <= .3 * interval for gap in gaps):
                 self.timed_report_interval = interval
 
-    def _fresh_timed_reports(self, now, stale_after):
-        return (self.timed_report_interval is not None and self.status_at is not None
-                and now - self.status_at < stale_after)
+    def _fresh_timed_reports(self, now):
+        return (self.timed_report_interval is not None
+                and now - self.passive_reports[-1] < 2.5 * self.timed_report_interval)
 
     def _timed_reports_on_time(self, now):
         return (self.timed_report_interval is not None
                 and now - self.passive_reports[-1] < 1.5 * self.timed_report_interval)
 
-    def _send_slot(self, *, retry=False):
+    def _send_slot(self, *, retry=False, urgent=False):
+        if self.reading is not None and not urgent:
+            return False
         now = monotonic()
         if not self._timed_reports_on_time(now):
-            interval = FALLBACK_INTERVAL if retry or self.timed_report_interval is not None else ACK_WINDOW
+            interval = FALLBACK_INTERVAL if retry or self._fresh_timed_reports(now) else ACK_WINDOW
             return now >= self.last_write_at + interval
         report_at = self.passive_reports[-1]
         return (now >= self.last_write_at + ACK_WINDOW
@@ -610,8 +614,11 @@ class Connection:
                 was_stopped = pending.before.get('stopped') is True and pending.before.get('actual_speed_m_h') == 0
                 # A repeated parked report alone cannot confirm delivery of a new urgent command.
                 changed = (stopped and not was_stopped) or (flag_active and pending.before.get(flag) is not True)
+                earlier_query = (self.query_at is not None and self.query_at <= pending.sent_at
+                                 and self.status_at - self.query_at <= REPLY_TIMEOUT)
                 if (stopped or flag_active) and (
-                        self.timed_report_interval is None or changed or 'ack_elapsed_s' in result):
+                        changed or 'ack_elapsed_s' in result
+                        or (self.timed_report_interval is None and not earlier_query)):
                     result['confirmed_stopped'] = stopped
                     self._finish_confirmation(name, 'confirmed by status')
             elif pending.expected and all(decoded.get(key) == value for key, value in pending.expected.items()) and (
@@ -657,6 +664,8 @@ class Connection:
                 self._record('RX', raw, decoded)
                 if self.reading == 'read_speed' and 'read_speed_m_h' in decoded:
                     self._finish_read(f"reply: {decoded['read_speed_m_h']} m/h")
+        if self.reading is not None and monotonic() - self.read_sent_at >= REPLY_TIMEOUT:
+            self._finish_read('no reply')
 
     def _finish_read(self, state):
         result = self.results[self.reading]
@@ -678,7 +687,8 @@ class Connection:
                     armed=self.armed, motion_block=motion_block(self.owner), status=self.status,
                     status_hex=self.status_hex, status_age_s=age,
                     stale=self.stale, events=list(self.events),
-                    link_quality=dict(self.link_quality, timed_report_interval_s=self.timed_report_interval),
+                    link_quality=dict(self.link_quality, timed_report_interval_s=(
+                        self.timed_report_interval if self._fresh_timed_reports(now) else None)),
                     results=deepcopy(self.results), replaced=deepcopy(list(self.replaced)),
                     log=list(self.log), error=self.error,
                     log_truncated=self.log_id > self.log.maxlen,
@@ -707,10 +717,8 @@ class Connection:
                     self._receive()
                     self._expire()
                     if acquired and not self.recipe_active:
-                        if self.reading is not None and now-self.read_sent_at >= REPLY_TIMEOUT:
-                            self._finish_read('no reply')
                         if (self.reading is None and self.resend is None and now >= self.motion_poll_at
-                                and not self._fresh_timed_reports(now, RECIPE_STALE_S)
+                                and not self._fresh_timed_reports(now)
                                 and (self.status_at is None or now-self.status_at >= RECIPE_POLL_S)
                                 and self._send_slot()):
                             self.motion_poll_at = self._send('query_status', None, background=True) + RECIPE_POLL_S
@@ -805,8 +813,7 @@ class Connection:
         self.recent_tx.clear()
         self.log.clear()
         self.log_id = 0
-        if mode == 'serial':
-            self._start_worker(receive=True)
+        self._start_worker(receive=True)
 
     def _check_connection(self, connection_id):
         if type(connection_id) is not int or connection_id != self.id:
@@ -934,6 +941,33 @@ class Connection:
                     self._transport_error(exc)
                     return
             self._service_resend()
+            if receive:
+                self._poll_status(transport)
+
+    def _poll_status(self, transport):
+        if not self.send_lock.acquire(blocking=False):
+            return
+        try:
+            with self.lock:
+                if (self.transport is not transport or self.owner.closing or self.recipe_active
+                        or self.resend is not None or self.reading is not None):
+                    return
+                now = monotonic()
+                # Give the first reports time to establish a cadence before we query.
+                if self.timed_report_interval is None:
+                    listen_from = self.passive_reports[-1] if self.passive_reports else self.connected_at
+                    if now - listen_from < REPLY_TIMEOUT:
+                        return
+                if self._fresh_timed_reports(now) or not self._send_slot():
+                    return
+                if self.query_at is not None and now - self.query_at < PAGE_POLL_S:
+                    return
+                try:
+                    self._send('query_status', None, background=True)
+                except OSError as exc:
+                    self._transport_error(exc)
+        finally:
+            self.send_lock.release()
 
     def _due(self, retry):
         if retry is None:
@@ -942,7 +976,7 @@ class Connection:
         if retry.tries == retry.limit:
             return now >= retry.sent_at + retry.reply_wait
         if retry.name in URGENT:
-            return self._send_slot(retry=True)
+            return self._send_slot(retry=True, urgent=True)
         return now >= retry.sent_at + retry.interval
 
     def _retry(self, retry):
@@ -1133,8 +1167,7 @@ class Connection:
 
     @contextmanager
     def recipe_link(self, connection_id=None):
-        # Finish an earlier ordinary read before claiming the link. Urgent writes
-        # continue to use only the short transport lock.
+        # Wait for a foreground read. Recipe feedback drains an in-flight background read.
         with self.send_lock, self.lock:
             if self.transport is None or self.recipe_active:
                 raise ValueError('Connect the AGV on the AGV page before starting the recipe.')
@@ -1171,8 +1204,6 @@ class Connection:
                 self._receive()
                 now = monotonic()
                 ack = self.results.get('call_station', {}).get('recipe_ack_elapsed_s')
-                if self.reading is not None and now-self.read_sent_at >= REPLY_TIMEOUT:
-                    self._finish_read('no reply')
                 retry = self.resend
                 if (self._due(retry) and retry.recipe_check is not None
                         and (self._send_slot(retry=True) or retry.tries == retry.limit)):
@@ -1183,7 +1214,7 @@ class Connection:
                 # The matched ACK and status can take about a second on the
                 # radio. Leave room for them on its half-duplex link.
                 if (self.reading is None and not self.recipe_call_waiting and now >= self.recipe_next_poll
-                        and not self._fresh_timed_reports(now, RECIPE_STALE_S)
+                        and not self._fresh_timed_reports(now)
                         and (ack is not None or now >= self.recipe_ack_window) and self._send_slot()):
                     sent = self._send('query_status', None, background=True)
                     self.recipe_next_poll = sent + RECIPE_POLL_S

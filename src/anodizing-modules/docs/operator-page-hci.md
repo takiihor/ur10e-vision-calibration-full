@@ -17,7 +17,7 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
   | **Observed** | The operator ticked that they saw it. |
 
 - **The link's age is always visible.** Raise a stale-link alarm after 3 s in a recipe or 5 s on the AGV commissioning page (see 6).
-- Timed 485 reports refresh the link without an auto-poll. Use **Status received** for a Query status outcome because the same report can also arrive on its own. Read speed has a distinct reply frame.
+- On a connected link the service uses timed 485 reports while they arrive. After 2.5 report intervals without an unsolicited report, the indication expires. The service queries about once a second when timed reports are absent, including while the browser is closed. It yields to command retries and to an active recipe's status checks. **Status received** is the Query status outcome because the same frame can also arrive on its own. Read speed has a distinct reply frame.
 
 ## 2. Stop and Pause
 - **Placement.** Stop and Pause stay in one fixed position at the top and are always visible. Scroll, reflow or an open panel never moves them.
@@ -31,7 +31,7 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 - **Shortcut.** Press Esc anywhere on the page to send one software Stop while connected. The Stop outcome shows `(Esc)` next to the send time. While disconnected, pressing Esc shows “Connect first” in the status line. Esc is the only command shortcut.
 
 ## 3. Movement is deliberate
-- **One press authorizes one command on AGV commissioning.** The first Stop or Pause write sends immediately. Stop and Pause can retry up to four times until an ACK or confirming status. Scheduled writes wait at least 0.75 s from the last write and use the 100–150 ms gap when timed reports are on schedule. Retries without timed reports and writes after a detected stream goes missing wait at least 1.5 s. A repeated Stop press joins the pending Stop. An unchanged parked status on a timed stream only confirms the vehicle's current state.
+- **One press authorizes one command on AGV commissioning.** The first Stop or Pause write sends immediately. Stop and Pause can retry up to four times until an ACK or confirming status. Scheduled writes wait at least 0.75 s from the last write and use the 100–150 ms gap when timed reports are on schedule. Retries without timed reports wait at least 1.5 s. Ordinary commands wait for an open read to finish. A repeated Stop press joins the pending Stop. An unchanged parked status on a timed stream or from a query sent before the command only confirms the vehicle's current state.
 - Other movement and setting commands get up to four tries at least 2 s apart. When timed reports are detected, their sends align with the measured 100–150 ms gap after a report. Stop and Pause supersede other pending retries. Disarm, disconnect and link changes cancel retries. Pick/place uses the same Stop retry timing and keeps its existing supervision and deadlines.
 - Automatic status polling waits while Stop or Pause is retrying. An unambiguous ACK within 0.3 s of a write command's no-reply outcome changes the message to “AGV acknowledged late” and updates the link counts.
 - **Arming.**

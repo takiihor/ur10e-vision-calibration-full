@@ -39,7 +39,7 @@ const savedJournal = load(journalKey, null);
 let journal = savedJournal?.started_at === session.started_at ? savedJournal.journal : emptyJournal();
 let savedSettings = load(connectionKey, null);
 let state = {connection_id: 0, sequence: -1, results: {}};
-let capability, busy = false, polling = false, fetching = false, nextPoll = 0, nextRefresh = 0;
+let capability, busy = false, fetching = false, nextRefresh = 0;
 let lastPressed, networkError = false, reportError = '', lastMaximum, renderedStatus, renderedLog, renderedEvent;
 let audio, reportErrorUntil = 0;
 
@@ -58,7 +58,7 @@ const eventFields = {
 };
 const outcomesList = ['Not tested', 'Pass', 'Fail', 'Skipped'];
 const checklist = [
-  ['Read status and speed', 'Check for fresh status. If the AGV does not send timed reports, turn on auto-poll and select Query status. Select Read speed and compare the reply with the set speed in Machine details.', 'The page shows a fresh status and replies with a speed. The AGV stays parked.'],
+  ['Read status and speed', 'Check for fresh status. Select Read speed and compare the reply with the set speed in Machine details.', 'The page shows a fresh status and replies with a speed. The AGV stays parked.'],
   ['Stop and Pause while parked', 'With the AGV parked, press Stop (software) and wait for the status. Press Pause separately and wait for the status.', 'The AGV stays parked. Check the command stop and pause flags after their respective presses.'],
   ['Set speed to 500 m/h', 'Tick Armed and press the 500 m/h preset. Check Set speed in Machine details before moving.', 'The set speed reads 500 m/h (0.5 km/h). Actual speed remains zero while parked.'],
   ['Call the next station and Stop partway', 'Call the next learned station at 500 m/h. Press Stop (software) partway, before the AGV reaches the station.', 'Observe where it stops and how long it takes. Check motion, station and command stop.'],
@@ -359,13 +359,11 @@ function resultText(name, result, viaEsc) {
   }
   else if (stage === 'not confirmed') text = 'Not confirmed after 5 s: check the AGV.';
   else if (stage === 'not checked') text = 'Not checked: no confirmation before another action. Check the AGV.';
-  else if (stage === 'travelling') text = `Going to station ${value}…${$('auto').checked || state.link_quality?.timed_report_interval_s ? '' : ' Select Query status to check arrival.'}`;
+  else if (stage === 'travelling') text = `Going to station ${value}…`;
   else {
     const sentText = urgent.has(name) ? urgentSent :
       name === 'call_station' ? `Going to station ${value}…` : `Sent at ${sent}`;
-    const waiting = !$('auto').checked && !state.link_quality?.timed_report_interval_s && (ack != null || !remaining)
-      ? 'waiting for a status (auto-poll is off). Select Query status.'
-      : remaining > 0 ? `waiting for the AGV to confirm… ${Math.ceil(remaining)} s` : 'waiting for a status. Check the link.';
+    const waiting = remaining > 0 ? `waiting for the AGV to confirm… ${Math.ceil(remaining)} s` : 'waiting for a status. Check the link.';
     const attempt = result.tries > 1 ? `Try ${result.tries}` : '';
     return {text: [sentText, attempt, acknowledged, waiting, result.warning].filter(Boolean).join(' · '), tone: 'waiting'};
   }
@@ -409,10 +407,6 @@ function render() {
   disabled('connect', connectReason);
   disabled('disconnect', !state.connected ? 'Connect first.' : state.recipe_active ? 'Stop the active recipe before disconnecting.' : busy ? 'Wait for the current request.' : '');
   disabled('armed', !state.connected ? 'Connect first.' : busy ? 'Wait for the current request.' : state.motion_block || '');
-  disabled('auto', !state.connected ? 'Connect first.' : '');
-  if (state.connected && state.link_quality?.timed_report_interval_s && !state.stale) {
-    display('auto-why', 'Timed reports are updating status.');
-  }
   disabled('silence', busy ? 'Wait for the current request.' : '');
   $('armed').checked = state.armed || false;
   $('movement').dataset.armed = String(!!state.armed);
@@ -427,7 +421,7 @@ function render() {
     if (control.name) disabled(id, commandReason(control.name, control.value));
     renderOutcome(id);
   }
-  if (!lastPressed && capability) display('outcome', state.connected ? 'Query status to check the AGV.' : 'Select Connect to begin.');
+  if (!lastPressed && capability) display('outcome', state.connected ? '' : 'Select Connect to begin.');
   const age = state.status_age_s;
   const elapsed = age == null ? 'no status report yet' : `last status report ${seconds(age)} s ago`;
   const error = networkError || state.error;
@@ -519,7 +513,6 @@ function apply(next) {
   const connection = connectionKeyFor(next);
   const changed = connection !== connectionKeyFor(state);
   if (changed) {
-    $('auto').checked = false;
     reportError = '';
     if (next.connected) {
       $('mode').value = next.settings.mode;
@@ -581,9 +574,9 @@ function requestError(error) {
   return 'Refused: check the connection and settings, then query status.';
 }
 
-async function post(body, {id, priority = false, background = false, viaEsc = false} = {}) {
-  if (!background && busy && !priority) return;
-  if (!background && !priority) busy = true;
+async function post(body, {id, priority = false, viaEsc = false} = {}) {
+  if (busy && !priority) return;
+  if (!priority) busy = true;
   let pending;
   if (id) {
     lastPressed = id;
@@ -621,29 +614,21 @@ async function post(body, {id, priority = false, background = false, viaEsc = fa
     if (!error.api) changeNetworkError(true);
     const text = requestError(error);
     if (id && outcomes.get(id) === pending) outcomes.set(id, {direct: {text, tone: 'failed'}});
-    if (!background) journal.log.push({timestamp: isoNow(), direction: 'Page', hex: '', decode: {error: error.message}});
+    journal.log.push({timestamp: isoNow(), direction: 'Page', hex: '', decode: {error: error.message}});
     nextRefresh = 0;
   } finally {
-    if (!background && !priority) busy = false;
+    if (!priority) busy = false;
     render();
   }
 }
 
 function sendCommand(command, id, preset, viaEsc = false) {
-  if (command === 'query_status') nextPoll = performance.now() + 1000;
-  return post({action: 'send', command, value: commandValue(command, preset), background: !id},
-    {id, priority: urgent.has(command), background: !id, viaEsc});
+  return post({action: 'send', command, value: commandValue(command, preset), background: false},
+    {id, priority: urgent.has(command), viaEsc});
 }
 
 async function tick() {
   const now = performance.now();
-  const freshTimedReports = state.link_quality?.timed_report_interval_s && !state.stale;
-  if (!busy && !polling && !state.recipe_active && state.connected && $('auto').checked && !freshTimedReports && now >= nextPoll) {
-    polling = true;
-    try { await sendCommand('query_status'); }
-    finally { polling = false; }
-    return;
-  }
   if (fetching || now < nextRefresh) return;
   fetching = true;
   nextRefresh = now + (state.connected ? 500 : 2000);
@@ -664,7 +649,7 @@ function exportRecord() {
   const results = Object.fromEntries(Object.entries(state.results).filter(([, result]) =>
     journal.commands[`${connection}/${result.tx_id}`]));
   return {exported_at: isoNow(), started_at: session.started_at, connection: state.settings,
-    transports: Object.entries(journal.transports).map(([connection, settings]) => ({connection, ...settings})), auto_poll: $('auto').checked, armed: state.armed,
+    transports: Object.entries(journal.transports).map(([connection, settings]) => ({connection, ...settings})), auto_poll: true, armed: state.armed,
     link_quality: journal.link_quality ?? {},
     simulator_silent: state.silent, results, settings: session.settings,
     checklist: Object.fromEntries(checklist.map(([title], index) => [index + 1,
@@ -743,7 +728,6 @@ $('connect').addEventListener('click', () => post({action: 'connect', mode: $('m
 $('disconnect').addEventListener('click', () => post({action: 'disconnect'}, {id: 'disconnect'}));
 $('armed').addEventListener('change', event => post({action: 'arm', armed: event.currentTarget.checked}, {id: 'armed'}));
 $('silence').addEventListener('change', event => post({action: 'silence', silent: event.currentTarget.checked}));
-$('auto').addEventListener('change', () => { nextPoll = 0; render(); void tick(); });
 $('sound').addEventListener('change', () => {
   if (!$('sound').checked || !window.AudioContext) return;
   audio ??= new AudioContext();

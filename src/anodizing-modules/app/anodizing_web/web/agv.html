@@ -80,7 +80,6 @@
       <div><button class="secondary" id="agv-disconnect" disabled>Disconnect</button><small id="agv-disconnect-why"></small><div id="agv-disconnect-outcome"></div></div>
     </div>
     <p id="agv-connection-note" role="status"></p>
-    <label class="check"><input type="checkbox" id="agv-auto" aria-describedby="agv-auto-why" disabled>Auto-poll status <small id="agv-auto-why"></small></label>
     <label class="check" id="agv-silence-label" hidden><input id="agv-silence" type="checkbox" aria-describedby="agv-silence-why">Simulate a silent link <small id="agv-silence-why"></small></label>
     <label class="check"><input id="agv-sound" type="checkbox">Sound an alert for a stale link or a new fault</label>
     <div id="agv-reads" class="agv-controls"></div>
@@ -99,7 +98,7 @@
 <div class="agv-workflow">
   <section class="agv-panel" aria-labelledby="agv-checklist-title">
     <h2 id="agv-checklist-title">Commissioning checklist</h2>
-    <p><strong>Before testing</strong> Confirm the robot is idle, the track is clear, a person is at the AGV’s e-stop, and fresh status is visible. Use auto-poll if the AGV does not send timed reports.</p>
+    <p><strong>Before testing</strong> Confirm the robot is idle, the track is clear, a person is at the AGV’s e-stop, and fresh status is visible.</p>
     <p>The AGV may restart by itself in Auto mode or when automatic restart is enabled. Check both settings before moving.</p>
     <div id="agv-checklist"></div>
   </section>
