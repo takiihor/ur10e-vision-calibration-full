@@ -218,7 +218,7 @@ async function run() {
     assert.deepEqual(requests.slice(1), [stopRequest, stopRequest]);
     assert.match(get('outcome').textContent, /^Stop sent \d\d:\d\d:\d\d\.789 · /);
     await get.refresh();
-    assert.equal(get('stop-outcome').textContent, 'No reply from the AGV after 5 tries. Check the radio, then try again.');
+    assert.match(get('stop-outcome').textContent, /^Stop sent \d\d:\d\d:\d\d\.789 · No reply from the AGV after 5 tries\. Check the radio, then try again\.$/);
     assert.equal(get('outcome').textContent, get('stop-outcome').textContent);
     await get.refresh();
     assert.match(get('stop-outcome').textContent, /AGV acknowledged late/);
