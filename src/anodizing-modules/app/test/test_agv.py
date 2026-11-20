@@ -191,13 +191,13 @@ def test_synthetic_ack_is_not_status_and_records_elapsed_time(monkeypatch):
     transport = agv.Simulator(PREFIX)
     connection.transport = transport
     connection.splitter = agv.Splitter(PREFIX)
-    connection._send('set_speed', 800)
+    connection._send('pause', None)
     now = 1
     connection._receive()
     ack = connection.log[-1]['decode']
     assert ack['acknowledgement'] is True and ack['vehicle_id'] == 1
     assert 'stopped' not in ack and connection.status is None
-    assert ack['acknowledged_command'] == 'set_speed'
+    assert ack['acknowledged_command'] == 'pause'
     assert ack['ack_elapsed_s'] == pytest.approx(1)
 
 
