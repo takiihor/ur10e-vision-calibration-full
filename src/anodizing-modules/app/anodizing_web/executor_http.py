@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 from . import agv
-from .executor import MAX_BODY, Executor, FakeDevices, Stopped, finite
+from .executor import AdmissionRefused, MAX_BODY, Executor, FakeDevices, Stopped, finite
 from .recipe_agv import POSE_FRESH_S, StationVisit, stopped
 
 CONTROLS = {'connect', 'disconnect', 'status_read', 'arm', 'disarm', 'submit', 'heartbeat',
@@ -25,11 +25,12 @@ class WiredDevices:
     job_types = {'station_visit': 1}
     simulated = False
 
-    def __init__(self, root, trace, *, pose=None, reserve=None):
+    def __init__(self, root, trace, *, pose=None, reserve=None, tank_clear=None):
         owner = SimpleNamespace(root=root, lock=Lock(), closing=False, active=None,
                                 storage_error=None, execution_uncertain=False)
         self.pose, self.reserve = pose, reserve
-        self.simulated = pose is not None and reserve is not None
+        self.tank_clear = tank_clear
+        self.simulated = all(callback is not None for callback in (pose, reserve, tank_clear))
         self.cancel = Event()
         self.link = agv.Connection(owner, commissioning_arm=True, wire_trace=trace,
                                    wired_station_jobs=self.simulated)
@@ -43,9 +44,15 @@ class WiredDevices:
     def check(self, job_type, params):
         if not self.simulated:
             raise ValueError('Phase 1 blocks live travel and dips pending qualified local interlocks.')
+        self._travel_interlocks()
+
+    def _travel_interlocks(self):
         if not self.reserve():
             raise ValueError('Insufficient battery reserve for travel and recovery.')
-        self._pose_stamp()
+        stamp = self.tank_clear()
+        if not finite(stamp) or not 0 <= monotonic() - stamp < POSE_FRESH_S:
+            raise ValueError('Fresh clear tank and equipment-off evidence is required before wired travel.')
+        return self._pose_stamp()
 
     def perform(self, effect, value):
         if effect != 'station':
@@ -63,13 +70,12 @@ class WiredDevices:
                 if visit.station == value:
                     visit.require_endpoint(value)
                     return self.hold()
-                while not visit.start_leg(value, 1500, 30, self._pose_stamp(), self.cancel):
+                while not visit.start_leg(value, 1500, 30, self._travel_interlocks(), self.cancel,
+                                          validate_travel=self._travel_interlocks):
                     if self.cancel.wait(.05):
                         raise Stopped
                 while not self.cancel.wait(.05):
-                    if not self.reserve():
-                        raise ValueError('Battery reserve became inadequate during travel.')
-                    progress = visit.progress(self._pose_stamp())
+                    progress = visit.progress(self._travel_interlocks())
                     if progress.get('arrival_s') is not None:
                         return dict(self.hold(), acknowledgement_s=progress['ack_s'], arrival_s=progress['arrival_s'])
                 raise Stopped
@@ -202,6 +208,8 @@ def control_listener(port, executor, token):
                     body = {key: values[0] for key, values in query.items()}
                 result = executor.dispatch(operation, body)
                 return self.send(200, result)
+            except AdmissionRefused as exc:
+                return self.send(409, {'error': str(exc), 'admitted': False, 'job_id': exc.job_id})
             except (ValueError, TypeError, KeyError) as exc:
                 return self.send(409, {'error': str(exc)})
             except OSError:
@@ -332,6 +340,12 @@ def _validate_job(job):
         if evidence is not None:
             _reply_fields(evidence, hold=(dict,))
             _reply_fields(evidence['hold'], location=(str,))
+            if 'unaccounted' in evidence:
+                _reply_fields(evidence, unaccounted=(bool,))
+            if 'unload' in evidence:
+                _reply_fields(evidence, unload=(dict,))
+                _reply_fields(evidence['unload'], location=(str,), basket=(empty,), run_id=(empty,),
+                              stopped=(bool,), equipment_on=(bool,), gripper=(str,))
 
 
 def _validate_reply(operation, value):
@@ -349,6 +363,7 @@ def _validate_reply(operation, value):
     elif operation in ('submit', 'reconcile'):
         _validate_job(value)
     elif operation == 'acknowledge':
+        _reply_fields(value, acknowledged=(bool,), job_id=(str,))
         if value.get('acknowledged') is not True:
             raise ValueError('Malformed executor acknowledgement.')
     elif operation in READS | CONTROLS:
@@ -363,6 +378,9 @@ def _validate_reply(operation, value):
             _reply_fields(device['settings'], mode=(str,))
         if not all(isinstance(ident, str) for ident in value['recovery_ids']):
             raise ValueError('Malformed executor recovery IDs.')
+        for key in ('active_job_id', 'latest_job_id'):
+            if key in value:
+                _reply_fields(value, **{key: (str, empty)})
         if value['quality_alarm'] is not None:
             _reply_fields(value['quality_alarm'], job_id=(str,), reason=(str,))
         if value['job'] is not None:
@@ -376,7 +394,7 @@ def _validate_reply_identity(operation, request, reply):
         key = 'stop_id' if operation == 'stop' else 'boot'
         if key in request and reply[key] != request[key]:
             raise ValueError('Executor response identity does not match the request.')
-    elif operation in ('status', 'submit', 'reconcile'):
+    elif operation in ('status', 'submit', 'reconcile', 'acknowledge'):
         job = reply['job'] if operation == 'status' else reply
         if job is not None and 'job_id' in request and job['job_id'] != request['job_id']:
             raise ValueError('Executor job identity does not match the request.')
@@ -411,9 +429,16 @@ class Client:
                 if reply.status == 200:
                     _validate_reply(operation, value)
                     _validate_reply_identity(operation, body or {}, value)
+                elif 'admitted' in value:
+                    _reply_fields(value, admitted=(bool,), error=(str,), job_id=(str,))
+                    if (operation != 'submit' or reply.status != 409 or value['admitted'] is not False
+                            or value['job_id'] != (body or {}).get('job_id')):
+                        raise ValueError('Malformed IPC preadmission refusal.')
             except (ValueError, RecursionError) as exc:
                 raise OSError('Invalid IPC executor response.') from exc
             if reply.status != 200:
+                if value.get('admitted') is False:
+                    raise AdmissionRefused(value['job_id'], value['error'])
                 raise ValueError(value.get('error', 'IPC executor refused the request.'))
             return value
         except HTTPException as exc:
@@ -459,7 +484,7 @@ def serve_display(port, source):
             conn.request('GET', '/status')
             reply = conn.getresponse()
             return json.load(reply) if reply.status == 200 else None
-        except (OSError, ValueError):
+        except (OSError, ValueError, HTTPException):
             return None
         finally:
             conn.close()

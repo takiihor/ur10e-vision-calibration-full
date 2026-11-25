@@ -2,7 +2,7 @@
 import pytest
 from anodizing_web.executor import Executor, FakeDevices
 from anodizing_web.programme import Programme
-from test_executor_phase1 import pair, session
+from test_executor_phase1 import pair, session, terminal
 from test_programme_review import advance, steps
 
 
@@ -32,7 +32,7 @@ def test_delayed_plc_sample_does_not_hide_immersion_time(tmp_path):
     perform = devices.perform
     def delayed(effect, value):
         if effect == 'dwell':
-            clock[0] += 9
+            clock[0] += 39
         return perform(effect, value)
     devices.perform = delayed
     executor = Executor(tmp_path / 'ipc', devices)
@@ -43,6 +43,7 @@ def test_delayed_plc_sample_does_not_hide_immersion_time(tmp_path):
         run = advance(programme, lambda r: r['state'] != 'running')
         record = run['steps'][0]
         assert record['dwell_s'] == pytest.approx(record['lift_s'] - record['placed_s'])
+        assert record['dwell_s'] == pytest.approx(39)
         assert run['state'] == 'inspection'
     finally:
         executor.close()
@@ -105,8 +106,15 @@ def test_plc_admission_requires_independent_positive_matching_settings(tmp_path,
 def test_torn_marker_repair_preserves_bytes_and_requires_safe_observation(tmp_path):
     marker = tmp_path / '.executor-active.json'
     devices = FakeDevices()
+    ident = 'lost-job-1'
     seed = Executor(tmp_path, devices)
-    seed.close()
+    try:
+        identity = session(seed)
+        seed.submit(dict(identity, job_id=ident, type='station_visit', version=1, params={'station': 1}))
+        terminal(seed, ident)
+    finally:
+        seed.close()
+    (tmp_path / '.jobs' / f'{ident}.json').unlink()
     marker.write_bytes(b'{')
     executor = Executor(tmp_path, devices)
     try:
@@ -114,7 +122,7 @@ def test_torn_marker_repair_preserves_bytes_and_requires_safe_observation(tmp_pa
         executor.heartbeat(dict(identity, sequence=1))
         assert executor.status()['recovery_required']
         devices.hold_available = False
-        request = dict(identity, job_id='lost-job-1', missing=True, repair_active_marker=True,
+        request = dict(identity, job_id=ident, missing=True, repair_active_marker=True,
                        disposition='Verified basket at input and equipment off.')
         with pytest.raises(ValueError, match='[Ss]afe hold|observ'):
             executor.reconcile(request)

@@ -7,7 +7,7 @@ Use the ID when requesting a UI change, for example “make `agv.stop` bigger”
 Select one item in a repeated control by its key, for example `[data-ui="agv.call.station"][data-ui-key="2"]`.
 Some keys identify records or choices from the current data. Native HTML select choices use the parent select’s ID and the option value.
 
-357 registered IDs.
+358 registered IDs.
 
 | ID | Description | Source |
 | --- | --- | --- |
@@ -254,6 +254,7 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `programme.draft.save` | Save a new draft recipe revision | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.inspection.note` | Enter the inspection disposition | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.inspection.record` | Record the inspection disposition | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.inspection.unaccounted` | Confirm that the original basket is unaccounted for | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.limit.input` | Editable limit in seconds | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.panel` | Basket programme and recipe limit editor | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.record.panel` | Show recovered basket record | [ProgrammePanel.vue](ProgrammePanel.vue) |

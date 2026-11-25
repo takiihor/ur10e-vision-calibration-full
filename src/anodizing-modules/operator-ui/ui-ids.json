@@ -1215,6 +1215,11 @@
     "component": "ProgrammePanel.vue"
   },
   {
+    "id": "programme.inspection.unaccounted",
+    "description": "Confirm that the original basket is unaccounted for",
+    "component": "ProgrammePanel.vue"
+  },
+  {
     "id": "programme.limit.input",
     "description": "Editable limit in seconds",
     "component": "ProgrammePanel.vue"

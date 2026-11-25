@@ -535,9 +535,12 @@ async function post(body, {id, priority = false, viaEsc = false} = {}) {
     render();
   }
   try {
-    if (state.executor_link && (body.armed === true || body.command === 'call_station')) {
-      body = { ...body, executor_boot: state.executor_boot, executor_session: state.executor_session,
-        stop_generation: state.stop_generation };
+    if (state.executor_link && body.command !== 'query_status') {
+      body = { ...body, request_id: crypto.randomUUID(), review_cursor: state.review_cursor };
+      if (body.armed === true || body.command === 'call_station') {
+        body = { ...body, executor_boot: state.executor_boot, executor_session: state.executor_session,
+          stop_generation: state.stop_generation };
+      }
     }
     const result = await api({connection_id: state.connection_id, ...body});
     changeNetworkError(false);

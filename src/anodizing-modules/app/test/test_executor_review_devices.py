@@ -129,12 +129,12 @@ def test_quality_breach_latches_at_immersion_or_dwell_but_finishes_safe_hold(tmp
 def test_anodize_distinguishes_a_delayed_plc_transition_from_a_late_poll(tmp_path):
     clock = Clock()
     devices = FakeDevices(clock=clock, setpoints=FAKE_TANK_SETPOINTS)
+    devices.plc.dwell_offset = 4
     finish = devices.plc.finish
 
     def delayed(step, baseline):
         if step['role'] != 'anodize':
             return finish(step, baseline)
-        clock.now += 4
         done = finish(step, baseline)
         clock.now += 9
         return done
@@ -299,7 +299,8 @@ def test_elapsed_hold_and_station_travel_are_recorded_at_next_dip(tmp_path):
 
         clock.now += 5
         executor.submit(dict(identity, job_id='next-station', type='station_visit', version=1,
-                             params={'station': second['station']}))
+                             params=dict(station=second['station'], basket=request['params']['basket'],
+                                         run_id=request['params']['run_id'], load_input=False)))
         assert terminal(executor, 'next-station')['outcome'] == 'succeeded'
         next_dip = dict(request, job_id='next-dip', params=dict(
             request['params'], steps=[second], source='park',

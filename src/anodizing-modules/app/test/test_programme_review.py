@@ -126,9 +126,10 @@ def test_resume_after_last_dip_lease_loss_closes_without_another_job(tmp_path):
 
 
 def recovery_evidence(body):
-    hold = dict(location='input', station=1, gripper='released', basket='basket-one',
+    hold = dict(location='input', station=1, gripper='released', basket=body['basket'], run_id=body['run_id'],
                 stopped=True, equipment_on=False)
     return dict(hold=hold, disposition=body['disposition'], boot=body['boot'],
+                unload=dict(hold, basket=None, run_id=None),
                 observation_id=body['observation_id'], observed_utc=time.time(), observed_mono_s=time.monotonic())
 
 
@@ -162,7 +163,7 @@ class RecordedLink:
                         'reconciliation': recovery_evidence(body)}
             return self.job
         if operation == 'acknowledge':
-            return {'acknowledged': True}
+            return {'acknowledged': True, 'job_id': body['job_id']}
         raise AssertionError(operation)
 
 

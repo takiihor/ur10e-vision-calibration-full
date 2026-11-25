@@ -6,7 +6,7 @@ from threading import Event, Lock, RLock, Thread
 import time
 from uuid import uuid4
 
-from .executor import PAIRED_ROLES, PROTOCOL, ROLES, finite, heartbeat_interval
+from .executor import AdmissionRefused, PAIRED_ROLES, PROTOCOL, ROLES, finite, heartbeat_interval
 from .jobs import atomic_json
 
 
@@ -54,13 +54,13 @@ def effective(revision):
 
 
 class Programme:
-    def __init__(self, root, request, steps, *, pulse=None):
+    def __init__(self, root, request, steps, *, pulse=None, order_intent=None):
         root = Path(root)
         root.mkdir(parents=True, exist_ok=True)
         self.path = root / 'programme.json'
         if self.path.is_symlink():
             raise ValueError('Programme record must be a regular file.')
-        self.request, self.shared_pulse = request, pulse
+        self.request, self.shared_pulse, self.order_intent = request, pulse, order_intent
         self.lock, self.tick_lock, self.lease_lock = RLock(), Lock(), Lock()
         self.stop_lock, self.stops = Lock(), {}
         self.close_requested = Event()
@@ -192,14 +192,45 @@ class Programme:
                 or reviewed['approval'] != approval):
             raise ValueError('Review the current executor boot, controller session and Stop generation.')
 
-    def start(self, ident, basket, approval):
+    def retained_run(self, run_id):
+        with self.lock:
+            return deepcopy(self.data['runs'].get(run_id))
+
+    def request_run(self, request_id, action):
+        with self.lock:
+            return next((deepcopy(run) for run in self.data['runs'].values()
+                         if request_id in run.get(f'{action}_requests', [])), None)
+
+    def control_owned(self):
+        with self.lock:
+            run = self.run
+            return bool(run and (run['state'] not in TERMINAL or run['state'] in ('recovery required', 'inspection')
+                                 or run.get('failed_hold') or run['pending'] or run['ack_pending'] or self._stopping(run)))
+
+    def latest_executor_intent(self):
+        with self.lock:
+            for run in reversed(list(self.data['runs'].values())):
+                pending = run.get('pending')
+                if pending and run.get('pending_attempted') is not False:
+                    return dict(job_id=pending['job_id'], intent_utc_ns=run.get('pending_utc_ns', 0),
+                                intent_order=run.get('pending_order', 0),
+                                basket=run['basket'], run_id=run['id'])
+                if run['jobs']:
+                    entry = run['jobs'][-1]
+                    job = entry['job']
+                    when = entry.get('intent_utc_ns') or int((job.get('created') or run['created_utc']) * 1e9)
+                    return dict(job_id=job['job_id'], intent_utc_ns=when, intent_order=entry.get('intent_order', 0),
+                                basket=run['basket'], run_id=run['id'])
+        return None
+
+    def start(self, ident, basket, approval, *, request_id=None):
         if not isinstance(basket, str) or not basket.strip() or len(basket) > 80:
             raise ValueError('Identify the basket before starting.')
         self._check_approval(approval)
         with self.lock:
             if ident != self.data['recipe']:
                 raise ValueError('Review the current recipe revision before starting.')
-            if self.run and self.run['state'] in ('recovery required', 'inspection'):
+            if self.run and (self.run['state'] in ('recovery required', 'inspection') or self.run.get('failed_hold')):
                 raise ValueError('Record a disposition before starting another basket.')
             if self.run and (self.run['pending'] or self.run['ack_pending'] or self._stopping(self.run)):
                 raise ValueError('Resolve the outstanding executor evidence before starting another basket.')
@@ -210,7 +241,8 @@ class Programme:
                        jobs=[], steps=[], pending=None, pending_missing=False, ack_pending=None, stop_pending=False,
                        step_kind='station_visit', setup=True, reason=None, boot=approval['boot'], approval_session=approval['session'],
                        approval=approval['stop_generation'],
-                       final_hold=None, created_utc=time.time())
+                       final_hold=None, created_utc=time.time(),
+                       start_requests=[request_id] if request_id else [])
             self.data['run'] = run['id']
             self.data['runs'][run['id']] = run
             self._save()
@@ -256,7 +288,12 @@ class Programme:
     def _settle_stop(self, run):
         if (run.get('stop', {}).get('confirmed') and not run['pending']
                 and run['state'] in ('running', 'held')):
-            run.update(state='stopped', reason='Stop confirmed.')
+            last = run['jobs'][-1]['job'] if run['jobs'] else None
+            if last and run['final_hold'] in ('input', 'park'):
+                run.update(state='recovery required', recovery_job=last['job_id'], stopped_hold=True,
+                           reason='Stop confirmed. Review the held basket and record a disposition.')
+            else:
+                run.update(state='stopped', reason='Stop confirmed.')
 
     def _deliver_stop(self, ident, stop_id, job_id):
         try:
@@ -293,7 +330,7 @@ class Programme:
         report = self._deliver_stop(ident, stop_id, pending['job_id'] if pending else None)
         return self._record_stop(ident, stop_id, report)
 
-    def resume(self, ident, approval):
+    def resume(self, ident, approval, *, request_id=None):
         self._check_approval(approval)
         with self.lock:
             run = self.run
@@ -307,42 +344,52 @@ class Programme:
                        approval=approval['stop_generation'], approval_session=approval['session'])
             if run['pending']:
                 run['pending']['stop_generation'] = run['approval']
+            if request_id:
+                run.setdefault('resume_requests', []).append(request_id)
             self._save()
             return deepcopy(run)
 
-    def disposition(self, ident, note):
+    def disposition(self, ident, note, *, allow_unaccounted=False, request_id=None):
         if not isinstance(note, str) or not note.strip() or len(note) > 500:
             raise ValueError('Record a disposition for the basket.')
+        if type(allow_unaccounted) is not bool:
+            raise ValueError('Choose whether to record the basket as unaccounted for.')
         note = note.strip()
         with self.tick_lock:
             with self.lock:
                 run = self.run
                 if (not run or run['id'] != ident
-                        or (run['state'] not in ('inspection', 'recovery required') and not run.get('ack_missing'))):
+                        or (run['state'] not in ('inspection', 'recovery required')
+                            and not (run.get('ack_missing') or run.get('failed_hold')))):
                     raise ValueError('Select a basket awaiting inspection or recovery.')
                 intent = run.get('disposition_intent')
                 if intent:
-                    if intent['disposition'] != note:
+                    if intent['disposition'] != note or intent.get('allow_unaccounted', False) != allow_unaccounted:
                         raise ValueError('Retry the recorded disposition for this executor job.')
                 else:
                     pending = run['pending']
                     missing = bool(pending and run.get('pending_missing'))
-                    if pending and not missing:
+                    if pending and not (missing or run.get('invalid_result')):
                         raise ValueError('Wait for the outstanding executor evidence before recording recovery.')
-                    job_id = pending['job_id'] if missing else run.get('recovery_job')
+                    job_id = pending['job_id'] if pending else run.get('recovery_job')
                     if run.get('ack_missing'):
                         job_id, missing = run['ack_pending'], True
-                    observed_only = False
+                    observed_only = bool(run.get('failed_hold') or run.get('stopped_hold') or run.get('invalid_result'))
                     if job_id is None and run['state'] == 'recovery required' and run['jobs']:
                         job_id = next((entry['job']['job_id'] for entry in reversed(run['jobs'])
                                        if entry['job']['outcome'] == 'unknown'), None)
                         if job_id is None:
                             job_id = run['jobs'][-1]['job']['job_id']
                             observed_only = True
-                        missing = self.request('status', {'job_id': job_id})['job'] is None
                     if job_id:
-                        status = self.request('status')
-                        intent = dict(job_id=job_id, disposition=note, missing=missing, observation_id=uuid4().hex)
+                        status = self.request('status', {'job_id': job_id})
+                        missing = status['job'] is None
+                        intent = dict(job_id=job_id, disposition=note, missing=missing, observation_id=uuid4().hex,
+                                      basket=run['basket'], run_id=run['id'])
+                        if allow_unaccounted:
+                            intent['allow_unaccounted'] = True
+                        if not allow_unaccounted:
+                            intent['release_basket'] = True
                         if '.executor-active.json' in status.get('recovery_ids', []):
                             intent['repair_active_marker'] = True
                         if observed_only and not missing:
@@ -353,14 +400,18 @@ class Programme:
                 identity = self.pulse()
                 try:
                     job = self.request('reconcile', dict(identity, **intent))
-                except ValueError:
+                except ValueError as exc:
                     with self.lock:
                         run['disposition_intent'] = None
+                        if 'unaccounted' in str(exc).lower():
+                            run.update(basket_unaccounted=True, final_hold=None, reason=str(exc))
                         self._save()
                     raise
                 key = 'observation' if intent.get('observed_only') else 'reconciliation'
                 evidence = job.get(key) if isinstance(job, dict) else None
                 hold = evidence.get('hold') if isinstance(evidence, dict) else None
+                unaccounted = isinstance(evidence, dict) and evidence.get('unaccounted') is True
+                unload = evidence.get('unload') if isinstance(evidence, dict) else None
                 if (not isinstance(hold, dict) or hold.get('location') not in ('input', 'park', 'output')
                         or hold.get('stopped') is not True or hold.get('equipment_on') is not False
                         or hold.get('gripper') != 'released' or 'basket' not in hold
@@ -371,19 +422,40 @@ class Programme:
                         or not finite(evidence.get('observed_utc')) or evidence['observed_utc'] <= 0
                         or not finite(evidence.get('observed_mono_s')) or evidence['observed_mono_s'] < 0
                         or (intent.get('repair_active_marker') and evidence.get('repaired_active_marker') is not True)
-                        or (intent['missing'] and job.get('outcome') != 'unknown')):
+                        or (intent['missing'] and job.get('outcome') != 'unknown')
+                        or (unaccounted and not allow_unaccounted)
+                        or (not unaccounted and (hold['basket'], hold.get('run_id')) != (run['basket'], run['id']))
+                        or (intent.get('release_basket') and not unaccounted and hold['location'] in ('input', 'park')
+                            and (not isinstance(unload, dict) or unload.get('location') != 'input'
+                                 or unload.get('basket') is not None or unload.get('run_id') is not None
+                                 or unload.get('stopped') is not True or unload.get('equipment_on') is not False
+                                 or unload.get('gripper') != 'released'))):
                     raise OSError('Awaiting valid executor recovery evidence for the original job.')
+                expected = self._recipe_steps(run, intent['job_id'])
+                checkpoint = run.get('checkpoint') if run['pending'] else None
+                recovered_rows, recovered_boot = self._confirmed_rows(job, expected, checkpoint)
                 if intent['missing']:
                     self._merge(job)
             with self.lock:
                 if intent:
+                    self._merge_rows(run, recovered_rows, recovered_boot)
                     run['recovery_observation'] = dict(evidence, job_id=intent['job_id'])
-                    run['final_hold'] = hold['location']
-                    if run.get('ack_missing'):
-                        run.update(ack_missing=False, reason=None)
-                if run['state'] != 'succeeded':
+                    run.update(final_hold=None if unaccounted else hold['location'], basket_unaccounted=unaccounted)
+                    if intent['missing']:
+                        run.update(ack_pending=intent['job_id'], ack_missing=False)
+                    if run['state'] == 'succeeded':
+                        run['reason'] = None
+                    if run['pending'] and run.get('invalid_result'):
+                        run['jobs'].append(dict(type=run['pending']['type'], job=job,
+                                                invalid_terminal_evidence=True,
+                                                intent_utc_ns=run.get('pending_utc_ns'),
+                                                intent_order=run.get('pending_order', 0)))
+                        run.update(pending=None, ack_pending=job['job_id'], invalid_result=None)
+                if run['state'] != 'succeeded' or (intent and unaccounted):
                     run['state'] = 'stopped'
-                run.update(disposition=note, disposition_intent=None)
+                run.update(disposition=note, disposition_intent=None, failed_hold=False)
+                if request_id:
+                    run.setdefault('disposition_requests', []).append(request_id)
                 self._save()
                 return deepcopy(run)
 
@@ -395,8 +467,19 @@ class Programme:
                 return None
             # A crash from this point onward may have delivered the request.
             run['pending_attempted'] = True
+            run['pending_order'] = self.order_intent() if self.order_intent else 0
             self._save()
-        return self.request('submit', dict(identity, **payload))
+        try:
+            return self.request('submit', dict(identity, **payload))
+        except AdmissionRefused as exc:
+            with self.lock:
+                if run['pending'] == payload:
+                    last = run['jobs'][-1]['job'] if run['jobs'] else None
+                    run.update(state='failed', reason=str(exc), pending=None, pending_missing=False,
+                               failed_hold=last is not None, recovery_job=last and last['job_id'],
+                               refusal=dict(job_id=payload['job_id'], reason=str(exc)))
+                    self._save()
+            return None
 
     def _dispatch(self, run, identity):
         if run['pending'] is not None:
@@ -409,7 +492,11 @@ class Programme:
                 if current['id'] != run['id'] or current['pending'] != payload:
                     return None
                 attempted = current.get('pending_attempted') is not False
-                if (attempted or identity['boot'] != run['boot']) and current['state'] not in TERMINAL:
+                if not attempted and identity['boot'] != run['boot']:
+                    current.update(pending=None, pending_missing=False)
+                    self._save()
+                    return None
+                if attempted and current['state'] not in TERMINAL:
                     current.update(state='recovery required',
                                    reason='The original job result is missing. Verify the retained hold and record a disposition.')
                 if not current.get('pending_missing'):
@@ -424,9 +511,8 @@ class Programme:
         step = steps[run['cursor']]
         kind = run['step_kind']
         if kind == 'station_visit':
-            params = {'station': step['station']}
-            if run['cursor'] == 0:
-                params.update(run_id=run['id'], basket=run['basket'])
+            params = dict(station=step['station'], run_id=run['id'], basket=run['basket'],
+                          load_input=run['cursor'] == 0)
         else:
             pair = step['role'] in PAIRED_ROLES
             grouped = steps[run['cursor']:run['cursor']+2] if pair else [step]
@@ -443,9 +529,119 @@ class Programme:
         with self.lock:
             if self.run['state'] != 'running' or self.run['pending'] or self._stopping(self.run):
                 return None
-            self.run.update(pending=payload, pending_attempted=False, pending_missing=False, checkpoint=None)
+            self.run.update(pending=payload, pending_attempted=False, pending_missing=False, checkpoint=None,
+                            pending_utc_ns=time.time_ns())
             self._save()
         return self._send_pending(payload, identity)
+
+    @staticmethod
+    def _valid_rows(rows, expected):
+        if not isinstance(rows, list) or len(rows) > len(expected):
+            return False
+        return all(isinstance(row, dict) and row.get('id') == step['id'] and row.get('tank') == step['tank']
+                   and row.get('limits') == step['limits'] and type(row.get('inspection')) is bool
+                   and all(finite(row.get(key)) for key in ('placed_s', 'lift_s', 'dwell_s'))
+                   and 'air_s' in row and row['placed_s'] <= row['lift_s'] and row['dwell_s'] >= 0
+                   and (row['air_s'] is None or (finite(row['air_s']) and row['air_s'] >= 0))
+                   for row, step in zip(rows, expected))
+
+    @staticmethod
+    def _recipe_steps(run, job_id):
+        pending = run['pending']
+        if pending and pending['job_id'] == job_id:
+            return pending['params'].get('steps', [])
+        prior = set()
+        for entry in run['jobs']:
+            if entry['job']['job_id'] == job_id:
+                if entry['type'] != 'dip':
+                    return []
+                steps = run['recipe']['steps']
+                index = len(prior)
+                if index < len(steps):
+                    count = 2 if steps[index]['role'] in PAIRED_ROLES else 1
+                    return steps[index:index+count]
+                return []
+            prior.update(row['id'] for row in (entry['job'].get('result') or {}).get('steps', []))
+        return []
+
+    def _confirmed_rows(self, job, expected, previous_checkpoint=None):
+        result = job.get('result') or {}
+        checkpoint = job.get('checkpoint') or {}
+        candidates = [(result.get('steps', []), checkpoint.get('boot')),
+                      (checkpoint.get('steps', []), checkpoint.get('boot'))]
+        if previous_checkpoint:
+            candidates.append((previous_checkpoint.get('steps', []), previous_checkpoint.get('boot')))
+        return max(((rows, boot) for rows, boot in candidates if self._valid_rows(rows, expected)),
+                   key=lambda candidate: len(candidate[0]), default=([], None))
+
+    @staticmethod
+    def _merge_rows(run, rows, boot):
+        if not rows:
+            return False
+        confirmed = {row['id']: row for row in run['steps']}
+        for record in rows:
+            saved = confirmed.get(record['id'])
+            if saved:
+                saved['inspection'] |= record['inspection']
+                if saved['air_s'] is None and saved.get('boot') == boot:
+                    saved['air_s'] = record['air_s']
+            else:
+                confirmed[record['id']] = dict(deepcopy(record), boot=boot)
+        run['steps'] = [confirmed[step['id']] for step in run['recipe']['steps'] if step['id'] in confirmed]
+        run['cursor'] = len(run['steps'])
+        run['step_kind'] = 'station_visit'
+        excursion = any(row['inspection'] for row in rows)
+        for previous, following in zip(run['steps'], run['steps'][1:]):
+            if previous['air_s'] is not None or not previous.get('boot') or previous.get('boot') != following.get('boot'):
+                continue
+            measured = following['placed_s'] - previous['lift_s']
+            if measured >= 0:
+                previous['air_s'] = measured
+                bound = previous['limits']['air']
+                if previous['inspection'] or (bound is not None and measured > bound):
+                    previous['inspection'] = excursion = True
+        return excursion
+
+    def _terminal_matches(self, payload, job, run):
+        result = job.get('result')
+        if not isinstance(result, dict):
+            return False
+        params = payload['params']
+        rows = result.get('steps', [])
+        expected = params.get('steps', [])
+        if not self._valid_rows(rows, expected):
+            return False
+        if job.get('outcome') not in ('succeeded', 'held'):
+            return job.get('outcome') in ('unknown', 'failed', 'stopped')
+        hold = result.get('hold')
+        if (not isinstance(hold, dict) or hold.get('gripper') != 'released'
+                or hold.get('stopped') is not True or hold.get('equipment_on') is not False
+                or (hold.get('basket'), hold.get('run_id')) != (run['basket'], run['id'])):
+            return False
+        if payload['type'] == 'dip':
+            return len(rows) == len(expected) and hold.get('location') == params['hold']
+        destination = 'input' if params.get('load_input', run['cursor'] == 0) else 'park'
+        return hold.get('station') == params['station'] and hold.get('location') == destination
+
+    def _refresh_air(self, run, alarm):
+        if not alarm or not alarm.get('open_air') or not run['steps']:
+            return
+        entry = next((entry for entry in reversed(run['jobs']) if entry['job']['job_id'] == alarm.get('job_id')), None)
+        if not entry:
+            return
+        job = self.request('status', {'job_id': alarm['job_id']})['job']
+        row = next((row for row in ((job or {}).get('result') or {}).get('steps', [])
+                    if isinstance(row, dict) and row.get('id') == alarm.get('step_id')
+                    and row.get('inspection') is True
+                    and (row.get('air_s') is None or (finite(row['air_s']) and row['air_s'] >= 0))), None)
+        if not row:
+            return
+        with self.lock:
+            current = self.data['runs'][run['id']]
+            saved = next((step for step in current['steps'] if step['id'] == row['id']), None)
+            if saved and (not saved['inspection'] or (saved['air_s'] is None and row.get('air_s') is not None)):
+                saved.update(inspection=True, air_s=row.get('air_s', saved['air_s']))
+                self._save()
 
     def _merge(self, job):
         if job is None:
@@ -453,39 +649,44 @@ class Programme:
         with self.lock:
             run = self.run
             payload = run['pending']
-            if not payload or payload['job_id'] != job['job_id']:
+            if not isinstance(job, dict) or not payload or payload['job_id'] != job.get('job_id'):
                 return
             checkpoint = job.get('checkpoint')
-            updated = bool(checkpoint and checkpoint != run.get('checkpoint'))
+            previous_checkpoint = run.get('checkpoint')
+            updated = bool(isinstance(checkpoint, dict) and checkpoint != previous_checkpoint
+                           and (not previous_checkpoint or checkpoint.get('sequence', -1) >=
+                                previous_checkpoint.get('sequence', -1)))
             if updated:
                 run['checkpoint'] = checkpoint
-            if job['state'] in ('accepted', 'running', 'waiting'):
+            if job.get('state') in ('accepted', 'running', 'waiting'):
                 if updated:
                     self._save()
                 return
-            run['jobs'].append(dict(type=payload['type'], job=job))
+            if (job.get('state') not in ('done', 'failed', 'interrupted', 'stopped')
+                    or not self._terminal_matches(payload, job, run)):
+                failures = (run.get('invalid_result') or 0) + 1
+                run.update(invalid_result=min(failures, 2),
+                           state='held' if failures == 1 and run['state'] not in TERMINAL else 'recovery required',
+                           reason='The original executor result is incomplete or inconsistent. Verify its hold and evidence.')
+                if failures <= 2:
+                    self._save()
+                return
+            run.pop('invalid_result', None)
+            previous_job = run['jobs'][-1]['job'] if run['jobs'] else None
+            run['jobs'].append(dict(type=payload['type'], job=job, intent_utc_ns=run.get('pending_utc_ns'),
+                                    intent_order=run.get('pending_order', 0)))
             run.update(pending=None, pending_missing=False, ack_pending=job['job_id'])
             result = job['result']
-            records = deepcopy(result.get('steps', []))
-            excursion = any(record['inspection'] for record in records)
-            boot = (run.get('checkpoint') or {}).get('boot')
-            for record in records:
-                record['boot'] = boot
-            if (records and run['steps'] and run['steps'][-1]['air_s'] is None
-                    and boot and run['steps'][-1].get('boot') == boot):
-                previous = run['steps'][-1]
-                previous['air_s'] = records[0]['placed_s'] - previous['lift_s']
-                bound = previous['limits']['air']
-                if bound is not None and previous['air_s'] > bound:
-                    previous['inspection'] = excursion = True
-            run['steps'].extend(records)
-            hold = result.get('hold') or (result.get('reconciliation') or {}).get('hold')
+            rows, boot = self._confirmed_rows(job, payload['params'].get('steps', []), previous_checkpoint)
+            excursion = self._merge_rows(run, rows, boot)
+            hold = result.get('hold')
+            if not hold:
+                reconciliation = result.get('reconciliation') or {}
+                if not reconciliation.get('unaccounted'):
+                    hold = reconciliation.get('hold')
             if hold:
                 run['final_hold'] = hold['location']
-            if payload['type'] == 'dip' and records:
-                run['cursor'] += len(records)
-                run['step_kind'] = 'station_visit'
-            elif job['outcome'] in ('succeeded', 'held') and payload['type'] == 'station_visit':
+            if job['outcome'] in ('succeeded', 'held') and payload['type'] == 'station_visit':
                 run['step_kind'] = 'dip'
             if job['outcome'] == 'unknown':
                 run.update(state='recovery required', recovery_job=job['job_id'],
@@ -495,10 +696,23 @@ class Programme:
                            reason='Quality limit exceeded. Review the basket at its hold.')
             elif run['state'] not in TERMINAL:
                 if job['outcome'] != 'succeeded':
-                    run.update(state={'held': 'held', 'stopped': 'stopped'}.get(job['outcome'], 'failed'),
+                    outcome = job['outcome']
+                    run.update(state={'held': 'held', 'stopped': 'stopped'}.get(outcome, 'failed'),
                                reason=result.get('reason') or job['error'])
+                    if previous_job and run['final_hold'] in ('input', 'park') and outcome in ('failed', 'stopped'):
+                        run.update(failed_hold=outcome == 'failed', stopped_hold=outcome == 'stopped',
+                                   recovery_job=previous_job['job_id'])
+                        if outcome == 'stopped':
+                            run.update(state='recovery required',
+                                       reason='Stop confirmed. Review the held basket and record a disposition.')
                 elif run['cursor'] == len(run['recipe']['steps']):
-                    run.update(state='succeeded', finished_utc=time.time())
+                    if (hold and hold.get('location') == 'output' and hold.get('gripper') == 'released'
+                            and hold.get('stopped') is True and hold.get('equipment_on') is False
+                            and (hold.get('basket'), hold.get('run_id')) == (run['basket'], run['id'])):
+                        run.update(state='succeeded', finished_utc=time.time())
+                    else:
+                        run.update(state='recovery required', recovery_job=job['job_id'],
+                                   reason='The final output hold is unverified.')
             self._settle_stop(run)
             self._save()
 
@@ -522,6 +736,7 @@ class Programme:
             try:
                 identity = self.pulse()
                 status = self.request('status')
+                self._refresh_air(run, status.get('quality_alarm'))
                 if run['boot'] != status['boot']:
                     self._hold('recovery required', 'Executor rebooted. Reconcile the last confirmed location and intent.')
                     if identity['boot'] != status['boot']:
@@ -530,20 +745,22 @@ class Programme:
                 if run['ack_pending']:
                     if run.get('ack_missing'):
                         return
-                    if run['boot'] != status['boot']:
-                        evidence = self.request('status', {'job_id': run['ack_pending']})
-                        if evidence['job'] is None:
-                            with self.lock:
-                                current = self.data['runs'][run['id']]
-                                current.update(ack_missing=True,
-                                               reason='IPC lost the terminal acknowledgement. Verify the retained hold.')
-                                self._save()
-                            return
-                    self.request('acknowledge', dict(identity, job_id=run['ack_pending']))
+                    evidence = self.request('status', {'job_id': run['ack_pending']})
+                    if evidence['job'] is None:
+                        with self.lock:
+                            current = self.data['runs'][run['id']]
+                            current.update(ack_missing=True,
+                                           reason='IPC lost the terminal acknowledgement. Verify the retained hold.')
+                            self._save()
+                        return
+                    acknowledgement = self.request('acknowledge', dict(identity, job_id=run['ack_pending']))
+                    if acknowledgement != {'acknowledged': True, 'job_id': run['ack_pending']}:
+                        raise OSError('Waiting for acknowledgement of the original executor job.')
                     with self.lock:
                         current = self.data['runs'][run['id']]
                         current['ack_pending'] = None
                         self._save()
+                    return
                 with self.lock:
                     run = deepcopy(self.run)
                     if (run['state'] == 'running' and not run['pending'] and not self._stopping(run)

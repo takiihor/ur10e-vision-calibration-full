@@ -237,6 +237,30 @@ this setting. Admission refuses a dip when the setting is missing, zero
 or different from the reviewed plan. The commissioning service does not
 load this file or offer dips.
 
+A motion-authorizing click carries a request ID, the reviewed controller
+cursor and the existing Stop authority. Katana consumes the cursor and
+persists the request before dispatch. A repeat with the same body refers
+to the original visit or basket. To start another basket with the same
+label, review the current controls and issue a new Start. A delayed,
+previously unseen request with a superseded cursor needs a fresh review.
+Stop can interrupt a pending operation.
+
+The IPC keeps an ordered inventory of accepted job IDs in
+`.executor-accepted.json` and durable pre-admission refusals in
+`.executor-refused.json`. The active marker and individual job files
+provide independent evidence. If either inventory is damaged, inhibit dispatch,
+stop the executor and preserve the damaged bytes. Restore the complete inventory
+from a verified copy covering the last acceptance or refusal before the fault.
+Compare its digest against the frozen copy and verify the latest marker and
+controller history before restarting. An older backup can omit consumed IDs.
+When the latest inventory cannot be established, retain the fence and recover
+the missing evidence before restarting work. Inspect a lost reply using its original
+job ID. A physical effect can occur just before power fails and before
+its confirmation reaches storage. That interval requires reconciliation.
+Only a qualified immersion, PLC completion and confirmed lift on the
+same boot establish a completed dwell. A remaining transfer or rinse
+can stay uncertain while the completed dwell appears in the basket.
+
 At the first station job the fake executor verifies the input handoff,
 binds the basket to the run and checks that the first dip starts at input.
 An independently verified output hold for a previous run allows the
@@ -317,6 +341,25 @@ archives acknowledged evidence in `executor-recovery-history/`. An
 unresolved job or job file keeps its independent fence. If the
 job ID cannot be established, preserve the files and leave dispatch
 inhibited for maintenance review.
+
+For programme recovery, compare both the basket label and the run ID
+with the observed hold. A replacement simulator's initial empty input
+does not establish the previous basket's location. When independent
+evidence identifies an absent or different basket, the operator can
+record the original basket as unaccounted for. Its record then carries
+no final hold. The simulator leaves a different basket in place.
+Closing a verified occupied input or park hold records the disposition
+and verifies the empty input before loading a new basket. A terminal
+success followed by a lost IPC job file retains the earlier result
+alongside its subsequent by-ID reconciliation.
+
+At each station leg the IPC checks the current local travel interlocks.
+A basket in a tank, tank equipment still on, or unknown feedback blocks
+the leg. The commissioning-only wired installation has no travel
+permission. A nonfinal lift with an air limit leaves a local deadline.
+Expiry can flag the basket while Katana is disconnected. If clocks span
+different IPC boots, keep elapsed time unknown and retain the inspection
+flag until the operator accounts for the exposure.
 
 The wired commissioning service journals each raw received chunk and
 transmitted frame in its private data directory. Keep live capture out of

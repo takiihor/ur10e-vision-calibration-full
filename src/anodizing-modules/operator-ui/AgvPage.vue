@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import Accordion from 'primevue/accordion';
 import AccordionContent from 'primevue/accordioncontent';
 import AccordionHeader from 'primevue/accordionheader';
@@ -36,6 +36,12 @@ const callReason = computed(() => agv.commandReason('call_station', agv.state.ma
 const manualVisit = computed(() => agv.state.manual_visit);
 const manualNote = ref('');
 const orphanJob = ref('');
+watch(() => agv.state.executor_recovery_evidence, evidence => {
+  if (evidence?.acknowledged === false) {
+    orphanJob.value = evidence.job_id;
+    manualNote.value = evidence.disposition ?? evidence.observation?.disposition ?? evidence.reconciliation?.disposition ?? '';
+  }
+}, { immediate: true });
 const manualNeedsReview = computed(() => manualVisit.value?.missing ||
   (manualVisit.value?.result?.outcome === 'unknown' && !manualVisit.value.result.reconciliation));
 const orphanRecovery = computed(() => !manualVisit.value &&
@@ -49,9 +55,9 @@ const visitSummary = computed(() => {
 });
 const age = computed(() => agv.age == null ? 'No status report yet.' : `Last report ${agv.age.toFixed(1)} s ago.`);
 const disconnectReason = computed(() => !agv.state.connected ? 'Connect first.' :
-  agv.state.recipe_active ? 'Stop the active recipe before disconnecting.' :
+  agv.state.programme_motion_block || (agv.state.recipe_active ? 'Stop the active recipe before disconnecting.' :
     agv.state.halt_pending || agv.state.stop_unconfirmed ? 'Verify the pending halt before disconnecting.' :
-      agv.busy ? 'Wait for the current request.' : '');
+      agv.busy ? 'Wait for the current request.' : ''));
 const portsBusy = ref(false);
 const transports = computed(() => {
   if (agv.capability?.executor_link) return [{ label: 'IPC executor', value: 'wired' }];
@@ -188,8 +194,10 @@ function connect() {
         <p v-else-if="stationMode">{{ maximum }} targets on the learned route, including the start.</p>
         <p v-else>Query status to check for a learned route.</p>
         <p v-if="!standard && callReason" id="agv-station-call-reason" data-ui="agv.call.reason">{{ callReason }}</p>
+        <p v-if="agv.state.quality_alarm" role="status">{{ agv.state.quality_alarm.reason }}</p>
         <div v-if="manualVisit">
-          <p role="status">{{ visitSummary }}{{ manualVisit.result?.error ? ' · ' + manualVisit.result.error : '' }}</p>
+          <p role="status">{{ visitSummary }}{{ manualVisit.missing ? ' · IPC result missing' : '' }}{{ manualVisit.result?.error ? ' · ' + manualVisit.result.error : '' }}</p>
+          <p v-if="manualVisit.prior_result">Previous saved outcome: {{ manualVisit.prior_result.outcome }}</p>
           <p v-if="manualVisit.result?.reconciliation">Reconciled: {{ manualVisit.result.reconciliation.disposition }}</p>
           <template v-if="manualNeedsReview">
             <label>Verified station disposition <input data-ui="agv.call.disposition" v-model="manualNote" maxlength="500"></label>

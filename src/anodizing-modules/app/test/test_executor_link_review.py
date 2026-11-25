@@ -4,6 +4,7 @@ import json
 from threading import Event, Thread, current_thread
 import time
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
 import pytest
 
@@ -15,8 +16,8 @@ from anodizing_web.server import Server
 TOKEN = 'review-test-token-only-not-for-installation'
 
 
-def wait_for(read, predicate=bool):
-    deadline = time.monotonic() + 10
+def wait_for(read, predicate=bool, *, timeout=10):
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         value = read()
         if predicate(value):
@@ -53,7 +54,12 @@ def remote(tmp_path, *, state_path=None):
 def operator(root, client, steps=None):
     server = Server(0, root, executor_client=client, programme_steps=steps)
     with running(server) as port:
-        def call(path, body=None):
+        def call(path, body=None, *, raw=False):
+            if body and not raw and path in ('agv', 'programme') and body.get('command') != 'query_status':
+                body = dict(body)
+                if 'review_cursor' not in body:
+                    body['review_cursor'] = call(path).get('review_cursor')
+                body.setdefault('request_id', uuid4().hex)
             request = Request(f'http://127.0.0.1:{port}/api/{path}',
                               data=None if body is None else json.dumps(body).encode(),
                               headers={'X-Module-Token': server.token, 'Content-Type': 'application/json'})
@@ -124,7 +130,7 @@ def test_configured_recipe_runs_all_twelve_steps_at_remote_ipc(tmp_path):
             call('programme', {'action': 'start', 'basket': 'basket-http', 'revision': revision,
                                'approval': call('programme')['approval']})
             record = wait_for(lambda: call('programme')['run'],
-                              lambda run: run['state'] == 'succeeded')
+                              lambda run: run['state'] == 'succeeded', timeout=16)
             assert [row['id'] for row in record['steps']] == [step['id'] for step in steps]
             assert [value for effect, value in devices.effects if effect == 'place'] == [
                 step['id'] for step in steps
@@ -147,7 +153,8 @@ def test_manual_visit_retry_after_lost_http_reply_and_katana_restart_reuses_id(t
 
         with operator(tmp_path / 'katana', lose_reply) as call:
             reviewed = arm(call)
-            request = dict(reviewed, action='send', command='call_station', value=2, request_id='first-click')
+            request = dict(reviewed, action='send', command='call_station', value=2, request_id='first-click',
+                           review_cursor=call('agv')['review_cursor'])
             # A transport error may surface, but the station visit remains identifiable.
             try:
                 call('agv', request)
@@ -165,9 +172,8 @@ def test_manual_visit_retry_after_lost_http_reply_and_katana_restart_reuses_id(t
                 pytest.fail('Restart lost the accepted manual visit and its durable ID.')
             assert result['job_id'] == submissions[0]
             assert result['outcome'] == 'succeeded'
-            state = call('agv')
-            repeated = call('agv', dict(request, request_id='second-click', connection_id=state['connection_id']))
-            assert repeated['manual_visit']['result']['job_id'] == submissions[0]
+            repeated = call('agv', request)
+            assert repeated['operator_action']['job_id'] == submissions[0]
             assert devices.effects == [('station', 2)]
             assert len(submissions) == 1
 

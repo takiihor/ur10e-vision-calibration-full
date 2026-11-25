@@ -96,6 +96,8 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     if (armed.value) return '';
     if (state.value.executor_link) {
       if (state.value.stop_unconfirmed) return 'Stop unconfirmed. Verify a safe halt first.';
+      if (state.value.programme_motion_block) return state.value.programme_motion_block;
+      if (state.value.executor_recovery_evidence?.acknowledged === false) return state.value.motion_block;
       if (state.value.recovery_required) return 'Reconcile the interrupted executor job first.';
       return freshReport.value ? '' : 'Query fresh stopped status first.';
     }
@@ -229,9 +231,12 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     if (priority) haltRevision.value++;
     if (!priority) busy.value = true;
     const generation = state.value.connection_id;
-    if (state.value.executor_link && (body.armed === true || body.command === 'call_station')) {
-      body = { ...body, executor_boot: state.value.executor_boot, executor_session: state.value.executor_session,
-        stop_generation: state.value.stop_generation };
+    if (state.value.executor_link && body.command !== 'query_status') {
+      body = { ...body, request_id: crypto.randomUUID(), review_cursor: state.value.review_cursor };
+      if (body.armed === true || body.command === 'call_station') {
+        body = { ...body, executor_boot: state.value.executor_boot, executor_session: state.value.executor_session,
+          stop_generation: state.value.stop_generation };
+      }
     }
     const timeout = priority ? 4000 : 8000;
     const pending = reactive({ name: body.command, generation, started: performance.now(), timeout, viaEsc });
@@ -298,6 +303,7 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
       if (name === 'stop') return '';
       if (!['query_status', 'call_station'].includes(name)) return 'This control is unavailable on the executor link.';
       if (name === 'call_station') {
+        if (state.value.programme_motion_block) return state.value.programme_motion_block;
         if (state.value.stop_unconfirmed) return 'Stop unconfirmed. Verify a safe halt first.';
         const visit = state.value.manual_visit;
         if (visit && (visit.station !== value || visit.result?.outcome)) {

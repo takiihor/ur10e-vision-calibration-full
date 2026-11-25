@@ -4,10 +4,10 @@ from contextlib import contextmanager
 from copy import deepcopy
 import json
 from threading import Event, Lock, Thread
-from time import monotonic, time
+from time import monotonic, time, time_ns
 from uuid import uuid4
 
-from .executor import HEARTBEAT_S, PROTOCOL, finite, heartbeat_interval
+from .executor import AdmissionRefused, HEARTBEAT_S, PROTOCOL, finite, heartbeat_interval
 from .jobs import ID, atomic_json
 
 
@@ -23,6 +23,9 @@ class ExecutorLink:
         self.sequence = self.heartbeat_sequence = self.connection_id = 0
         self.device_identity = self.identity = None
         self.stop_path = local.owner.root / 'executor-stop.json'
+        self.intent_order_path = local.owner.root / 'executor-intent-sequence.json'
+        self.intent_order = self._load(self.intent_order_path) or 0
+        self.intent_order_lock = Lock()
         self.manual_path = local.owner.root / 'executor-manual-visit.json'
         self.manual_history_directory = local.owner.root / 'executor-manual-history'
         self.recovery_path = local.owner.root / 'executor-recovery.json'
@@ -176,6 +179,7 @@ class ExecutorLink:
                           executor_boot=status['boot'],
                           executor_session=status.get('session') if self.identity else None,
                           executor_job=status['job'], recovery_required=status['recovery_required'],
+                          quality_alarm=status.get('quality_alarm'),
                           recovery_ids=status.get('recovery_ids', []), executor_stop=status.get('stop'),
                           motion_block=self._motion_reason(status))
             self.cached.update(device, wired_port='IPC executor', executor_reachable=True,
@@ -204,6 +208,8 @@ class ExecutorLink:
                          stop_unconfirmed=pending is not None, manual_visit=deepcopy(manual),
                          manual_visit_history=deepcopy(self.manual_history),
                          executor_recovery_evidence=deepcopy(self.recovery_evidence))
+        if self.recovery_evidence and not self.recovery_evidence['acknowledged']:
+            state['motion_block'] = 'Finish the recorded executor recovery before arming.'
         current = state.get('executor_stop')
         if pending:
             report = pending['report']
@@ -229,15 +235,51 @@ class ExecutorLink:
         if result.get('job_id') != intent['id']:
             raise ValueError('The returned executor job does not match the manual station visit.')
         previous = self.manual['result']
-        if previous and (result == previous or (previous['state'] not in PENDING_STATES
-                and not (previous['outcome'] == 'unknown' and not previous.get('reconciliation')
-                         and result['outcome'] == 'unknown' and result.get('reconciliation')))):
-            return
+        reconciled = result.get('reconciliation') and (not previous or not previous.get('reconciliation'))
+        if previous and previous['state'] not in PENDING_STATES and not reconciled:
+            if not self.manual.get('missing') or result != previous:
+                return
         updated = dict(self.manual, result=result)
+        if reconciled and previous and previous['outcome'] != 'unknown':
+            updated['prior_result'] = previous
         updated.pop('missing', None)
         if result['state'] not in PENDING_STATES:
             atomic_json(self.manual_path, updated, sync_directory=True)
         self.manual = updated
+
+    def _manual_missing(self, intent):
+        if self.manual and self.manual['id'] == intent['id'] and not self.manual.get('missing'):
+            updated = dict(self.manual, missing=True)
+            atomic_json(self.manual_path, updated, sync_directory=True)
+            self.manual = updated
+
+    def manual_request(self, request_id):
+        intent = self.manual
+        if intent and intent.get('request_id') == request_id:
+            return intent['id']
+        for path in self.manual_history_directory.glob('*.json'):
+            history = self._load(path)
+            if history and history.get('request_id') == request_id:
+                return history['id']
+        return None
+
+    def order_intent(self):
+        with self.intent_order_lock:
+            order = self.intent_order + 1
+            atomic_json(self.intent_order_path, order, sync_directory=True)
+            self.intent_order = order
+            return order
+
+    def latest_manual_intent(self):
+        current = self.manual
+        if current:
+            return dict(job_id=current['id'], intent_order=current.get('intent_order', 0),
+                        intent_utc_ns=current.get('intent_utc_ns') or self.manual_path.stat().st_mtime_ns)
+        history = self.manual_history
+        if history:
+            return dict(job_id=history['id'], intent_order=history.get('intent_order', 0), intent_utc_ns=history.get('intent_utc_ns') or (
+                self.manual_history_directory / f"{history['id']}.json").stat().st_mtime_ns)
+        return None
 
     @staticmethod
     def _same_manual_authority(intent, status):
@@ -248,17 +290,16 @@ class ExecutorLink:
         if intent is None:
             return
         previous = intent['result']
-        if (previous and previous['state'] not in PENDING_STATES and
-                (previous['outcome'] != 'unknown' or previous.get('reconciliation'))):
+        if (previous and previous['state'] not in PENDING_STATES and not intent.get('missing')
+                and intent['boot'] == self.status().get('executor_boot')
+                and (previous['outcome'] != 'unknown' or previous.get('reconciliation'))):
             return
         status = self.client('status', {'job_id': intent['id']})
         result = status['job']
         with self.manual_lock:
             self._record_manual(intent, result)
-            if (result is None and not self._same_manual_authority(intent, status) and
-                    self.manual and self.manual['id'] == intent['id'] and not self.manual.get('missing')):
-                self.manual = dict(self.manual, missing=True)
-                atomic_json(self.manual_path, self.manual, sync_directory=True)
+            if result is None and (previous or not self._same_manual_authority(intent, status)):
+                self._manual_missing(intent)
 
     def _manual_visit(self, body):
         station = body.get('value')
@@ -284,18 +325,24 @@ class ExecutorLink:
                 raise ValueError('Review the current executor status and arm before requesting a station.')
             if intent is None:
                 intent = dict(id=uuid4().hex, station=station, boot=identity['boot'],
-                              session=identity['session'], stop_generation=generation, result=None)
+                              session=identity['session'], stop_generation=generation, result=None,
+                              request_id=body.get('request_id'), intent_utc_ns=time_ns(), intent_order=self.order_intent())
                 atomic_json(self.manual_path, intent, sync_directory=True)
                 self.manual = intent
             elif not self._same_manual_authority(intent, dict(identity, stop_generation=generation)):
                 raise ValueError('Executor authority changed. Reconcile the original station visit.')
             payload = dict(identity, job_id=intent['id'], stop_generation=generation, type='station_visit',
                            version=1, params={'station': station})
-            result = self.request('submit', payload)
+            try:
+                result = self.request('submit', payload)
+            except AdmissionRefused:
+                atomic_json(self.manual_path, None, sync_directory=True)
+                self.manual = None
+                raise
             self._record_manual(intent, result)
             return self.status()
 
-    def _reconcile_manual(self, job_id, note, *, orphan=False, programme_job=False):
+    def _reconcile_manual(self, job_id, note, *, orphan=False, programme_intent=None):
         if not isinstance(job_id, str) or not ID.fullmatch(job_id):
             raise ValueError('Supply the original executor job ID.')
         if not isinstance(note, str) or not note.strip() or len(note) > 500:
@@ -305,87 +352,117 @@ class ExecutorLink:
             intent = self.manual
             if (orphan and intent) or (not orphan and (not intent or intent['id'] != job_id)):
                 raise ValueError('Select the original station visit to reconcile.')
-            if orphan and not programme_job:
-                history = self._load(self.manual_history_directory / f'{job_id}.json')
-                if not history or history.get('id') != job_id or not history.get('acknowledged'):
-                    raise ValueError('Restore the original controller job evidence before reconciliation.')
+            journal = self.recovery_evidence or {}
+            pending = orphan and journal.get('acknowledged') is False
+            if pending and (journal['job_id'] != job_id or
+                            journal.get('disposition', (journal.get('observation') or
+                                                        journal.get('reconciliation') or {}).get('disposition')) != note):
+                raise ValueError('Retry the original job ID and recorded executor recovery disposition.')
+            latest = max((record for record in (self.latest_manual_intent(), programme_intent) if record),
+                         key=lambda record: (record['intent_order'], record['intent_utc_ns']), default=None)
+            if orphan and not pending and (not latest or latest['job_id'] != job_id):
+                raise ValueError('Supply the latest unresolved controller job ID before reconciliation.')
             identity = self.pulse()
             status = self.request('status', {'job_id': job_id})
             result = status['job']
             missing = result is None
             recovery_ids = status.get('recovery_ids', [])
             repair = '.executor-active.json' in recovery_ids
-            if not orphan and missing and not repair and self._same_manual_authority(intent, status):
+            if orphan and not pending:
+                if not repair and job_id not in recovery_ids:
+                    raise ValueError('Select an unresolved original executor job.')
+                if any(status.get(key) not in (None, job_id) for key in ('active_job_id', 'latest_job_id')):
+                    raise ValueError('The requested job does not account for the active executor record.')
+            if not orphan and missing and not repair and not intent.get('missing') and self._same_manual_authority(intent, status):
                 raise ValueError('Wait for the original station visit evidence.')
             observed = bool(orphan and result and result['state'] == 'done'
                             and result['outcome'] != 'unknown' and result['result'].get('hold'))
-            key = 'observation' if observed else 'reconciliation'
-            previous = (result or {}).get(key) or {}
-            prior_event = self.recovery_evidence or {}
-            pending = orphan and prior_event.get('acknowledged') is False
-            if pending and prior_event['job_id'] != job_id:
-                raise ValueError('Acknowledge the pending executor recovery evidence first.')
-            pending_evidence = (prior_event.get('observation') or prior_event.get('reconciliation') or {}) if pending else {}
-            if pending and pending_evidence.get('disposition') != note:
-                raise ValueError('Retry the disposition already recorded for this executor job.')
-            retry = orphan and previous.get('disposition') == note
-            if orphan and not repair and job_id not in recovery_ids and not (retry or pending):
-                raise ValueError('Select an unresolved original executor job.')
-            observation_id = None
-            if orphan:
-                if pending:
-                    observation_id = prior_event['event_id']
-                elif retry:
-                    observation_id = previous.get('observation_id')
-                if observation_id is None:
-                    observation_id = uuid4().hex
-            # A lost response can leave the IPC evidence committed before Katana acknowledged it.
-            if retry and not repair and previous.get('boot') == identity['boot']:
-                evidence = result
-            else:
+            payload = journal.get('intent') if pending else (intent or {}).get('reconcile_intent')
+            if payload and payload['disposition'] != note:
+                raise ValueError('Retry the original job ID and recorded executor recovery disposition.')
+            if payload is None:
                 if not (missing or observed or
                         (result['outcome'] == 'unknown' and result['state'] not in PENDING_STATES)):
                     raise ValueError('Select an uncertain station visit or a terminal hold.')
-                was_missing = retry and not observed and bool(result['result'].get('reconciliation'))
-                evidence = self.request('reconcile', dict(identity, job_id=job_id, missing=missing or was_missing,
-                                        disposition=note, repair_active_marker=repair or (
-                                            retry and previous.get('repaired_active_marker') is True),
-                                        observed_only=observed, observation_id=observation_id))
+                payload = dict(job_id=job_id, missing=missing, disposition=note,
+                               repair_active_marker=repair, observed_only=observed,
+                               observation_id=journal.get('event_id') if pending else uuid4().hex)
+                if intent:
+                    payload.update(intent_boot=intent['boot'], intent_stop_generation=intent['stop_generation'])
+                if latest and latest['job_id'] == job_id and latest.get('run_id') is not None:
+                    payload.update(run_id=latest['run_id'], basket=latest['basket'])
+            event_id = payload['observation_id']
+            key = 'observation' if payload['observed_only'] else 'reconciliation'
+            saved = (result or {}).get(key) or {}
+            if orphan:
+                journal = dict(journal if pending else {}, job_id=job_id, disposition=note,
+                               event_id=event_id, intent=payload, acknowledged=False)
+                atomic_json(self.recovery_path, journal, sync_directory=True)
+                self.recovery_evidence = journal
+            elif not intent.get('reconcile_intent'):
+                intent = dict(intent, reconcile_intent=payload)
+                atomic_json(self.manual_path, intent, sync_directory=True)
+                self.manual = intent
+            if saved.get('observation_id') == event_id and saved.get('boot') == identity['boot']:
+                evidence = result
+            else:
+                evidence = self.request('reconcile', dict(identity, **payload))
             reconciliation = evidence.get(key) or {}
             hold = reconciliation.get('hold') or {}
-            outcome = result['outcome'] if observed else 'unknown'
-            if (evidence.get('job_id') != job_id or evidence.get('outcome') != outcome
+            if (evidence.get('job_id') != job_id
+                    or (not payload['observed_only'] and evidence.get('outcome') != 'unknown')
                     or reconciliation.get('boot') != identity['boot'] or reconciliation.get('disposition') != note
-                    or (orphan and reconciliation.get('observation_id') != observation_id)
+                    or reconciliation.get('observation_id') != event_id
+                    or (payload.get('repair_active_marker') and reconciliation.get('repaired_active_marker') is not True)
                     or not finite(reconciliation.get('observed_utc')) or not finite(reconciliation.get('observed_mono_s'))
-                    or hold.get('stopped') is not True or hold.get('equipment_on') is not False):
-                raise ValueError('The executor did not return verified evidence for this reconciliation.')
+                    or hold.get('stopped') is not True or hold.get('equipment_on') is not False
+                    or (payload.get('run_id') is not None
+                        and (hold.get('run_id'), hold.get('basket')) != (payload['run_id'], payload['basket']))):
+                raise OSError('The executor did not return verified evidence for this reconciliation.')
             if intent:
                 self._record_manual(intent, evidence)
             else:
                 if self.recovery_history_directory.is_symlink():
                     raise ValueError('Executor recovery history requires a regular directory.')
                 self.recovery_history_directory.mkdir(exist_ok=True)
-                saved = dict(evidence, acknowledged=False, event_id=observation_id)
-                atomic_json(self.recovery_path, saved, sync_directory=True)
-                self.recovery_evidence = saved
-                self.request('acknowledge', dict(self.pulse(), job_id=job_id))
-                saved = dict(saved, acknowledged=True)
-                atomic_json(self.recovery_history_directory / f'{observation_id}.json', saved, sync_directory=True)
-                atomic_json(self.recovery_path, saved, sync_directory=True)
-                self.recovery_evidence = saved
+                journal = dict(journal, **evidence)
+                journal['acknowledged'] = False
+                atomic_json(self.recovery_path, journal, sync_directory=True)
+                self.recovery_evidence = journal
+                self._acknowledge(job_id)
+                journal = dict(journal, acknowledged=True)
+                atomic_json(self.recovery_history_directory / f'{event_id}.json', journal, sync_directory=True)
+                atomic_json(self.recovery_path, journal, sync_directory=True)
+                self.recovery_evidence = journal
         return self.status()
+
+    def _acknowledge(self, job_id):
+        reply = self.request('acknowledge', dict(self.pulse(), job_id=job_id))
+        if reply != {'acknowledged': True, 'job_id': job_id}:
+            raise OSError('Waiting for acknowledgement of the original executor job.')
 
     def _acknowledge_manual(self, job_id):
         with self.manual_lock:
             intent = self.manual
+            if intent is None and isinstance(job_id, str) and ID.fullmatch(job_id):
+                history = self._load(self.manual_history_directory / f'{job_id}.json')
+                if history and history.get('acknowledged'):
+                    return self.status()
             if (intent is None or job_id != intent['id'] or not intent['result'] or
                     intent['result']['state'] in PENDING_STATES):
                 raise ValueError('Review the terminal result of this station visit first.')
             result = intent['result']
             if result['outcome'] == 'unknown' and not result.get('reconciliation'):
                 raise ValueError('Reconcile the uncertain executor job first.')
-            self.request('acknowledge', dict(self.pulse(), job_id=job_id))
+            if self.request('status', {'job_id': job_id})['job'] is None:
+                self._manual_missing(intent)
+                raise ValueError('The IPC result is missing. Reconcile the original station visit.')
+            try:
+                self._acknowledge(job_id)
+            except ValueError:
+                if self.request('status', {'job_id': job_id})['job'] is None:
+                    self._manual_missing(intent)
+                raise
             history = dict(intent, acknowledged=True)
             if self.manual_history_directory.is_symlink():
                 raise ValueError('Manual visit history requires a regular directory.')
@@ -404,16 +481,16 @@ class ExecutorLink:
         if type(body.get('stop_generation')) is not int:
             raise ValueError('Review the Stop generation before arming or submitting.')
 
-    def submit(self, body, *, programme_job=False):
+    def submit(self, body, *, programme_intent=None):
         action, command = body.get('action'), body.get('command')
         if action == 'send' and command == 'stop':
-            self.stop()
+            self.stop({'stop_id': body.get('request_id')})
             return self.status()
         if action == 'acknowledge_station':
             return self._acknowledge_manual(body.get('job_id'))
         if action in ('reconcile_station', 'repair_executor_marker'):
             return self._reconcile_manual(body.get('job_id'), body.get('note'),
-                                          orphan=action == 'repair_executor_marker', programme_job=programme_job)
+                                          orphan=action == 'repair_executor_marker', programme_intent=programme_intent)
         with self.lock:
             connection_id = self.connection_id
         if action == 'connect' and body.get('mode') != 'wired':
@@ -428,6 +505,8 @@ class ExecutorLink:
                 raise ValueError('Choose Arm or Disarm.')
             action = 'arm' if body['armed'] else 'disarm'
             if action == 'arm':
+                if self._pending_stop() or (self.recovery_evidence and not self.recovery_evidence['acknowledged']):
+                    raise ValueError('Finish the pending Stop or executor recovery before arming.')
                 self._reviewed(body, identity)
                 identity['stop_generation'] = body['stop_generation']
         if action in ('connect', 'disconnect', 'arm', 'disarm'):

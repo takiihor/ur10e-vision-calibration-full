@@ -1,6 +1,7 @@
 """Regressions for the executor Stop latch and recovery journal."""
 import json
 from threading import Event
+from time import time
 
 import pytest
 
@@ -143,6 +144,7 @@ def test_reconcile_keeps_other_unreadable_records_fenced(tmp_path):
 def test_missing_disposition_uses_fresh_retained_evidence_and_fences_replay(tmp_path):
     devices = FakeDevices()
     devices.agv.station = 7
+    devices.recovery_input = dict(observed_utc=time(), source='fake fixture', disposition='Checked station 7.')
     executor = Executor(tmp_path, devices)
     try:
         request = dict(authorize(executor), job_id='missing-reply', missing=True,
@@ -168,7 +170,8 @@ def test_hold_at_lease_deadline_is_disarmed_before_watchdog_poll(tmp_path):
     hold = devices.hold
 
     def hold_at_deadline():
-        clock.now += 3
+        if devices.agv.station == 2:
+            clock.now += 3
         return hold()
 
     devices.hold = hold_at_deadline

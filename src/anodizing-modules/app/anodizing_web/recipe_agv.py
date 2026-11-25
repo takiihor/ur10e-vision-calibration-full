@@ -252,7 +252,7 @@ class StationVisit:
                     raise ValueError(f'AGV station {target} is not learned. Check the AGV route.')
             check_speed(self.status, speed_cap)
 
-    def start_leg(self, target, speed_cap, timeout, pose_at, cancelled):
+    def start_leg(self, target, speed_cap, timeout, pose_at, cancelled, *, validate_travel=None):
         with self.lock:
             if self.error:
                 raise ValueError(self.error)
@@ -265,6 +265,8 @@ class StationVisit:
                     for report, received in updates:
                         self._check_hold(report, received)
                     self._check_hold(status, stamp)
+                    if validate_travel is not None:
+                        validate_travel()
                 except ValueError:
                     unsafe = True
                     raise
@@ -276,6 +278,8 @@ class StationVisit:
 
             def retry_check(status, stamp, updates):
                 now = time.monotonic()
+                if validate_travel is not None:
+                    validate_travel()
                 if self.cancelled.is_set() or cancelled.is_set() or now-self.pose_at >= POSE_FRESH_S:
                     raise ValueError('Robot travel-pose check expired or was stopped. Start a new run.')
                 if now >= self.travel_deadline or now-self.sent >= ACK_S:

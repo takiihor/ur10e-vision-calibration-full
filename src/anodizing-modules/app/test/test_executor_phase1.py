@@ -459,13 +459,21 @@ def test_acceptance_persists_payload_before_the_first_effect(tmp_path):
         executor.close()
 
 
-def test_qualified_fake_wire_uses_station_visit_watchdog(tmp_path, monkeypatch):
+@pytest.mark.parametrize('clear_at_write', [True, False])
+def test_qualified_fake_wire_uses_station_visit_watchdog(tmp_path, monkeypatch, clear_at_write):
     from anodizing_web import agv
     from anodizing_web.executor_http import WiredDevices
     from types import SimpleNamespace
 
     frames = []
     prefix = bytes.fromhex('42 19 0D')
+    tank_clear = True
+    call_station = agv.Connection.recipe_call
+
+    def recipe_call(link, *args, **kwargs):
+        nonlocal tank_clear
+        tank_clear = clear_at_write
+        return call_station(link, *args, **kwargs)
 
     class FakeWire(agv.Simulator):
         def __init__(self, **_):
@@ -480,7 +488,9 @@ def test_qualified_fake_wire_uses_station_visit_watchdog(tmp_path, monkeypatch):
     monkeypatch.setattr(agv, 'serial', SimpleNamespace(Serial=FakeWire))
     monkeypatch.setattr(agv, 'TIMED_REPORT_LISTEN_S', 0)
     monkeypatch.setattr(agv, 'RECIPE_POLL_S', .2)
-    executor = Executor(tmp_path, WiredDevices(tmp_path, None, pose=time.monotonic, reserve=lambda: True))
+    monkeypatch.setattr(agv.Connection, 'recipe_call', recipe_call)
+    executor = Executor(tmp_path, WiredDevices(tmp_path, None, pose=time.monotonic, reserve=lambda: True,
+                                             tank_clear=lambda: time.monotonic() if tank_clear else None))
     try:
         identity = dict(session='controller-one', boot=executor.boot, protocol=1)
         executor.heartbeat(dict(identity, sequence=1))
@@ -489,9 +499,15 @@ def test_qualified_fake_wire_uses_station_visit_watchdog(tmp_path, monkeypatch):
         executor.control('arm', dict(identity, stop_generation=executor.status()['stop_generation']))
         executor.submit(visit(dict(identity, stop_generation=0)))
         done = terminal(executor, 'station-visit-1')
-        assert done['outcome'] in ('succeeded', 'held')
-        assert done['result']['hold']['station'] == 2
-        assert sum(f.command == 0x23 and f.data[0] == 0x9D for f in frames) == 1
+        moves = sum(f.command == 0x23 and f.data[0] == 0x9D for f in frames)
+        if clear_at_write:
+            assert done['outcome'] in ('succeeded', 'held')
+            assert done['result']['hold']['station'] == 2
+            assert moves == 1
+        else:
+            assert done['outcome'] == 'unknown'
+            assert 'equipment-off' in done['result']['reason']
+            assert moves == 0
     finally:
         executor.close()
 

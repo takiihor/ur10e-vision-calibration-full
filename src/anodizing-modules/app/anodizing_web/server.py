@@ -18,7 +18,7 @@ from threading import Lock
 from urllib.parse import parse_qs, urlsplit
 
 from . import calibration, teaching, pick_place, manual_pick_place, tool_power, mcu, robot_control, agv, travel_pose, operator_state, operator_records, operator_line_archive
-from .jobs import JobOwner
+from .jobs import JobOwner, atomic_json
 from .operator_line import Line
 from .operator_line_test import LineTest
 from .operator_scene import Scene as OperatorScene, TANK_ID
@@ -32,6 +32,67 @@ OPERATOR_TYPES = {'.js': 'text/javascript; charset=utf-8', '.css': 'text/css; ch
 MAX_BODY = 32768
 
 
+class OperatorActions:
+    def __init__(self, root):
+        self.directory = root / 'executor-operator-actions'
+        if self.directory.is_symlink():
+            raise ValueError('Operator actions require a regular journal directory.')
+        self.directory.mkdir(exist_ok=True)
+        self.cursor = secrets.token_hex(16)
+        self.lock, self.dispatch = Lock(), Lock()
+        self.inflight = set()
+
+    def execute(self, route, body, run, replay, *, required=False, stop=False, retry=False):
+        with nullcontext() if stop else self.dispatch:
+            return self._execute(route, body, run, replay, required, stop, retry)
+
+    def _execute(self, route, body, run, replay, required, stop, retry):
+        request_id = body.get('request_id')
+        if request_id is None and not required:
+            if stop:
+                with self.lock:
+                    self.cursor = secrets.token_hex(16)
+            return run()
+        if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', request_id):
+            raise ValueError('Review the current controls and supply an operator request ID.')
+        signature = hashlib.sha256(json.dumps([route, body], sort_keys=True).encode()).hexdigest()
+        path = self.directory / (hashlib.sha256(request_id.encode()).hexdigest() + '.json')
+        with self.lock:
+            if path.is_symlink():
+                raise ValueError('Operator actions require a regular journal file.')
+            entry = json.loads(path.read_text()) if path.exists() else None
+            if entry is not None and entry['signature'] != signature:
+                raise ValueError('This operator request ID already belongs to another action.')
+            if request_id in self.inflight:
+                raise ValueError('This operator action is already in progress. Check status.')
+            if entry is None:
+                if not stop:
+                    if body.get('review_cursor') != self.cursor:
+                        raise ValueError('The reviewed controls changed. Refresh before sending this action.')
+                    atomic_json(path, dict(signature=signature), sync_directory=True)
+                self.cursor = secrets.token_hex(16)
+            self.inflight.add(request_id)
+        try:
+            if entry is not None:
+                result = replay(entry.get('result'))
+                if result is not None:
+                    return result
+                if not retry and not stop:
+                    raise ValueError('Review the outcome of the original operator action before trying again.')
+            result = run()
+            stored = result
+            if route == 'programme' and body.get('action') in ('start', 'resume', 'disposition', 'stop'):
+                stored = {'run_id': result['id']} if 'id' in result else result
+            elif route == 'agv':
+                visit = result.get('manual_visit') or {}
+                stored = dict(job_id=visit.get('id') or body.get('job_id'), action=body.get('action'))
+            atomic_json(path, dict(signature=signature, result=stored), sync_directory=True)
+            return result
+        finally:
+            with self.lock:
+                self.inflight.discard(request_id)
+
+
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -41,7 +102,6 @@ class Server(ThreadingHTTPServer):
         self.lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         self.data_lock_fd = None
         self.executor_link = self.programme = self.programme_executor = None
-        self.executor_dispatch_lock = Lock()
         self.programme_uses_executor = executor_client is not None and not local_fake_programme
         try:
             info = os.fstat(self.lock_fd)
@@ -53,6 +113,7 @@ class Server(ThreadingHTTPServer):
                 raise RuntimeError('Another anodizing module service is already running.') from exc
             self.root = Path(root).resolve()
             self.root.mkdir(parents=True, exist_ok=True)
+            self.operator_actions = OperatorActions(self.root) if executor_client or programme_steps is not None else None
             job_dir = self.root / '.jobs'
             if job_dir.is_symlink():
                 raise ValueError('Job directory must not be a symbolic link.')
@@ -124,7 +185,8 @@ class Server(ThreadingHTTPServer):
                 from .programme import Programme
                 if self.programme_uses_executor:
                     self.programme = Programme(self.root / 'programme', self.executor_link.request,
-                                               programme_steps, pulse=self.executor_link.pulse)
+                                               programme_steps, pulse=self.executor_link.pulse,
+                                               order_intent=self.executor_link.order_intent)
                 else:
                     simulation_root = self.root / 'simulation-executor'
                     self.programme_executor = Executor(simulation_root, FakeDevices.configured(simulation_root))
@@ -276,7 +338,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.operator_asset(path)
         if path == '/api/programme':
             programme = getattr(self.server, 'programme', None)
-            return self.reply(200, dict(programme.status(), **programme.review())
+            cursor = self.server.operator_actions.cursor if programme else None
+            return self.reply(200, dict(programme.status(), **programme.review(), review_cursor=cursor)
                               if programme else {'recipe': None, 'run': None})
         if path == '/api/state':
             return self.reply(200, operator_state.server_state(self.server))
@@ -327,14 +390,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, result)
         if path == '/api/agv':
             if getattr(self.server, 'executor_link', None):
-                return self.reply(200, self.server.executor_link.status())
+                return self.reply(200, self._executor_status())
             query = urlsplit(self.path).query
             if query in ('cached=1', 'ports=1'):
                 return self.reply(200, self.server.agv.commissioning(ports=query == 'ports=1'))
             return self.reply(200, self.server.agv.capability())
         if path == '/api/agv-link':
             if getattr(self.server, 'executor_link', None):
-                return self.reply(200, self.server.executor_link.status())
+                return self.reply(200, self._executor_status())
             return self.reply(200, self.server.agv.link_state())
         if path == '/api/agv-robot-motion':
             from .recipe_agv import motion_state
@@ -641,6 +704,55 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(503, {'error': operator_records.STORAGE_ERROR})
             return self.reply(200, stream.buffer, mime, download=f'record-{ident}.{suffix}')
 
+    def _executor_status(self, state=None):
+        cursor = self.server.operator_actions.cursor
+        original_action = (state or {}).get('operator_action')
+        state = self.server.executor_link.status()
+        if original_action:
+            state['operator_action'] = original_action
+        programme = self.server.programme if self.server.programme_uses_executor else None
+        if programme and programme.control_owned():
+            state['programme_motion_block'] = 'The programme owns the executor. Resolve the basket or use Stop.'
+        return dict(state, review_cursor=cursor)
+
+    def _programme_action(self, body):
+        programme = self.server.programme
+        action, request_id = body.get('action'), body.get('request_id')
+        if action == 'save':
+            return programme.save(body.get('revision'), body.get('limits'))
+        if action == 'finalize':
+            return programme.finalize(body.get('revision'), body.get('review'))
+        if action == 'stop':
+            return programme.stop()
+        if action == 'disposition':
+            return programme.disposition(body.get('job_id'), body.get('note'), request_id=request_id,
+                                         allow_unaccounted=body.get('allow_unaccounted', False))
+        if action in ('start', 'resume'):
+            if self.server.programme_uses_executor:
+                link = self.server.executor_link.status()
+                if link['manual_visit'] or link['stop_unconfirmed']:
+                    raise ValueError('Resolve the manual station visit or pending Stop first.')
+                recovery = link.get('executor_recovery_evidence')
+                if link.get('recovery_required') or recovery and not recovery['acknowledged']:
+                    raise ValueError('Resolve the pending executor recovery evidence first.')
+            approval = body.get('approval')
+            if action == 'start':
+                return programme.start(body.get('revision'), body.get('basket'), approval, request_id=request_id)
+            return programme.resume(body.get('job_id'), approval, request_id=request_id)
+        raise ValueError('Choose a programme action.')
+
+    def _executor_action(self, body):
+        link = self.server.executor_link
+        programme = self.server.programme if self.server.programme_uses_executor else None
+        action, command = body.get('action'), body.get('command')
+        arm = action == 'arm' and body.get('armed') is not False
+        if programme and (command == 'call_station' or arm or action in ('disconnect', 'repair_executor_marker')):
+            if programme.control_owned():
+                raise ValueError('The programme owns the executor. Resolve the basket or use Stop.')
+            if action == 'repair_executor_marker':
+                return link.submit(body, programme_intent=programme.latest_executor_intent())
+        return link.submit(body)
+
     def do_POST(self):
         if not self.authorized(token=True):
             return self.reply(403, {'error': 'Request is not authorized.'})
@@ -662,29 +774,15 @@ class Handler(BaseHTTPRequestHandler):
                 if not programme:
                     raise PermissionError('The simulation programme is unavailable.')
                 action = body.get('action')
-                if action == 'save':
-                    result = programme.save(body.get('revision'), body.get('limits'))
-                elif action == 'finalize':
-                    result = programme.finalize(body.get('revision'), body.get('review'))
-                elif action == 'stop':
-                    result = programme.stop()
-                elif action in ('start', 'resume'):
-                    share = self.server.programme_uses_executor
-                    with self.server.executor_dispatch_lock if share else nullcontext():
-                        if share:
-                            link = self.server.executor_link.status()
-                            if link['manual_visit'] or link['stop_unconfirmed']:
-                                raise ValueError('Resolve the manual station visit or pending Stop first.')
-                            recovery = link.get('executor_recovery_evidence')
-                            if link.get('recovery_required') or recovery and not recovery['acknowledged']:
-                                raise ValueError('Resolve the pending executor recovery evidence first.')
-                        approval = body.get('approval')
-                        result = (programme.start(body.get('revision'), body.get('basket'), approval)
-                                  if action == 'start' else programme.resume(body.get('job_id'), approval))
-                elif action == 'disposition':
-                    result = programme.disposition(body.get('job_id'), body.get('note'))
-                else:
-                    raise ValueError('Choose a programme action.')
+                def replay(result):
+                    if result is None:
+                        return programme.request_run(body.get('request_id'), action)
+                    if 'run_id' in result:
+                        return programme.retained_run(result['run_id'])
+                    return result
+                result = self.server.operator_actions.execute('programme', body, lambda: self._programme_action(body),
+                                                              replay, required=action != 'stop',
+                                                              stop=action == 'stop', retry=action == 'disposition')
                 return self.reply(200, result)
             if path == '/api/tests/line':
                 if not self.simulation_enabled:
@@ -717,29 +815,25 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, travel_pose.save(owner, body))
             if path == '/api/agv':
                 if getattr(self.server, 'executor_link', None):
+                    action, command = body.get('action'), body.get('command')
                     link = self.server.executor_link
-                    programme = self.server.programme if self.server.programme_uses_executor else None
-                    if programme and (body.get('command') == 'call_station' or
-                                      body.get('action') in ('arm', 'connect', 'disconnect', 'repair_executor_marker')):
-                        from .programme import TERMINAL
-                        with self.server.executor_dispatch_lock:
-                            current = programme.status()['run']
-                            commissioning_connect = (body.get('action') == 'connect' and current
-                                and current['state'] in ('held', 'stopped', 'recovery required')
-                                and not (current['pending'] or current['ack_pending'])
-                                and link.status().get('executor_health', {}).get('simulated') is False)
-                            if current and not commissioning_connect and (
-                                current['state'] not in TERMINAL or current['pending'] or
-                                current['ack_pending'] or current['stop_pending']
-                            ):
-                                raise ValueError('The programme owns the executor. Use the programme controls or Stop.')
-                            if body.get('action') == 'repair_executor_marker':
-                                if current and current['state'] in ('recovery required', 'inspection'):
-                                    raise ValueError('Record the outstanding programme disposition first.')
-                                return self.reply(200, link.submit(
-                                    body, programme_job=programme.retained_job(body.get('job_id'))))
-                            return self.reply(200, link.submit(body))
-                    return self.reply(200, link.submit(body))
+                    def replay(result):
+                        if result is None and command == 'call_station':
+                            job_id = link.manual_request(body.get('request_id'))
+                            if job_id:
+                                result = dict(job_id=job_id, action=action)
+                        if result is not None:
+                            return dict(link.status(), operator_action=result)
+                        return None
+                    recovery_actions = ('acknowledge_station', 'reconcile_station', 'repair_executor_marker')
+                    required = command == 'call_station' or (action == 'arm' and body.get('armed') is True)
+                    status_read = action == 'send' and command == 'query_status'
+                    priority_stop = action == 'send' and command == 'stop'
+                    result = (self._executor_action(body) if status_read else
+                              self.server.operator_actions.execute('agv', body, lambda: self._executor_action(body),
+                                                                   replay, required=required or action in recovery_actions,
+                                                                   stop=priority_stop, retry=action in recovery_actions))
+                    return self.reply(200, self._executor_status(result))
                 if (body.get('action') == 'connect' and body.get('mode', 'simulator') == 'simulator'
                         and not self.simulation_enabled):
                     raise PermissionError('Simulation is disabled on this service.')

@@ -6,6 +6,7 @@ const emit = defineEmits(['changed']);
 const recipe = ref(null);
 const run = ref(null);
 const approval = ref(null);
+const reviewCursor = ref(null);
 const block = ref(null);
 const limits = ref({});
 const edited = ref({});
@@ -14,6 +15,7 @@ const hasEdits = computed(() => Object.keys(edited.value).length > 0);
 const reviewComplete = computed(() => Object.values(review.value).every(value => value.trim()));
 const basket = ref('');
 const disposition = ref('');
+const unaccounted = ref(false);
 const ready = ref(false);
 const busy = ref(false);
 const error = ref('');
@@ -25,7 +27,7 @@ const fields = [
   ['air', 'maximum air time'],
 ];
 const active = computed(() => run.value && (
-  run.value.pending || run.value.ack_pending || run.value.stop_pending
+  run.value.pending || run.value.ack_pending || run.value.stop_pending || run.value.failed_hold
   || ['running', 'held', 'recovery required', 'inspection'].includes(run.value.state)
 ));
 
@@ -39,8 +41,15 @@ async function refresh() {
     review.value = { terminal_handling: '', timing_evidence: '' };
     ready.value = false;
   }
-  if (JSON.stringify(next.approval) !== JSON.stringify(approval.value)) ready.value = false;
+  if (next.review_cursor !== reviewCursor.value || JSON.stringify(next.approval) !== JSON.stringify(approval.value)) {
+    ready.value = false;
+  }
   approval.value = next.approval;
+  reviewCursor.value = next.review_cursor;
+  if (run.value?.id !== next.run?.id) {
+    disposition.value = next.run?.disposition_intent?.disposition ?? '';
+    unaccounted.value = Boolean(next.run?.disposition_intent?.allow_unaccounted);
+  }
   block.value = next.block;
   run.value = next.run;
 }
@@ -57,7 +66,7 @@ async function act(action, extra = {}) {
   busy.value = true;
   error.value = '';
   try {
-    await request('/api/programme', { action, ...extra });
+    await request('/api/programme', { action, ...extra, request_id: crypto.randomUUID(), review_cursor: reviewCursor.value });
     await refresh();
     emit('changed');
   } catch (failure) {
@@ -158,10 +167,11 @@ onUnmounted(() => {
         <button data-ui="programme.run.resume" v-if="run.state === 'held'" type="button"
           :disabled="busy || !approval || run.stop_pending || Boolean(run.pending && (!run.pending_missing || run.pending_attempted !== false))"
           @click="act('resume', { job_id: run.id, approval })">Resume reviewed simulation</button>
-        <template v-if="run.ack_missing || ['inspection', 'recovery required'].includes(run.state)">
+        <template v-if="run.ack_missing || run.failed_hold || ['inspection', 'recovery required'].includes(run.state)">
           <label>Basket disposition <input data-ui="programme.inspection.note" v-model="disposition" maxlength="500"></label>
-          <button data-ui="programme.inspection.record" type="button" :disabled="busy || !disposition.trim() || Boolean(run.pending && !run.pending_missing)"
-            @click="act('disposition', { job_id: run.id, note: disposition })">Record disposition</button>
+          <label v-if="run.basket_unaccounted"><input data-ui="programme.inspection.unaccounted" type="checkbox" v-model="unaccounted"> Record the original basket as unaccounted for</label>
+          <button data-ui="programme.inspection.record" type="button" :disabled="busy || !disposition.trim() || Boolean(run.pending && !run.pending_missing && !run.invalid_result)"
+            @click="act('disposition', { job_id: run.id, note: disposition, allow_unaccounted: unaccounted })">Record disposition</button>
         </template>
       </div>
       <details data-ui="programme.record.panel" v-if="run.steps.length" data-action="basket-record">
