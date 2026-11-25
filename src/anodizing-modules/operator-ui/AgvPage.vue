@@ -32,11 +32,19 @@ const stationMode = computed(() => status.value?.mode === 2 && maximum.value > 0
 const parking = computed(() => agv.state.station_profile?.parking_station ?? 17);
 const stations = computed(() => Array.from({ length: Math.max(17, maximum.value ?? 0) }, (_, i) => i + 1)
   .filter(station => station !== parking.value));
-const callReason = computed(() => agv.commandReason('call_station', 1));
+const callReason = computed(() => agv.commandReason('call_station', agv.state.manual_visit?.station ?? 1));
+const manualVisit = computed(() => agv.state.manual_visit);
+const visitOutcome = computed(() => manualVisit.value?.result?.outcome);
+const visitSummary = computed(() => {
+  const visit = manualVisit.value;
+  if (!visit) return '';
+  const state = visit.result?.outcome ?? (visit.result ? 'in progress' : 'awaiting executor evidence');
+  return `Station ${visit.station} visit ${state}`;
+});
 const age = computed(() => agv.age == null ? 'No status report yet.' : `Last report ${agv.age.toFixed(1)} s ago.`);
 const disconnectReason = computed(() => !agv.state.connected ? 'Connect first.' :
   agv.state.recipe_active ? 'Stop the active recipe before disconnecting.' :
-    agv.state.halt_pending ? 'AGV Stop or Pause is awaiting delivery. Wait before disconnecting.' :
+    agv.state.halt_pending || agv.state.stop_unconfirmed ? 'Verify the pending halt before disconnecting.' :
       agv.busy ? 'Wait for the current request.' : '');
 const portsBusy = ref(false);
 const transports = computed(() => {
@@ -83,6 +91,7 @@ function stationLabel(station, showNumber = false) {
 }
 
 function stationReason(station) {
+  if (agv.state.manual_visit) return agv.commandReason('call_station', station);
   return stationMode.value && station > maximum.value ? `Station not learned (1–${maximum.value}).` : callReason.value;
 }
 
@@ -131,6 +140,9 @@ function connect() {
               :value="agv.state.connected ? agv.state.settings.mode === 'simulator' ? 'Simulator' : 'Serial AGV' : 'No open connection'" />
           </div>
         </template>
+        <Message v-if="agv.state.stop_unconfirmed" severity="error" role="alert">
+          Stop unconfirmed. Verify a safe halt. Use the AGV e-stop if needed.
+        </Message>
         <div class="stats">
           <Card data-ui="agv.status.metric" :data-ui-key="stat.key" v-for="stat in stats" :key="stat.label" class="stats-widget">
             <template #content>
@@ -170,6 +182,13 @@ function connect() {
         <p v-else-if="stationMode">{{ maximum }} targets on the learned route, including the start.</p>
         <p v-else>Query status to check for a learned route.</p>
         <p v-if="!standard && callReason" id="agv-station-call-reason" data-ui="agv.call.reason">{{ callReason }}</p>
+        <div v-if="manualVisit">
+          <p role="status">{{ visitSummary }}{{ manualVisit.result?.error ? ' · ' + manualVisit.result.error : '' }}</p>
+          <OperatorButton v-if="visitOutcome && visitOutcome !== 'unknown'" data-ui="agv.call.acknowledge"
+            id="acknowledge-station" label="Acknowledge result" :why="agv.busy ? 'Wait for the current request.' : ''"
+            :outcome="agv.feedback('acknowledge-station')"
+            @press="agv.post({ action: 'acknowledge_station', job_id: manualVisit.id }, 'acknowledge-station')" />
+        </div>
         <div v-if="!standard" data-ui="agv.call.grid" class="station-grid">
           <OperatorButton data-ui="agv.call.station" :data-ui-key="station" v-for="station in stations" :id="'station-' + station" :key="station"
             :label="stationLabel(station) + (station === status?.current_station && stationMode ? ' · Current' : '')"

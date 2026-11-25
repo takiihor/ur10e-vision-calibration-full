@@ -1,5 +1,10 @@
 [
   {
+    "id": "agv.call.acknowledge",
+    "component": "AgvPage.vue",
+    "description": "Acknowledge the terminal manual station visit result"
+  },
+  {
     "id": "agv.call.grid",
     "component": "AgvPage.vue",
     "description": "Station call grid"
@@ -1213,6 +1218,16 @@
     "id": "programme.revision.finalize",
     "description": "Finalize reviewed recipe limits",
     "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.revision.terminal",
+    "component": "ProgrammePanel.vue",
+    "description": "Reviewed terminal basket handling"
+  },
+  {
+    "id": "programme.revision.timing",
+    "component": "ProgrammePanel.vue",
+    "description": "Reviewed PLC cycle and timing evidence"
   },
   {
     "id": "programme.run.resume",

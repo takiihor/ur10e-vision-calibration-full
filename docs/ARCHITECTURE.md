@@ -22,11 +22,13 @@ can affect the same hardware must respect its exclusive owner.
 
 Phase 1 uses the existing `StationVisit`, wired AGV driver, `JobOwner` and
 `JobStop` in the executor. The controller uses the same job interface for
-manual station requests and recipe travel. Retire the raw serial bridge before
-assigning the bus to the executor. The controller reaches the IPC loopback
+manual station requests and recipe travel. Release the raw serial bridge's
+bus ownership before starting the executor. Verify live status through the
+executor before retiring the bridge. The controller reaches the IPC loopback
 job service through a tunnel. A service-only credential restricts control
 access. The kiosk's listener serves cached state, including its age, without
-querying the bus.
+querying the bus. Install the executor under a separate system service identity
+so the graphical kiosk account cannot read its token or manage its service.
 
 The local radio is an optional backup and starts disabled. Change transport
 only after disarming, disconnecting and positively verifying that the former
@@ -42,7 +44,7 @@ radio as an explicit, mutually exclusive maintenance mode.
 | Connect, disconnect, arm, disarm | Require explicit control with fresh compatible state. Bind approvals to the executor boot, controller session and Stop generation. A new connection grants no motion authority. |
 | Submit | Persist the run, basket, ordered steps, recipe and limits revision, job ID and immutable payload on the controller before sending. Persist acceptance on the IPC before execution. A repeated ID with the same canonical payload returns its existing state or result. A changed payload conflicts. A different ID while occupied returns busy. |
 | Heartbeat | The controller service sends advancing heartbeats every 1 s. The executor expires the active session 3 s after its last valid heartbeat, measured on its monotonic clock. Ignore duplicate, delayed and prior-session renewals. |
-| Stop | Send directly to the executor with priority even while busy or disarmed. Latch Stop against concurrent admission independently of the normal queue and routine storage. Allow repeat requests and report receipt, halt attempt and fresh confirmation separately. |
+| Stop | Send directly to the executor with priority even while busy or disarmed. Latch Stop against concurrent admission independently of the normal queue and routine storage. Allow same-ID retries and report receipt, halt attempt and fresh confirmation separately. Confirm after active work retires and fresh evidence verifies the basket, equipment and AGV at a safe hold. |
 | Acknowledge and reconcile | Merge progress by job ID and sequence. Commit the basket record and next cursor together before acknowledging receipt. Preserve IPC deduplication across releases and through the retry window. Require explicit recovery with fresh physical evidence before resuming from an agreed boundary. |
 
 Jobs progress from accepted to running and succeeded, or to stopping and
@@ -54,7 +56,10 @@ after confirmation. An unconfirmed effect prevents further motion even if
 the scheduler supplies a new job ID. The controller retries delivery using
 the original ID. Only the executor can make bounded device retries under
 local interlocks. For a station visit, the device acknowledgement proves
-receipt. Arrival needs fresh matching station and stopped feedback.
+receipt. Arrival needs fresh matching station and stopped feedback. The
+controller records a manual visit before sending it and follows that ID
+through a lost reply or controller restart. The operator acknowledges the
+terminal result before starting another manual visit.
 
 A paired `dip` job identifies both step IDs, the source and destination,
 tank and taught-endpoint references, expected basket state, time bounds,
@@ -203,12 +208,21 @@ executor path only after verified radio isolation.
 Set `ANODIZING_PROGRAMME_FILE` to a private JSON list of ordered steps
 with `id`, `tank`, `role`, `station` and positive `setpoint` in seconds.
 The existing Pick/place screen exposes the simulated basket programme.
-Its scheduler uses the versioned job contract against simulated devices
-with a separate journal. Configuration of this programme grants no live
-travel or chemistry permission. Start at the reviewed input, inspect the
-effective draft revision, and start the simulated run. The run's revision
-and result history are durable in the orchestrator data directory.
-Inspection or uncertain execution holds require an explicit disposition.
+For a two-host or two-process simulation, run the executor with
+`--fake-executor` and point the orchestrator at its authenticated loopback
+or forwarded port. The programme and AGV page share that client's lease.
+The programme checks the simulation capability and job versions before
+starting. It keeps its own journal and uses the same HTTP API as the
+commissioning link. To run an isolated local simulation alongside the
+commissioning link, set `ANODIZING_LOCAL_FAKE_PROGRAMME=1`. A standalone app
+with no executor endpoint can simulate locally. Configuration of this
+programme grants no live travel or chemistry permission.
+
+Start at the reviewed input, inspect the effective draft revision, and
+start the simulated run. The run's revision and result history are durable
+in the orchestrator data directory. Record an explicit disposition for
+inspection or uncertain execution, including a missing executor result.
+Stop changes dispatch permission independently of the basket outcome.
 
 The wired commissioning service journals each raw received chunk and
 transmitted frame in its private data directory. Keep live capture out of

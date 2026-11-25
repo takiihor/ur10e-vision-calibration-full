@@ -6,7 +6,10 @@ const emit = defineEmits(['changed']);
 const recipe = ref(null);
 const run = ref(null);
 const limits = ref({});
-const edited = ref(new Set());
+const edited = ref({});
+const review = ref({ terminal_handling: '', timing_evidence: '' });
+const hasEdits = computed(() => Object.keys(edited.value).length > 0);
+const reviewComplete = computed(() => Object.values(review.value).every(value => value.trim()));
 const basket = ref('');
 const disposition = ref('');
 const ready = ref(false);
@@ -19,7 +22,10 @@ const fields = [
   ['overstay', 'maximum overstay'],
   ['air', 'maximum air time'],
 ];
-const active = computed(() => ['running', 'held', 'Stop unconfirmed', 'recovery required', 'inspection'].includes(run.value?.state));
+const active = computed(() => run.value && (
+  run.value.pending || run.value.ack_pending || run.value.stop_pending
+  || ['running', 'held', 'recovery required', 'inspection'].includes(run.value.state)
+));
 
 async function refresh() {
   const next = await request('/api/programme');
@@ -27,14 +33,17 @@ async function refresh() {
   if (next.recipe?.id !== recipe.value?.id || next.recipe?.state !== recipe.value?.state) {
     recipe.value = next.recipe;
     limits.value = Object.fromEntries(next.recipe?.steps.map(step => [step.id, { ...step.limits }]) ?? []);
-    edited.value = new Set();
+    edited.value = {};
+    review.value = { terminal_handling: '', timing_evidence: '' };
+    ready.value = false;
   }
   run.value = next.run;
 }
 
 function change(step, field, raw) {
-  limits.value[step][field] = raw === '' ? null : Number(raw);
-  edited.value.add(step);
+  const value = raw === '' ? null : Number(raw);
+  limits.value[step][field] = value;
+  edited.value[step] = { ...edited.value[step], [field]: value };
   ready.value = false;
 }
 
@@ -54,8 +63,7 @@ async function act(action, extra = {}) {
 }
 
 function save() {
-  const changes = Object.fromEntries([...edited.value].map(id => [id, limits.value[id]]));
-  return act('save', { revision: recipe.value.id, limits: changes });
+  return act('save', { revision: recipe.value.id, limits: edited.value });
 }
 
 onMounted(() => {
@@ -85,7 +93,7 @@ onUnmounted(() => {
             <th scope="row">{{ step.id }} · {{ step.role }} · {{ step.tank }}</th>
             <td>{{ step.setpoint }}</td>
             <td v-for="[field, name] in fields" :key="field">
-              <template v-if="field === 'air' && step.terminal">Terminal transfer</template>
+              <template v-if="field === 'air' && step.terminal">{{ recipe.review ? 'Reviewed terminal transfer' : 'Review terminal handling below' }}</template>
               <template v-else>
                 <input data-ui="programme.limit.input" :data-ui-key="step.id + '.' + field" :aria-label="step.id + ' ' + name" type="number" step="any"
                   :min="field === 'overstay' ? 0 : .000001" :max="field === 'min' ? step.setpoint : undefined"
@@ -99,30 +107,48 @@ onUnmounted(() => {
         </tbody>
       </table>
     </div>
+    <dl v-if="recipe.review">
+      <dt>Reviewed terminal handling</dt><dd>{{ recipe.review.terminal_handling }}</dd>
+      <dt>Reviewed PLC cycle and timing evidence</dt><dd>{{ recipe.review.timing_evidence }}</dd>
+    </dl>
     <div class="programme-actions">
-      <button data-ui="programme.draft.save" type="button" data-action="save" :disabled="busy || !edited.size" @click="save">Save draft</button>
-      <button data-ui="programme.revision.finalize" v-if="recipe.state === 'DRAFT'" type="button" data-action="finalize"
-        :disabled="busy || edited.size > 0"
-        @click="act('finalize', { revision: recipe.id })">Finalize reviewed limits</button>
+      <button data-ui="programme.draft.save" type="button" data-action="save" :disabled="busy || !hasEdits" @click="save">Save draft</button>
+      <template v-if="recipe.state === 'DRAFT'">
+        <label>Reviewed terminal handling <input data-ui="programme.revision.terminal" v-model="review.terminal_handling" maxlength="500"></label>
+        <label>Reviewed PLC cycle and timing evidence <input data-ui="programme.revision.timing" v-model="review.timing_evidence" maxlength="500"></label>
+        <button data-ui="programme.revision.finalize" type="button" data-action="finalize"
+          :disabled="busy || hasEdits || !reviewComplete"
+          @click="act('finalize', { revision: recipe.id, review })">Finalize reviewed limits</button>
+      </template>
     </div>
     <div v-if="!active" class="programme-actions">
       <label>Basket ID <input data-ui="programme.basket.id" v-model="basket" aria-label="Basket ID" maxlength="80"></label>
       <label><input data-ui="programme.basket.ready" v-model="ready" type="checkbox"> Review the effective revision and confirm basket at input</label>
-      <button data-ui="programme.run.start" type="button" data-action="start" :disabled="busy || !ready || !basket.trim() || edited.size > 0"
+      <button data-ui="programme.run.start" type="button" data-action="start" :disabled="busy || !ready || !basket.trim() || hasEdits"
         @click="act('start', { revision: recipe.id, basket: basket.trim() }); ready = false">Run simulated programme</button>
     </div>
     <div v-if="run" aria-live="polite">
       <p><strong>{{ run.basket }}</strong> · {{ run.state }} · {{ run.cursor }}/{{ run.recipe.steps.length }} steps</p>
+      <p v-if="run.stop_pending" role="alert">Stop unconfirmed. Further dispatch is blocked.</p>
       <p v-if="run.reason">{{ run.reason }}</p>
       <p v-if="run.final_hold">Last confirmed hold {{ run.final_hold }}</p>
+      <p v-if="run.checkpoint?.intent">
+        Last recorded intent {{ run.checkpoint.intent.effect }}
+        {{ run.checkpoint.intent.value?.tank ?? run.checkpoint.intent.value }}
+      </p>
+      <p v-if="run.checkpoint?.confirmed?.length">
+        Last recorded effect {{ run.checkpoint.confirmed.at(-1).effect }}
+        {{ run.checkpoint.confirmed.at(-1).value?.tank ?? run.checkpoint.confirmed.at(-1).value }}
+      </p>
       <div class="programme-actions">
-        <button data-ui="programme.run.stop" v-if="['running', 'held', 'Stop unconfirmed'].includes(run.state)" type="button"
+        <button data-ui="programme.run.stop" v-if="active" type="button"
           data-action="stop" @click="act('stop')">Stop programme</button>
-        <button data-ui="programme.run.resume" v-if="run.state === 'held'" type="button" :disabled="busy || Boolean(run.pending && !run.pending_missing)"
+        <button data-ui="programme.run.resume" v-if="run.state === 'held'" type="button"
+          :disabled="busy || run.stop_pending || Boolean(run.pending && (!run.pending_missing || run.pending_attempted !== false))"
           @click="act('resume', { job_id: run.id })">Resume reviewed simulation</button>
-        <template v-if="['inspection', 'recovery required'].includes(run.state)">
+        <template v-if="run.ack_missing || ['inspection', 'recovery required'].includes(run.state)">
           <label>Basket disposition <input data-ui="programme.inspection.note" v-model="disposition" maxlength="500"></label>
-          <button data-ui="programme.inspection.record" type="button" :disabled="busy || !disposition.trim()"
+          <button data-ui="programme.inspection.record" type="button" :disabled="busy || !disposition.trim() || Boolean(run.pending && !run.pending_missing)"
             @click="act('disposition', { job_id: run.id, note: disposition })">Record disposition</button>
         </template>
       </div>

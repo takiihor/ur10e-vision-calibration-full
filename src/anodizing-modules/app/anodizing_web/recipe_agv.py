@@ -23,7 +23,7 @@ def motion_state(connection, *, poll=False, cached=False):
         link = connection.cached_motion_feedback() if cached else connection.motion_feedback(poll=poll)
     status = link.get('status')
     age = link.get('status_age_s')
-    reporting = (link.get('mode') == 'serial' and status is not None
+    reporting = ((link.get('mode') == 'serial' or link.get('executor_link')) and status is not None
                  and age is not None and age < agv.RECIPE_STALE_S)
     parked = (reporting and stopped(status) and status.get('obstacle_stop') is False
               and status.get('fault_code') == 0 and not link['movement_pending'])

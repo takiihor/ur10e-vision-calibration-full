@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 from . import agv
-from .executor import MAX_BODY, Executor, FakeDevices, Stopped, finite, stop_report
+from .executor import MAX_BODY, Executor, FakeDevices, Stopped, finite
 from .recipe_agv import POSE_FRESH_S, StationVisit, stopped
 
 CONTROLS = {'connect', 'disconnect', 'status_read', 'arm', 'disarm', 'submit', 'heartbeat',
@@ -102,11 +102,15 @@ class WiredDevices:
     def stop(self):
         self.cancel.set()
         self.disarm()
-        attempted = self.link.recipe_stop() if self.simulated else False
-        state = self.status()
-        return stop_report(attempted, (not attempted and state['status_age_s'] is not None and
-                                      state['status_age_s'] < agv.RECIPE_STALE_S and
-                                      stopped(state['status'] or {})))
+        return self.link.recipe_stop() if self.simulated else False
+
+    def stop_evidence(self, requested_at):
+        with self.link.lock:
+            report = self.link.status or {}
+            stamp = self.link.status_at
+            return bool(self.link.transport is not None and stamp is not None and
+                        requested_at < stamp and 0 <= monotonic() - stamp < agv.RECIPE_STALE_S and
+                        stopped(report) and report.get('fault_code') == 0 and report.get('obstacle_stop') is False)
 
     def status(self):
         return self.link.commissioning()
@@ -238,7 +242,8 @@ async function refresh() {
     text('battery', s.battery_percent == null ? null : s.battery_percent + '%');
     text('motion', s.stopped === true ? 'Stopped' : s.stopped === false ? 'Moving' : null);
     text('fault', s.fault_code);
-    text('job', state.job ? state.job.job_id + ' \u00b7 ' + (state.job.outcome || state.job.state) : 'Idle');
+    text('job', state.quality_alarm ? state.quality_alarm.reason + ' \u00b7 ' + state.quality_alarm.job_id :
+      state.job ? state.job.job_id + ' \u00b7 ' + (state.job.outcome || state.job.state) : 'Idle');
   } catch { text('link', 'Executor status unavailable'); }
   setTimeout(refresh, 1000);
 }
@@ -265,6 +270,7 @@ def display_listener(port, read):
                 job = state.get('job')
                 return self.send(200, dict(boot=state['boot'], armed=state['armed'],
                                            recovery_required=state['recovery_required'],
+                                           quality_alarm=state.get('quality_alarm'),
                                            job={k: job[k] for k in ('job_id', 'state', 'outcome')} if job else None,
                                            device={key: device.get(key) for key in allowed}))
             return self.send(404, {'error': 'Not found.'})

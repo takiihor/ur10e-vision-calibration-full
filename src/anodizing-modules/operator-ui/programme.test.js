@@ -32,7 +32,7 @@ test('reviews and saves a draft revision before starting the basket', async () =
     await wrapper.get('[data-action="save"]').trigger('click');
     await flushPromises();
     expect(request).toHaveBeenCalledWith('/api/programme', { action: 'save', revision: 'revision-1',
-      limits: { 'step-1': { min: 27, overstay: 5, air: 15 } } });
+      limits: { 'step-1': { min: 27 } } });
     await wrapper.get('[aria-label="Basket ID"]').setValue('demo-basket');
     await wrapper.get('input[type="checkbox"]').setValue(true);
     await wrapper.get('[data-action="start"]').trigger('click');

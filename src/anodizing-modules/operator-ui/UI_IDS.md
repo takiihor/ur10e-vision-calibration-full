@@ -7,10 +7,11 @@ Use the ID when requesting a UI change, for example “make `agv.stop` bigger”
 Select one item in a repeated control by its key, for example `[data-ui="agv.call.station"][data-ui-key="2"]`.
 Some keys identify records or choices from the current data. Native HTML select choices use the parent select’s ID and the option value.
 
-349 registered IDs.
+352 registered IDs.
 
 | ID | Description | Source |
 | --- | --- | --- |
+| `agv.call.acknowledge` | Acknowledge the terminal manual station visit result | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.grid` | Station call grid | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.number` | Manual station number | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.panel` | Station and parking calls | [AgvPage.vue](AgvPage.vue) |
@@ -254,6 +255,8 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `programme.record.step` | Recorded basket dwell and transfer | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.record.summary` | Open the basket record | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.revision.finalize` | Finalize reviewed recipe limits | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.revision.terminal` | Reviewed terminal basket handling | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.revision.timing` | Reviewed PLC cycle and timing evidence | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.run.resume` | Resume the reviewed simulation | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.run.start` | Start the simulated programme | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.run.stop` | Request programme Stop | [ProgrammePanel.vue](ProgrammePanel.vue) |

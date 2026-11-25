@@ -89,12 +89,13 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     }
     return '';
   });
-  const armed = computed(() => state.value.armed && armedHere.value);
+  const armed = computed(() => state.value.armed && (state.value.executor_link || armedHere.value));
   const armReason = computed(() => {
     if (!state.value.connected) return 'Connect first.';
     if (busy.value || resetPending) return pendingWait;
     if (armed.value) return '';
     if (state.value.executor_link) {
+      if (state.value.stop_unconfirmed) return 'Stop unconfirmed. Verify a safe halt first.';
       if (state.value.recovery_required) return 'Reconcile the interrupted executor job first.';
       return freshReport.value ? '' : 'Query fresh stopped status first.';
     }
@@ -204,6 +205,10 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
 
   function feedback(id) {
     const item = outcomes.get(id);
+    if (id === 'stop' && state.value.executor_stop && item?.started == null) {
+      return state.value.stop_unconfirmed ? { text: 'Stop unconfirmed', tone: 'failed' } :
+        { text: 'Stopped status confirmed', tone: 'done' };
+    }
     if (!item) return null;
     if (item.result) return resultText(item.name, item.result, item.viaEsc, item.requested);
     if (item.started != null) {
@@ -220,6 +225,9 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     if (priority) haltRevision.value++;
     if (!priority) busy.value = true;
     const generation = state.value.connection_id;
+    if (state.value.executor_link && (body.armed === true || body.command === 'call_station')) {
+      body = { ...body, executor_boot: state.value.executor_boot, stop_generation: state.value.stop_generation };
+    }
     const timeout = priority ? 4000 : 8000;
     const pending = reactive({ name: body.command, generation, started: performance.now(), timeout, viaEsc });
     latest.value = id;
@@ -234,12 +242,12 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
         return;
       }
       setServiceError('');
-      if (next.executor_stop) {
+      if (body.command === 'stop' && next.executor_stop) {
         const confirmed = next.executor_stop.confirmed;
         outcomes.set(id, { direct: { text: confirmed ? 'Stopped status confirmed' : 'Stop unconfirmed',
           tone: confirmed ? 'done' : 'failed' } });
-      } else if (body.command === 'call_station' && next.executor_link) {
-        outcomes.set(id, { direct: { text: 'Executor accepted the station visit.', tone: 'done' } });
+      } else if ((body.command === 'call_station' && next.executor_link) || body.action === 'acknowledge_station') {
+        outcomes.delete(id);
       } else if (body.command) {
         const name = next.urgent_command ?? body.command;
         const sent = next.results[name];
@@ -287,6 +295,13 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     if (state.value.executor_link) {
       if (name === 'stop') return '';
       if (!['query_status', 'call_station'].includes(name)) return 'This control is unavailable on the executor link.';
+      if (name === 'call_station') {
+        if (state.value.stop_unconfirmed) return 'Stop unconfirmed. Verify a safe halt first.';
+        const visit = state.value.manual_visit;
+        if (visit && (visit.station !== value || visit.result?.outcome)) {
+          return 'Review the previous station visit before starting another.';
+        }
+      }
     }
     if (!state.value.connected) return 'Connect first.';
     if (name === 'pause' && freshReport.value?.mode === 0) return pauseStationOnly;
@@ -317,7 +332,6 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     const why = commandReason(name, value);
     if (!why) {
       const body = { action: 'send', command: name, value };
-      if (name === 'call_station' && state.value.executor_link) body.request_id = crypto.randomUUID();
       if (commands.value.get(name)?.motion) body.stop_generation = state.value.stop_generation;
       return post(body, id, viaEsc);
     }
@@ -362,7 +376,7 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
       setServiceError('');
       if (!retired && isAgv.value && firstAgvRead) {
         firstAgvRead = false;
-        if (state.value.connected && state.value.armed && !armedHere.value) {
+        if (!state.value.executor_link && state.value.connected && state.value.armed && !armedHere.value) {
           resetPending = true;
           try {
             await post({ action: 'arm', armed: false }, 'armed');

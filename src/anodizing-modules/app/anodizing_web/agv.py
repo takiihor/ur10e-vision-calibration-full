@@ -817,6 +817,7 @@ class Connection:
                     wired_port=self.wired_port, status=self.status,
                     motion_block=STATUS_ONLY if self.wired_port else motion_block(self.owner),
                     status_hex=self.status_hex, status_age_s=age, status_time=self.status_iso,
+                    last_confirmed_station=self.last_confirmed_station,
                     connection_age_s=None if self.connected_at is None else now - self.connected_at,
                     stale=self.stale, events=list(self.events),
                     link_quality=dict(self.link_quality, timed_report_interval_s=(
@@ -1027,20 +1028,22 @@ class Connection:
         self.error = LINK_LOST
         self._event('transport_error', False, True)
         self._record('Link', b'', {'error': str(exc)})
-        if isinstance(exc, ReceiveError) and self.recipe_active and self.transport is self.recipe_transport:
-            self.stop_generation += 1
-            name = self._halt_command(recipe=True)
-            try:
-                self._write(name, command_frame(name, None, self.splitter.prefix).encode(), None, 1,
-                            requested_halt='stop')
-            except OSError as write_error:
-                self._record('Link', b'', {'error': str(write_error), 'command': name})
-            else:
-                self.recipe_halt_sent = True
         try:
-            self._close()
-        except OSError as close_error:
-            self._record('Link', b'', {'error': str(close_error)})
+            if isinstance(exc, ReceiveError) and self.recipe_active and self.transport is self.recipe_transport:
+                self.stop_generation += 1
+                name = self._halt_command(recipe=True)
+                try:
+                    self._write(name, command_frame(name, None, self._tx_prefix()).encode(), None, 1,
+                                requested_halt='stop')
+                except (OSError, ValueError) as write_error:
+                    self._record('Link', b'', {'error': str(write_error), 'command': name})
+                else:
+                    self.recipe_halt_sent = True
+        finally:
+            try:
+                self._close()
+            except OSError as close_error:
+                self._record('Link', b'', {'error': str(close_error)})
 
     def _tx_prefix(self):
         return b'' if (self.settings or {}).get('mode') == 'wired' else self.splitter.prefix
@@ -1312,7 +1315,7 @@ class Connection:
             if wire_name != result['wire_command']:
                 self.pending[name].halt_sample_seen = False
             result['wire_command'] = wire_name
-            raw = command_frame(wire_name, None, self.splitter.prefix).encode()
+            raw = command_frame(wire_name, None, self._tx_prefix()).encode()
         retry.sent_at, entry = self._write(
             wire_name, raw, result['value'], attempt, tx_id=result['tx_id'],
             requested_halt=result.get('requested_command'))

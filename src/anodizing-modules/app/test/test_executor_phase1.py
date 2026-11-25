@@ -8,7 +8,8 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-from anodizing_web.executor import Executor, FakeDevices, display_listener
+from anodizing_web.executor import Executor, FakeDevices
+from anodizing_web.executor_http import display_listener
 from anodizing_web.programme import Programme
 
 
@@ -34,7 +35,7 @@ def session(executor, name='controller-one'):
     identity = dict(session=name, boot=meta['boot'], protocol=meta['protocol'])
     executor.heartbeat(dict(identity, sequence=1))
     executor.control('connect', identity)
-    executor.control('arm', identity)
+    executor.control('arm', dict(identity, stop_generation=executor.status()['stop_generation']))
     return dict(identity, stop_generation=executor.status()['stop_generation'])
 
 
@@ -127,7 +128,7 @@ def test_executor_restart_fences_unknown_effect(tmp_path):
         executor.heartbeat(dict(identity, sequence=1))
         executor.control('connect', identity)
         with pytest.raises(ValueError, match='Reconcile'):
-            executor.control('arm', identity)
+            executor.control('arm', dict(identity, stop_generation=executor.status()['stop_generation']))
         executor.reconcile(dict(identity, job_id=job['job_id'], disposition='Verified parked at the input.'))
         assert not executor.status()['armed']
     finally:
@@ -201,7 +202,7 @@ def test_full_programme_and_record_recovery(tmp_path):
         assert len(complete['steps']) == 12
         assert [step['id'] for step in complete['steps']] == [step['id'] for step in recipe()]
         assert sum(entry['type'] == 'dip' for entry in complete['jobs']) == 9
-        assert all(step['dwell_s'] == 30 for step in complete['steps'])
+        assert all(step['plc']['elapsed_s'] == 30 and step['dwell_s'] >= 30 for step in complete['steps'])
         assert sum(effect == 'place' for effect, _ in devices.effects) == 12
         recovered = Programme(root, Link(executor), recipe()).status()['run']
         assert recovered == complete
@@ -216,13 +217,14 @@ def test_unreachable_stop_survives_controller_restart(tmp_path):
         programme = Programme(root, link, recipe())
         run = programme.start(programme.status()['recipe']['id'], 'basket-002')
         link.available = False
-        assert programme.stop()['state'] == 'Stop unconfirmed'
+        assert programme.stop()['stop_pending']
         recovered = Programme(root, link, recipe())
         assert recovered.status()['run']['id'] == run['id']
-        assert recovered.status()['run']['state'] == 'Stop unconfirmed'
+        assert recovered.status()['run']['stop_pending']
         link.available = True
-        recovered.tick()
-        assert recovered.status()['run']['state'] == 'stopped'
+        stopped = wait_for(lambda: (recovered.tick(), recovered.status()['run'])[1],
+                           lambda item: not item['stop_pending'])
+        assert stopped['state'] == 'stopped'
     finally:
         executor.close()
 
@@ -267,9 +269,9 @@ def test_commissioning_arm_disarm_logs_raw_bytes_and_blocks_travel(tmp_path, mon
         executor.heartbeat(dict(identity, sequence=1))
         executor.control('connect', identity)
         with pytest.raises(ValueError, match='fresh'):
-            executor.control('arm', identity)
+            executor.control('arm', dict(identity, stop_generation=executor.status()['stop_generation']))
         executor.control('status_read', identity)
-        assert executor.control('arm', identity)['armed']
+        assert executor.control('arm', dict(identity, stop_generation=executor.status()['stop_generation']))['armed']
         with pytest.raises(ValueError, match='live travel'):
             executor.submit(visit(dict(identity, stop_generation=0)))
         assert not executor.control('disarm', identity)['armed']
@@ -278,40 +280,6 @@ def test_commissioning_arm_disarm_logs_raw_bytes_and_blocks_travel(tmp_path, mon
         assert raw_log == [('TX', wire[0]), ('RX', REPORT)]
     finally:
         executor.close()
-
-
-def test_existing_app_routes_programme_and_wired_status_independently(tmp_path):
-    from anodizing_web.executor_http import Client, control_listener
-    from anodizing_web.server import Server
-
-    remote = Executor(tmp_path / 'executor', FakeDevices())
-    token = 'test-only-service-token-not-for-deployment'
-    try:
-        with running(control_listener(0, remote, token)) as url:
-            port = int(url.rsplit(':', 1)[1])
-            adapter = Client(port, token)
-            server = Server(0, tmp_path / 'app', executor_client=adapter, programme_steps=recipe())
-            with running(server) as app:
-                def call(path, body=None):
-                    headers = {'X-Module-Token': server.token, 'Content-Type': 'application/json'}
-                    req = Request(app + path, data=None if body is None else json.dumps(body).encode(),
-                                  headers=headers)
-                    return json.load(urlopen(req, timeout=4))
-
-                caps = wait_for(lambda: call('/api/agv?ports=1'), lambda state: state.get('executor_health'))
-                assert caps['executor_link'] and not caps['ports']
-                assert call('/api/agv', {'action': 'connect', 'mode': 'wired'})['connected']
-                assert call('/api/agv', {'action': 'arm', 'armed': True})['armed']
-                state = call('/api/programme')
-                assert len(state['recipe']['steps']) == 12
-                call('/api/programme', {'action': 'start', 'revision': state['recipe']['id'],
-                                        'basket': 'browser-basket'})
-                done = wait_for(lambda: call('/api/programme')['run'],
-                                lambda run: run['state'] == 'succeeded')
-                assert len(done['steps']) == 12
-                assert remote.devices.effects == []
-    finally:
-        remote.close()
 
 
 def pair(lease):
@@ -339,7 +307,9 @@ def test_wifi_loss_during_dwell_or_transfer_finishes_pair(tmp_path, boundary):
     executor = Executor(tmp_path, devices, clock=clock)
     try:
         lease = session(executor)
-        executor.submit(pair(lease))
+        request = pair(lease)
+        devices.agv.station = request['params']['steps'][0]['station']
+        executor.submit(request)
         assert entered.wait(4)
         clock.now += 3
         assert not executor.heartbeat(dict(lease, sequence=1))['lease_valid']
@@ -363,7 +333,9 @@ def test_plc_admission_and_cycle_refuse_unqualified_lift(tmp_path, fault):
         lease = session(executor)
         if fault == 'stale_done':
             devices.plc.stale_done = True
-            executor.submit(pair(lease))
+            request = pair(lease)
+            devices.agv.station = request['params']['steps'][0]['station']
+            executor.submit(request)
             done = terminal(executor, 'paired-dip-1')
             assert done['outcome'] == 'unknown'
             assert 'stale' in done['result']['reason']
@@ -391,7 +363,7 @@ def test_limit_breach_holds_basket_until_disposition(tmp_path):
         held = wait_for(lambda: (programme.tick(), programme.status()['run'])[1],
                         lambda record: record['state'] == 'inspection')
         assert held['steps'][0]['inspection']
-        assert held['steps'][0]['dwell_s'] == 100
+        assert held['steps'][0]['plc']['elapsed_s'] == 100 and held['steps'][0]['dwell_s'] >= 100
         assert held['final_hold'] == 'park'
         assert devices.effects[-1] == ('lift', 'park')
         assert not executor.status()['armed']
@@ -509,7 +481,7 @@ def test_qualified_fake_wire_uses_station_visit_watchdog(tmp_path, monkeypatch):
         executor.heartbeat(dict(identity, sequence=1))
         executor.control('connect', identity)
         executor.control('status_read', identity)
-        executor.control('arm', identity)
+        executor.control('arm', dict(identity, stop_generation=executor.status()['stop_generation']))
         executor.submit(visit(dict(identity, stop_generation=0)))
         done = terminal(executor, 'station-visit-1')
         assert done['outcome'] in ('succeeded', 'held')

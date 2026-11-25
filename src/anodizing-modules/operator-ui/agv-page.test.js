@@ -336,3 +336,26 @@ it('preserves another tab’s observation and command annotation when closing at
   expect(reloaded.journal.events.map(event => event.text)).toContain('Observed a parked vehicle');
   expect(reloaded.journal.commands['2/4'].requested_commands).toEqual(['stop']);
 });
+
+it('shows a pending executor Stop on status polls before any button response', async () => {
+  const agv = await open(() => ({
+    executor_link: true, stop_unconfirmed: true, executor_stop: { confirmed: false },
+  }));
+  expect(app.text()).toContain('Stop unconfirmed');
+  expect(agv.armReason).toContain('Stop unconfirmed');
+});
+
+it('shows a recovered station visit outcome and requires acknowledgement before another visit', async () => {
+  let visit = { id: 'persisted', station: 2, result: { state: 'succeeded', outcome: 'succeeded' } };
+  const requests = [];
+  const agv = await open(body => {
+    if (body) requests.push(body);
+    if (body?.action === 'acknowledge_station') visit = null;
+    return { executor_link: true, manual_visit: visit };
+  });
+  expect(app.text()).toContain('Station 2 visit succeeded');
+  expect(agv.commandReason('call_station', 3)).toContain('previous station visit');
+  await app.get('#agv-acknowledge-station').trigger('click');
+  await flushPromises();
+  expect(requests.at(-1)).toMatchObject({ action: 'acknowledge_station', job_id: 'persisted' });
+});

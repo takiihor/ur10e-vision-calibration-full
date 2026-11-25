@@ -234,16 +234,19 @@
     const age=agv?.status_age_s, stale=agv?.connected&&(age>=3||agv.stale);
     const report=age!=null?`last status ${age.toFixed(1)} s ago`:'awaiting a status report';
     const machine=agv?.status, observed=machine?` · station ${machine.current_station} · ${machine.stopped&&machine.actual_speed_m_h===0?'stopped':'moving'}`:'';
-    display('pick-agv-link',agv?.connected?`AGV ${stale?'link stale':'connected'} · ${agv.mode} · ${report}${observed}`:
+    display('pick-agv-link',agv?.connected?`AGV ${stale?'link stale':'connected'} · ${agv.mode ?? agv.settings?.mode ?? 'IPC executor'} · ${report}${observed}`:
       'AGV disconnected. Connect on the AGV page.');
     el('pick-agv-link').dataset.state=stale?'failed':'';
     display('pick-agv-alert',stale?'AGV may still be moving. Use its e-stop. Check the radio.':
       machine?.fault_code?`AGV fault ${machine.fault_code} · ${machine.fault_description}. Check the AGV.`:
       machine?.obstacle_stop?'AGV obstacle stop. Check the line before continuing.':'');
     const standard=agv?.connected&&!stale&&machine?.mode===0;
-    el('pick-agv-stop').disabled=!agv?.connected;
-    el('pick-agv-pause').disabled=!agv?.connected||standard;
-    display('pick-agv-pause-why',standard?'In standard mode, use AGV Stop. Pause requires station-call mode.':'');
+    el('pick-agv-stop').disabled=!agv?.connected&&!agv?.executor_link;
+    el('pick-agv-pause').disabled=!agv?.connected||standard||agv?.executor_link;
+    display('pick-agv-pause-why',agv?.executor_link?'Use AGV Stop on this installation.':
+      standard?'In standard mode, use AGV Stop. Pause requires station-call mode.':'');
+    const stop=urgentByCommand.get('stop');
+    if(agv?.executor_link&&(agv.stop_unconfirmed||agv.executor_stop)&&stop)renderExecutorStop(stop,agv.executor_stop);
     for(const urgent of urgentByCommand.values())renderUrgent(urgent,agv);
   }
   function renderUrgent(urgent,agv){
@@ -300,6 +303,12 @@
       el(id).dataset.state=tone;
     }
   }
+  function renderExecutorStop(urgent,report){
+    if(report?.confirmed)urgentFeedback(urgent,'Stop confirmed by fresh device evidence.','done');
+    else if(report?.received)urgentFeedback(urgent,
+      (report.halt_attempted?'Halt attempted. ':'Stop received. ')+'Stop unconfirmed. Use the AGV e-stop if needed.','waiting');
+    else urgentFeedback(urgent,'Stop unconfirmed. Use the AGV e-stop if needed.','failed');
+  }
   async function sendUrgent(command,esc=false){
     const urgent={command};
     lastUrgent=urgent;
@@ -308,6 +317,7 @@
     try{
       const state=await request('/api/agv',{action:'send',command});
       if(urgentByCommand.get(command)!==urgent)return;
+      if(state.executor_stop){renderExecutorStop(urgent,state.executor_stop);return;}
       const wire=state.urgent_command??command;
       const {sent_at:sent,tx_id:tx}=state.results[wire];
       const label=command==='stop'?'Stop':'Pause';
