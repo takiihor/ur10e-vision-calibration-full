@@ -63,7 +63,10 @@ def test_stop_preserves_inspection_until_explicit_disposition(tmp_path):
         started = start(programme)
         inspected = advance(programme, lambda run: run['state'] == 'inspection')
         assert inspected['steps'][0]['inspection']
-        assert programme.stop()['state'] == 'inspection'
+        stopped = programme.stop()
+        assert stopped['state'] == 'inspection'
+        assert stopped['stop']['received']
+        advance(programme, lambda run: run['stop']['confirmed'])
         with pytest.raises(ValueError, match='disposition'):
             programme.start(started['recipe']['id'], 'basket-two', programme.review()['approval'])
     finally:
@@ -80,7 +83,7 @@ def test_new_basket_waits_for_previous_terminal_acknowledgement(tmp_path):
         with pytest.raises(ValueError, match='outstanding'):
             programme.start(started['recipe']['id'], 'basket-two', programme.review()['approval'])
         assert programme.stop()['state'] == 'succeeded'
-        advance(programme, lambda run: run['ack_pending'] is None)
+        advance(programme, lambda run: run['ack_pending'] is None and not run['stop_pending'])
         started_again = programme.start(started['recipe']['id'], 'basket-two', programme.review()['approval'])
         assert started_again['id'] != started['id']
     finally:
