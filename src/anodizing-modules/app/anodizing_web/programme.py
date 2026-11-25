@@ -82,7 +82,7 @@ class Programme:
         return self.data['runs'].get(self.data['run'])
 
     def _save(self):
-        atomic_json(self.path, self.data)
+        atomic_json(self.path, self.data, sync_directory=True)
 
     def status(self):
         with self.lock:

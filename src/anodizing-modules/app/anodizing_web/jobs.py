@@ -20,7 +20,7 @@ class JobStop:
         self.lock = threading.Lock()
 
 
-def atomic_json(path, value):
+def atomic_json(path, value, *, sync_directory=False):
     path = Path(path)
     fd, temp = tempfile.mkstemp(prefix='.job-', dir=path.parent)
     try:
@@ -29,11 +29,12 @@ def atomic_json(path, value):
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temp, path)
-        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        if sync_directory:
+            directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
     finally:
         if os.path.exists(temp):
             os.unlink(temp)
@@ -92,7 +93,7 @@ class JobOwner:
                             manual.update(agv_alarm=ALARM, agv_stop_sent=False)
                             manual['repeat']['abort_reason'] = job['error']
                             job['error'] += ' ' + ALARM
-                    atomic_json(path, job)
+                    self._save(job)
                 self.jobs[job['id']] = job
                 self.execution_uncertain |= bool(job.get('execution_uncertain'))
             except (ValueError, KeyError, OSError, TypeError):
@@ -106,7 +107,11 @@ class JobOwner:
                 self.execution_uncertain = True
 
     def _save(self, job):
-        atomic_json(self.directory / (job['id'] + '.json'), job)
+        path = self.directory / (job['id'] + '.json')
+        if job['module'] == 'executor':
+            atomic_json(path, job, sync_directory=True)
+        else:
+            atomic_json(path, job)
 
     def drain_workers(self, job_id, workers):
         workers = [worker for worker in workers if worker and worker.is_alive()]

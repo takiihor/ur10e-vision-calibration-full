@@ -219,6 +219,7 @@ class AutoBridgeTests(unittest.TestCase):
         gate=threading.Event()
         with mock.patch.object(collision.Scene,'require_motion_ready'):
             owner.submit('unexpected-prompt-01','calibration',self.body,lambda _:gate.wait(5))
+        self.addCleanup(owner.shutdown)
         self.addCleanup(gate.set)
         owner.runner=Runner()
         owner.event('unexpected-prompt-01',{'type':'request','kind':'manual','id':1,'summary':'unexpected'})

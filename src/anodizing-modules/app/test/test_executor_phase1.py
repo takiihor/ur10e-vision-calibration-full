@@ -298,7 +298,7 @@ def test_existing_app_routes_programme_and_wired_status_independently(tmp_path):
                                   headers=headers)
                     return json.load(urlopen(req, timeout=4))
 
-                caps = call('/api/agv?ports=1')
+                caps = wait_for(lambda: call('/api/agv?ports=1'), lambda state: state.get('executor_health'))
                 assert caps['executor_link'] and not caps['ports']
                 assert call('/api/agv', {'action': 'connect', 'mode': 'wired'})['connected']
                 assert call('/api/agv', {'action': 'arm', 'armed': True})['armed']
@@ -520,35 +520,39 @@ def test_qualified_fake_wire_uses_station_visit_watchdog(tmp_path, monkeypatch):
 
 
 def test_ipc_process_loss_after_effect_recovers_without_replaying(tmp_path):
-    from multiprocessing import get_context
+    import os
+    import select
+    import signal
 
-    context = get_context('fork')
-    acted = context.Event()
+    read_end, write_end = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        try:
+            os.close(read_end)
+            devices = FakeDevices()
+            perform = devices.perform
 
-    def interrupted_worker():
-        devices = FakeDevices()
-        perform = devices.perform
+            def lose_power(effect, value):
+                result = perform(effect, value)
+                (tmp_path / 'fake-device-evidence').write_text(json.dumps(devices.effects))
+                os.write(write_end, b'1')
+                Event().wait()
+                return result
 
-        def lose_power(effect, value):
-            result = perform(effect, value)
-            (tmp_path / 'fake-device-evidence').write_text(json.dumps(devices.effects))
-            acted.set()
+            devices.perform = lose_power
+            executor = Executor(tmp_path, devices)
+            executor.submit(visit(session(executor)))
             Event().wait()
-            return result
-
-        devices.perform = lose_power
-        executor = Executor(tmp_path, devices)
-        executor.submit(visit(session(executor)))
-        Event().wait()
-
-    process = context.Process(target=interrupted_worker)
-    process.start()
+        finally:
+            os._exit(1)
+    os.close(write_end)
     try:
-        assert acted.wait(5)
+        assert select.select([read_end], [], [], 5)[0] and os.read(read_end, 1) == b'1'
     finally:
-        process.kill()
-        process.join(5)
-    assert process.exitcode == -9
+        os.close(read_end)
+        os.kill(pid, signal.SIGKILL)
+        _, code = os.waitpid(pid, 0)
+    assert os.waitstatus_to_exitcode(code) == -signal.SIGKILL
     assert json.loads((tmp_path / 'fake-device-evidence').read_text()) == [['station', 2]]
     new_devices = FakeDevices()
     recovered = Executor(tmp_path, new_devices)
