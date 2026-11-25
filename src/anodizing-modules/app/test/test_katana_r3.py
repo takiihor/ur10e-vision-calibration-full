@@ -59,7 +59,7 @@ def test_unseen_station_request_from_earlier_review_is_rejected(tmp_path):
 def test_delayed_start_returns_original_run_and_an_unseen_old_start_cannot_run(tmp_path):
     step = dict(id='seal', tank='seal-tank', role='seal', station=1, setpoint=30)
     with remote(tmp_path) as (client, _, devices), operator(tmp_path / 'katana', client, [step]) as call:
-        state = call('programme')
+        state = wait_for(lambda: call('programme'), lambda review: review['approval'])
         body = dict(action='start', basket='reused-label', revision=state['recipe']['id'], approval=state['approval'])
         first = action(call, 'programme', state, 'first', **body)
         wait_for(lambda: call('programme')['run'], lambda r: r['state'] == 'succeeded' and not r['ack_pending'])
