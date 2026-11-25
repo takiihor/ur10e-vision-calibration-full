@@ -4,6 +4,7 @@ state/data-manifest.json
 
 # Local UI data and environments
 .ui-data/
+site-profile.json
 __pycache__/
 *.py[cod]
 .pytest_cache/

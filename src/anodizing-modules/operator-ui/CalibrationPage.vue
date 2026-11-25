@@ -4,11 +4,14 @@ import InputText from 'primevue/inputtext';
 import Message from 'primevue/message';
 import OperatorButton from './OperatorButton.vue';
 import SnapshotViewer from './SnapshotViewer.vue';
-import { request } from './api';
+import { request, simulationEnabled } from './api';
 import { agvReason, jobPath, ownerReason, publicError, savedObject, store, stored, terminal } from './pickPlace';
 
 const props = defineProps({ service: Object, agv: Object, stopOutcomes: Object });
 const emit = defineEmits(['outcome', 'changed']);
+const allowSimulation = simulationEnabled();
+const resultActions = ['calibrate', 'solve', 'intrinsics'];
+if (allowSimulation) resultActions.push('simulate');
 
 const steps = [
   ['setup', 'Setup'], ['tool', 'Tool box'], ['plan', 'Plan'], ['capture', 'Capture'],
@@ -21,9 +24,9 @@ const actions = {
   'verify-capture': 'Collect fresh verification views', replay: 'Replay views for verification', verify: 'Verify fresh session',
 };
 const setupChecks = [
-  'The camera mount is rigid. The board is fixed, flat and measured.',
-  'The board is fully visible. The robot is stationary.',
-  'The work area is clear. The emergency stop is accessible.',
+  ['mount', 'The camera mount is rigid. The board is fixed, flat and measured.'],
+  ['visibility', 'The board is fully visible. The robot is stationary.'],
+  ['area', 'The work area is clear. The emergency stop is accessible.'],
 ];
 const defaults = {
   session: 'sessions/sim-001', manifest: 'boards/calibration_stage2/board_manifest.json',
@@ -478,54 +481,54 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="calibration-workspace">
+  <div data-ui="calibration.page" class="calibration-workspace">
     <div class="calibration-workflow">
-      <nav class="calibration-steps actions" aria-label="Calibration steps">
-        <OperatorButton v-for="[id, label] in steps" :key="id" :id="'cal-step-' + id" :label="label"
+      <nav data-ui="calibration.steps" class="calibration-steps actions" aria-label="Calibration steps">
+        <OperatorButton data-ui="calibration.step.select" :data-ui-key="id" v-for="[id, label] in steps" :key="id" :id="'cal-step-' + id" :label="label"
           :current="step === id" :primary="step === id" @press="selectStep(id)" />
       </nav>
-      <section class="panel calibration-step" :aria-label="steps.find(([id]) => id === step)[1]">
+      <section data-ui="calibration.step.panel" :data-ui-key="step" class="panel calibration-step" :aria-label="steps.find(([id]) => id === step)[1]">
         <p v-if="step === 'setup'">Paths are relative to the IPC data directory. Use a fixed, measured board and confirm the active TCP.</p>
         <p v-if="step === 'plan'">Plan reads controller feedback and checks the selected collision scene. Automatic collection asks for approval before each phase.</p>
         <p v-if="step === 'capture'">Stop the robot before capturing each pendant-positioned view. Select Finish collection when the views are ready to fit.</p>
-        <p v-if="step === 'results'">Fit the recorded session or render a simulated calibration. Simulation does not qualify hardware.</p>
+        <p v-if="step === 'results'">Fit the recorded session<template v-if="allowSimulation"> or render a simulated calibration</template>.<template v-if="allowSimulation"> Simulation does not qualify hardware.</template></p>
         <p v-if="step === 'verify'">Collect a separate session with the board and camera fixed. Review replay requests in Current operation.</p>
         <div v-if="fields[step]" class="calibration-fields">
           <label v-for="[key, label, min, max, increment] in fields[step]" :key="key" :for="'cal-' + key">{{ label }}
-            <InputText :id="'cal-' + key" :model-value="form[key]" :type="min == null ? 'text' : 'number'"
+            <InputText data-ui="calibration.setup.field" :data-ui-key="key" :id="'cal-' + key" :model-value="form[key]" :type="min == null ? 'text' : 'number'"
               :min="min" :max="max" :step="increment" :readonly="locked" autocomplete="off" @update:model-value="edit(key, $event)" />
           </label>
         </div>
         <template v-if="step === 'setup'">
           <div class="calibration-fields">
             <label for="cal-camera_provider">Camera
-              <select id="cal-camera_provider" :value="form.camera_provider" :disabled="locked" @change="edit('camera_provider', $event.target.value)">
+              <select data-ui="calibration.camera.provider" id="cal-camera_provider" :value="form.camera_provider" :disabled="locked" @change="edit('camera_provider', $event.target.value)">
                 <option value="realsense">RealSense</option><option value="basler">Basler a2A2448-23gmBAS</option>
               </select>
             </label>
             <label v-for="[key, label, min, max, increment] in [...cameraFields, ...(basler ? baslerFields : [])]"
               :key="key" :for="'cal-' + key">{{ label }}
-              <InputText :id="'cal-' + key" :model-value="form[key]" :type="min == null ? 'text' : 'number'"
+              <InputText data-ui="calibration.camera.field" :data-ui-key="key" :id="'cal-' + key" :model-value="form[key]" :type="min == null ? 'text' : 'number'"
                 :min="min" :max="max" :step="increment" :readonly="locked" autocomplete="off" @update:model-value="edit(key, $event)" />
             </label>
             <label for="cal-intrinsics">Intrinsics JSON
-              <InputText id="cal-intrinsics" :model-value="form.intrinsics" :readonly="locked" autocomplete="off" @update:model-value="edit('intrinsics', $event)" />
+              <InputText data-ui="calibration.camera.intrinsics" id="cal-intrinsics" :model-value="form.intrinsics" :readonly="locked" autocomplete="off" @update:model-value="edit('intrinsics', $event)" />
             </label>
           </div>
           <p v-if="basler">Use the mounted Basler lens intrinsics. Check focus, exposure and gain in camera preview.</p>
           <div class="calibration-checks">
-            <label v-for="(label, index) in setupChecks" :key="label" class="check">
-              <input :id="'cal-ready-' + index" v-model="checks" type="checkbox" :value="label"> {{ label }}
+            <label v-for="([key, label], index) in setupChecks" :key="key" class="check">
+              <input data-ui="calibration.setup.check" :data-ui-key="key" :id="'cal-ready-' + index" v-model="checks" type="checkbox" :value="label"> {{ label }}
             </label>
           </div>
-          <OperatorButton v-if="Object.keys(profile).length" id="cal-profile" label="Load IPC calibration profile"
+          <OperatorButton data-ui="calibration.setup.profile" v-if="Object.keys(profile).length" id="cal-profile" label="Load IPC calibration profile"
             :why="locked ? 'Wait for the current operation before loading a profile.' : ''" @press="resetProfile" />
           <p>Board capture checks for a usable pose. Camera preview checks image quality and marker visibility without intrinsics.</p>
         </template>
         <div v-if="editorMounted" v-show="step === 'tool'" class="calibration-tool">
           <p>The tool box is saved in the collision scene. The camera graphic is schematic.</p>
-          <iframe ref="editor" title="Tool box and collision scene editor" src="/preview/tool-envelope.html?view=calibration" />
-          <a href="/preview/tool-envelope.html" target="_blank" rel="noopener">Open full collision editor</a>
+          <iframe data-ui="calibration.scene.editor" ref="editor" title="Tool box and collision scene editor" src="/preview/tool-envelope.html?view=calibration" />
+          <a data-ui="calibration.scene.open" href="/preview/tool-envelope.html" target="_blank" rel="noopener">Open full collision editor</a>
         </div>
         <template v-if="step === 'plan'">
           <p>{{ props.service?.robot_model?.valid ? (props.service.robot_model.nominal ? 'Nominal robot model' : 'Selected robot model') :
@@ -536,37 +539,37 @@ onUnmounted(() => {
             'Selected scene uses cell scope. Check external objects and coverage.' : 'Open Tool box to review the selected scene scope.' }}</p>
         </template>
         <template v-if="step === 'capture' || step === 'verify'">
-          <label class="check"><input id="cal-agv-off" v-model="off" type="checkbox">
+          <label class="check"><input data-ui="calibration.motion.agv.off" id="cal-agv-off" v-model="off" type="checkbox">
             AGV is switched off (operator declaration for the next automatic start).</label>
           <p role="status">{{ agvReason(motion, off) || (off ? 'AGV switched off · operator declaration.' : motion?.detail) }}</p>
         </template>
         <div v-if="step !== 'tool'" class="actions calibration-actions">
-          <OperatorButton v-for="action in { setup: ['camera', 'camera-preview'], plan: ['plan'], capture: ['manual', 'collect'],
-            results: ['calibrate', 'solve', 'intrinsics', 'simulate'], verify: ['verify-capture', 'replay', 'verify'] }[step]"
+          <OperatorButton data-ui="calibration.action" :data-ui-key="action" v-for="action in { setup: ['camera', 'camera-preview'], plan: ['plan'], capture: ['manual', 'collect'],
+            results: resultActions, verify: ['verify-capture', 'replay', 'verify'] }[step]"
             :key="action" :id="'cal-' + action" :label="actions[action]" :why="submitReason(action)"
             :outcome="outcomes[action]" @press="submit(action)" />
-          <OperatorButton v-if="step === 'results'" id="cal-teach" label="Continue to Teaching" :why="handoffReason"
+          <OperatorButton data-ui="calibration.teaching.open" v-if="step === 'results'" id="cal-teach" label="Continue to Teaching" :why="handoffReason"
             :outcome="outcomes.teach" @press="handoff" />
         </div>
         <p v-if="step === 'results' && simFit(fitResult?.result)">Simulation · use the selected file for offline Teaching.</p>
       </section>
       <p class="actions">
-        <a class="page-link" href="#/tests/robot">Open Robot steps</a>
-        <a class="page-link" href="/calibration">Legacy Calibration</a>
+        <a data-ui="calibration.robot.open" class="page-link" href="#/tests/robot">Open Robot steps</a>
+        <a data-ui="calibration.legacy.open" class="page-link" href="/calibration">Legacy Calibration</a>
       </p>
-      <details class="panel calibration-details">
-        <summary>Saved job details</summary>
+      <details data-ui="calibration.history.panel" class="panel calibration-details">
+        <summary data-ui="calibration.history.toggle">Saved job details</summary>
         <label for="cal-job-id">Calibration job ID
-          <InputText id="cal-job-id" v-model="inspection" autocomplete="off" />
+          <InputText data-ui="calibration.history.job" id="cal-job-id" v-model="inspection" autocomplete="off" />
         </label>
-        <OperatorButton id="cal-inspect" label="Show job" :why="control ? 'Wait for the current request.' :
+        <OperatorButton data-ui="calibration.history.inspect" id="cal-inspect" label="Show job" :why="control ? 'Wait for the current request.' :
           active && inspection.trim() !== active.id ? 'Follow the active Calibration job first.' :
           !inspection.trim() ? 'Enter a calibration job ID.' : ''" :outcome="outcomes.inspect" @press="inspect" />
         <pre v-if="details">{{ details }}</pre>
         <p v-else>No job selected.</p>
       </details>
     </div>
-    <aside class="panel calibration-operation" aria-labelledby="cal-operation-title">
+    <aside data-ui="calibration.operation.panel" class="panel calibration-operation" aria-labelledby="cal-operation-title">
       <h2 id="cal-operation-title">Current operation</h2>
       <p v-if="!service" role="status">Service updates unavailable. Check the connection and reload.</p>
       <p v-else-if="!job" role="status">No job selected.</p>
@@ -588,16 +591,16 @@ onUnmounted(() => {
           <h3>Operator request</h3>
           <p class="calibration-prompt">{{ pending.summary }}</p>
           <div v-if="pending.kind === 'manual' && !job.auto_action" :key="pending.id" class="actions">
-            <OperatorButton id="cal-capture-view" label="Capture view" :why="control ? 'Wait for the current request.' : ''"
+            <OperatorButton data-ui="calibration.operation.capture" id="cal-capture-view" label="Capture view" :why="control ? 'Wait for the current request.' : ''"
               :outcome="outcomes['capture-view']" @press="answer('capture-view', '')" />
-            <OperatorButton id="cal-finish" label="Finish collection" :why="control ? 'Wait for the current request.' : ''"
+            <OperatorButton data-ui="calibration.operation.finish" id="cal-finish" label="Finish collection" :why="control ? 'Wait for the current request.' : ''"
               :outcome="outcomes.finish" @press="answer('finish', 'q')" />
           </div>
           <div v-if="pending.kind === 'motion'" :key="pending.id" class="actions">
-            <OperatorButton id="cal-approve" label="Approve phase" :why="control ? 'Wait for the current request.' :
+            <OperatorButton data-ui="calibration.operation.approve" id="cal-approve" label="Approve phase" :why="control ? 'Wait for the current request.' :
               !available || !wantsMotion(job.auto_action) ? 'This job is not authorized for automatic motion.' : ''"
               :outcome="outcomes.approve" @press="answer('approve', true)" />
-            <OperatorButton id="cal-cancel" label="Cancel phase" :why="control ? 'Wait for the current request.' : ''"
+            <OperatorButton data-ui="calibration.operation.cancel" id="cal-cancel" label="Cancel phase" :why="control ? 'Wait for the current request.' : ''"
               :outcome="outcomes.cancel" @press="answer('cancel', false)" />
           </div>
         </template>
@@ -610,7 +613,7 @@ onUnmounted(() => {
         <p v-if="preview?.preview_only">No pose · Camera preview · {{ preview.charuco_count }} corners</p>
         <p v-else-if="preview">{{ preview.usable ? 'Board view usable' : 'Board view rejected' }} · {{ preview.observation?.charuco_ids?.length ?? 0 }} corners</p>
         <p v-if="preview?.camera?.exposure_time_us != null">{{ number(preview.camera.exposure_time_us) }} µs · {{ number(preview.camera.gain_db) }} dB</p>
-        <SnapshotViewer v-if="imageEvidence" label="Board observation" :image="imageEvidence.image" :snapshot="imageEvidence.snapshot" />
+        <SnapshotViewer data-ui="calibration.operation.image" v-if="imageEvidence" label="Board observation" :image="imageEvidence.image" :snapshot="imageEvidence.snapshot" />
         <template v-if="fit">
           <h3>Hand-eye result · {{ fit.verdict }} <template v-if="simFit(fit)">· Simulation</template></h3>
           <p>{{ fit.metrics?.sample_count ?? '—' }} samples · Reprojection RMSE {{ number(fit.metrics?.reprojection_rmse_px) }} px</p>
@@ -629,7 +632,7 @@ onUnmounted(() => {
         <p v-if="terminal(job) && stopOutcomes?.['calibration/' + job.id]" role="status">{{ stopOutcomes['calibration/' + job.id].text }}</p>
       </template>
       <p v-if="unconfirmed" role="status">Request outcome unconfirmed. Inspect job {{ unconfirmed }} before starting again.</p>
-      <details v-if="notice || logs || job?.error"><summary>Recent messages</summary>
+      <details data-ui="calibration.messages.panel" v-if="notice || logs || job?.error"><summary data-ui="calibration.messages.toggle">Recent messages</summary>
         <pre>{{ [notice, job?.error, logs].filter(Boolean).join('\n') }}</pre>
       </details>
     </aside>

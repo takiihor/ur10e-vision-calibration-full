@@ -2,7 +2,7 @@ import { definePreset } from '@primeuix/themes';
 import Aura from '@primeuix/themes/aura';
 
 const tones = {
-  info: '{operator.running}',
+  info: '{operator.action}',
   success: '{operator.good}',
   warn: '{operator.warning}',
   error: '{operator.critical}',
@@ -23,23 +23,25 @@ const notices = Object.fromEntries(Object.entries(tones).map(([severity, color])
 export default definePreset(Aura, {
   extend: {
     operator: {
-      canvas: '#2E3440',
-      panel: '#3B4252',
-      raised: '#434C5E',
-      pressed: '#4C566A',
-      text: '#ECEFF4',
-      muted: '#D8DEE9',
-      border: '#A3ACBD',
-      focus: '#8FBCBB',
-      action: '#88C0D0',
-      actionPressed: '#81A1C1',
-      running: '#ADC2D7',
-      critical: '#E2B6BB',
-      stopHover: '#E9C9CC',
-      stopPressed: '#DAA4A9',
-      serious: '#D38E79',
-      warning: '#EBCB8B',
-      good: '#B1C89D',
+      canvas: '#FFFBEB',
+      panel: '#FFFFFF',
+      raised: '#F4F0DD',
+      pressed: '#CFCFDE',
+      text: '#1F1F1F',
+      muted: '#423D2C',
+      border: '#6C664B',
+      focus: '#036A96',
+      action: '#054D6F',
+      actionHover: '#003C59',
+      actionPressed: '#002B41',
+      running: '#0B5007',
+      critical: '#8A2118',
+      stopHover: '#741A15',
+      stopPressed: '#601411',
+      serious: '#6C3510',
+      warning: '#514305',
+      good: '#0B5007',
+      headerAccent: '#A3144D',
     },
   },
   semantic: {
@@ -57,7 +59,7 @@ export default definePreset(Aura, {
       light: {
         primary: {
           color: '{operator.action}',
-          hoverColor: '{operator.focus}',
+          hoverColor: '{operator.action.hover}',
           activeColor: '{operator.action.pressed}',
           contrastColor: '{operator.canvas}',
         },
@@ -71,7 +73,7 @@ export default definePreset(Aura, {
         },
         highlight: {
           background: '{operator.action}', color: '{operator.canvas}',
-          focusBackground: '{operator.focus}', focusColor: '{operator.canvas}',
+          focusBackground: '{operator.action.hover}', focusColor: '{operator.canvas}',
         },
         list: { option: { focusBackground: '{operator.raised}' } },
         formField: {
@@ -101,7 +103,7 @@ export default definePreset(Aura, {
         light: Object.fromEntries(Object.entries({
           primary: '{operator.action}', secondary: tones.secondary, success: tones.success,
           info: tones.info, warn: tones.warn, danger: tones.error,
-        }).map(([severity, color]) => [severity, { color, background: '{operator.canvas}' }])),
+        }).map(([severity, color]) => [severity, { color: '{operator.panel}', background: color }])),
       },
     },
     message: { colorScheme: { light: notices } },

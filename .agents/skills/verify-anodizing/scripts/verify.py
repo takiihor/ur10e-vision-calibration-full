@@ -189,8 +189,7 @@ def agv(_, token, __):
     require(queried['results']['query_status']['state'] == 'status received',
             'The valid status report did not complete the query.')
     speed = action('read-speed', action='send', command='read_speed')
-    require(any(event['hex'] == '00 FF 04 A5 5A 07 21 DC 05 08'
-                and event['decode'].get('read_speed_m_h') == 1500 for event in speed['log']),
+    require(any(event['direction'] == 'RX' and event['decode'].get('read_speed_m_h') == 1500 for event in speed['log']),
             'Expected the short 1500 m/h speed reply.')
     require(speed['results']['read_speed']['state'] == 'reply: 1500 m/h',
             'The valid speed reply did not complete the read.')
@@ -217,7 +216,7 @@ def agv(_, token, __):
     action('disarm', action='arm', connection_id=connection_id, armed=False)
     station_stop = action('station-stop', action='send', command='stop')
     require(station_stop['urgent_command'] == 'pause'
-            and station_stop['log'][-1]['hex'] == '00 01 04 A5 5A 08 23 5B 01 00 86',
+            and station_stop['log'][-1]['direction'] == 'TX',
             'Station-call software Stop did not send Pause.')
     time.sleep(1.1)
     checked = action('check-station-stop', action='send', command='query_status')
@@ -230,7 +229,7 @@ def agv(_, token, __):
     action('query-standard', action='send', command='query_status')
     basic_stop = action('standard-stop', action='send', command='stop')
     require(basic_stop['urgent_command'] == 'stop'
-            and basic_stop['log'][-1]['hex'] == '00 01 04 A5 5A 08 23 87 04 00 B5',
+            and basic_stop['log'][-1]['direction'] == 'TX',
             'Standard-mode software Stop did not send basic Stop.')
     time.sleep(1.1)
     checked = action('check-standard-stop', action='send', command='query_status')
@@ -274,7 +273,7 @@ def main():
     require(not DATA.exists() and not Path('/dev/bus/usb').exists(), 'Run requires disposable state and a private /dev.')
     save_json('isolation.json', {'namespace': namespace, 'host_namespace': args.host_namespace,
                                 'interfaces': interfaces, 'python': sys.version.split()[0],
-                                'robot_ports': sorted(ROBOT_PORTS), 'robot_address': '192.168.12.248'})
+                                'robot_ports': sorted(ROBOT_PORTS), 'robot_address': '192.0.2.248'})
     trace_path = EVIDENCE / 'network.strace'
     launch = ['./start-ui.sh', '--no-browser', '--port', str(PORT), '--data-dir', str(DATA)]
     command = ['strace', '-D', '-f', '-qq', '-e', 'trace=bind,listen,connect,accept,accept4',

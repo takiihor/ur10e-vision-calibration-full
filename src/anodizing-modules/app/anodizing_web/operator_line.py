@@ -19,17 +19,12 @@ from .site_profile import section
 MAX_BYTES = 2_000_000
 PERIOD_S = 1
 LIMIT_MS = 3000
-OPERATIONS = {'list': '/api/v1/tags/list', 'read': '/api/v1/tags/read'}
 IDENT = re.compile(r'[A-Za-z][A-Za-z0-9_]{0,63}')
-GROUP = re.compile(r'(Tank[0-9]{2}[A-Z]?)_')
-ALARM = re.compile(r'Alarm[0-9]+')
 POLL_TIME = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}'
                        r'(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})?')
+SYSTEM_ROLES = ('remote_mode', 'local_mode', 'main_inlet')
 TYPES = {'Bool', 'Word', 'SignedWord', 'Float', None}
 RESERVED = {'id', 'timestamp', 'poll_count', 'tags_ok', 'tags_failed', 'api_reachable', 'poll_age'}
-SYSTEM = ('Remote', 'Local', 'MainInletStatus')
-UNITS = {'TempPV': '°C', 'TempSV': '°C', 'TempAdj': '°C', 'AmperePV': 'A',
-         'AmpereSV': 'A', 'VoltagePV': 'V', 'VoltageSV': 'V'}
 
 
 def utc_now():
@@ -55,17 +50,23 @@ def contains_secret(value, key):
 
 
 class ReadClient:
-    def __init__(self, origin, key):
+    def __init__(self, origin, key, routes):
         parsed = urlsplit(origin)
         if (parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username is not None
                 or parsed.path not in ('', '/') or parsed.query or parsed.fragment or not key
                 or not key.isascii() or not key.isprintable()):
             raise ValueError('Invalid line origin or service credential.')
+        if (not isinstance(routes, dict) or set(routes) != {'list', 'read'}
+                or any(not isinstance(path, str)
+                       or not re.fullmatch(r'/(?:[A-Za-z0-9_~-][A-Za-z0-9_.~-]*/)*[A-Za-z0-9_~-][A-Za-z0-9_.~-]*', path)
+                       for path in routes.values())):
+            raise ValueError('Configure the two read-only line routes.')
+        self.routes = routes.copy()
         self.connect = HTTPSConnection if parsed.scheme == 'https' else HTTPConnection
         self.host, self.port, self.key = parsed.hostname, parsed.port, key
 
     def request(self, operation):
-        path = OPERATIONS[operation]
+        path = self.routes[operation]
         connection = self.connect(self.host, self.port, timeout=2)
         status = None
         try:
@@ -145,7 +146,7 @@ def local_json(root, path):
     return json.loads(data)
 
 
-def parse_catalog(payload):
+def parse_catalog(payload, tank_pattern=None, alarm_pattern=None, units=None):
     tags = payload.get('tags') if isinstance(payload, dict) else None
     if not isinstance(tags, list) or not 0 < len(tags) <= 1000:
         raise ValueError('Invalid catalog.')
@@ -158,7 +159,7 @@ def parse_catalog(payload):
         multiplier = item.get('multiplier', 1)
         minimum, maximum = item.get('low_limit'), item.get('high_limit')
         suffix = name.partition('_')[2] if isinstance(name, str) else ''
-        unit = item.get('unit', UNITS.get(suffix))
+        unit = item.get('unit', (units or {}).get(suffix))
         if (not isinstance(name, str) or not IDENT.fullmatch(name) or name in result or name in RESERVED
                 or not isinstance(address, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,40}', address)
                 or kind is not None and (not isinstance(kind, str) or kind not in TYPES)
@@ -167,8 +168,10 @@ def parse_catalog(payload):
                 or (minimum is not None and maximum is not None and minimum > maximum)
                 or unit is not None and (not isinstance(unit, str) or len(unit) > 20)):
             raise ValueError('Invalid catalog tag.')
-        match = GROUP.match(name)
-        group = match[1] if match else 'Alarms' if ALARM.fullmatch(name) else 'System'
+        match = tank_pattern.match(name) if tank_pattern else None
+        tank = match[1] if match else None
+        group = (tank if tank and IDENT.fullmatch(tank) else
+                 'Alarms' if alarm_pattern and alarm_pattern.fullmatch(name) else 'System')
         result[name] = dict(tag_name=name, device_address=address, data_type=kind, read_write=access,
                             description=description, multiplier=multiplier, minimum=minimum,
                             maximum=maximum, unit=unit, group=group)
@@ -220,8 +223,9 @@ def catalog_view(tags, expected, tanks, revision):
             tag = tags.get(name)
             if bindings[name] > 1:
                 warn('duplicate_binding', f'{name} is assigned to multiple fields including {tank} {role.replace("_", " ")}. Review the physical tank mapping.')
-            elif tag is None or tag['read_write'] != 'R' or name in unsafe or (
-                    role == 'basket' and tag['data_type'] != 'Bool'):
+            elif (tag is None or tag['read_write'] != 'R' or name in unsafe
+                  or (role == 'basket' and tag['data_type'] != 'Bool')
+                  or (role == 'water_level_blocked' and (tag['data_type'] != 'Bool' or tag['multiplier'] != 1))):
                 warn('invalid_binding', f'{name} is unavailable for {tank} {role.replace("_", " ")}. Review the physical tank mapping.')
             else:
                 mapped[tank][role] = name
@@ -232,12 +236,15 @@ def catalog_view(tags, expected, tanks, revision):
 
 class Line:
     def __init__(self, mode='disabled', client=None, *, clock=monotonic, wall=utc_now,
-                 clock_zone=None, clock_offset_s=None, expected=None, tanks=None, setup_error=None):
+                 clock_zone=None, clock_offset_s=None, expected=None, tanks=None, setup_error=None,
+                 system_signals=None, catalog_rules=()):
         self.mode, self.client = mode, client
         self.clock, self.wall = clock, wall
         self.zone = ZoneInfo(clock_zone) if clock_zone else None
         self.offset = timedelta(seconds=clock_offset_s) if clock_offset_s is not None else None
         self.expected, self.tanks = expected, tanks or {}
+        self.system_signals = system_signals or {}
+        self.catalog_rules = catalog_rules
         self.source = {'disabled': 'line.disabled', 'live': 'line.supplier', 'simulation': 'line.simulator'}[mode]
         self.lock = Lock()
         self.stop = Event()
@@ -261,18 +268,35 @@ class Line:
         profile = section(root, 'line')
         try:
             tanks = physical_tanks(profile.get('tanks', {}))
+            signals = profile.get('system_signals', {})
+            if (not isinstance(signals, dict) or any(
+                    role not in SYSTEM_ROLES or not isinstance(name, str) or not IDENT.fullmatch(name)
+                    or name in RESERVED for role, name in signals.items())
+                    or len(set(signals.values())) != len(signals)):
+                raise ValueError('Invalid system signal mapping.')
+            tank_rule, alarm_rule = profile.get('tank_tag_pattern'), profile.get('alarm_tag_pattern')
+            tank_pattern = re.compile(tank_rule, re.ASCII) if tank_rule else None
+            alarm_pattern = re.compile(alarm_rule, re.ASCII) if alarm_rule else None
+            units = profile.get('tag_units_by_suffix', {})
+            if (tank_pattern and tank_pattern.groups != 1 or not isinstance(units, dict)
+                    or any(not isinstance(unit, str) or len(unit) > 20 for unit in units.values())):
+                raise ValueError('Invalid catalog rules.')
+            rules = (tank_pattern, alarm_pattern, units)
             baseline = profile.get('baseline')
-            expected = parse_catalog(local_json(root, baseline)) if baseline else None
+            expected = parse_catalog(local_json(root, baseline), *rules) if baseline else None
             if mode == 'simulation':
                 return cls(mode, Simulator(local_json(root, profile['simulation_fixture'])),
-                           clock_zone='UTC', clock_offset_s=0, expected=expected, tanks=tanks)
+                           clock_zone='UTC', clock_offset_s=0, expected=expected, tanks=tanks,
+                           system_signals=signals, catalog_rules=rules)
             origin = profile['origin']
             offset, zone = profile.get('clock_offset_s'), profile.get('clock_zone')
             if offset is not None and not number(offset):
                 raise ValueError('Invalid clock correction.')
-            return cls(mode, ReadClient(origin, os.environ.get('PLC_API_KEY')), clock_zone=zone,
-                       clock_offset_s=offset, expected=expected, tanks=tanks)
-        except (OSError, KeyError, TypeError, ValueError, AttributeError, OverflowError, RecursionError, ZoneInfoNotFoundError):
+            return cls(mode, ReadClient(origin, os.environ.get('PLC_API_KEY'), profile['routes']), clock_zone=zone,
+                       clock_offset_s=offset, expected=expected, tanks=tanks, system_signals=signals,
+                       catalog_rules=rules)
+        except (OSError, KeyError, TypeError, ValueError, AttributeError, OverflowError, RecursionError,
+                ZoneInfoNotFoundError, re.error):
             return cls(mode, setup_error='Line setup unavailable. Check the local configuration and restart the service.')
 
     def start(self):
@@ -331,7 +355,7 @@ class Line:
         status, payload = self.client.request('list')
         stamp = self.wall()
         try:
-            tags = parse_catalog(payload) if status == 200 else None
+            tags = parse_catalog(payload, *self.catalog_rules) if status == 200 else None
         except ValueError:
             tags = None
         view = catalog_view(tags, self.expected, self.tanks, self.view['revision'] + 1) if tags else None
@@ -472,6 +496,8 @@ class Line:
             variables.append(item)
         return dict(variables=variables, line=dict(mode=self.mode, quality=quality, refresh=refresh,
                     catalog_revision=view['revision'], catalog_count=len(tags), tanks=view['tanks'],
+                    system_signals={role: name for role, name in self.system_signals.items()
+                                    if tags.get(name, {}).get('read_write') == 'R'},
                     row_id=sample['id'] if sample else None, source_at=sample['source_at'] if sample else None,
                     corrected_source_at=sample['corrected_source_at'] if sample else None,
                     clock_offset_ms=self.offset.total_seconds() * 1000 if self.zone is not None and self.offset is not None else None,

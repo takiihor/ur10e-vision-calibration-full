@@ -37,11 +37,12 @@ def accepted_receipt(receipt, command, value):
             and binary(receipt.get('value')) and receipt['value'] == value)
 
 
-def simulator_cases(fixture):
+def simulator_cases(fixture, mode_names=()):
     cases = fixture.get('test_cases', [])
     if not isinstance(cases, list) or len(cases) > 100:
         raise ValueError('Invalid simulator test cases.')
     result = {}
+    reserved = set(mode_names)
     for case in cases:
         if not isinstance(case, dict) or set(case) - {
             'id', 'command', 'feedback', 'baseline', 'expected', 'clear', 'seconds',
@@ -50,7 +51,7 @@ def simulator_cases(fixture):
             raise ValueError('Invalid simulator test case.')
         ident, command, feedback = (case.get(key) for key in ('id', 'command', 'feedback'))
         if (any(not isinstance(name, str) or not IDENT.fullmatch(name) for name in (ident, command, feedback))
-                or command == feedback or {'Remote', 'Local'}.intersection((command, feedback))
+                or command == feedback or reserved.intersection((command, feedback))
                 or ident in result or not binary(case.get('baseline')) or not binary(case.get('expected'))
                 or case['baseline'] == case['expected'] or not binary(case.get('clear', 0))
                 or type(case.get('seconds')) is not int or not 1 <= case['seconds'] <= 15
@@ -66,18 +67,19 @@ def stamped(value):
     return datetime.fromisoformat(value).utcoffset() is not None
 
 
-def valid_sample(sample, case, command=None, feedback=None):
-    values = sample['values']
+def valid_sample(sample, run, command=None, feedback=None):
+    values, case = sample['values'], run['case']
+    remote, local = (tag['tag_name'] for tag in run['metadata'][:2])
     return (count(sample['id']) and all(stamped(sample[key]) for key in ('source_at', 'corrected_source_at', 'read_at'))
-            and all(binary(values[name]) for name in ('Remote', 'Local', case['command'], case['feedback']))
-            and values['Remote'] == 1 and values['Local'] == 0
+            and all(binary(values[name]) for name in (remote, local, case['command'], case['feedback']))
+            and values[remote] == 1 and values[local] == 0
             and (command is None or values[case['command']] == command)
             and (feedback is None or values[case['feedback']] == feedback))
 
 
 def valid_attempt(attempt, run, value):
     return (type(attempt['ordered']) is bool and type(attempt['accepted']) is bool and stamped(attempt['at'])
-            and valid_sample(attempt['baseline'], run['case'])
+            and valid_sample(attempt['baseline'], run)
             and attempt['accepted'] == accepted_receipt(attempt['receipt'], run['metadata'][2], value))
 
 
@@ -87,7 +89,8 @@ def validate_saved_run(run, ident):
             or not isinstance(state, str) or state not in DISPOSITIONS or run['api'] not in DISPOSITIONS[state]
             or not isinstance(run['reason'], str) or not stamped(run['at'])):
         raise ValueError('Malformed line test.')
-    simulator_cases({'test_cases': [case]})
+    mode_names = (tag['tag_name'] for tag in run.get('metadata', [])[:2])
+    simulator_cases({'test_cases': [case]}, mode_names)
     json.dumps(run, allow_nan=False)
     if state in TERMINAL | {'uncertain'} and not stamped(run['finished_at']):
         raise ValueError('Malformed finish time.')
@@ -103,18 +106,18 @@ def validate_saved_run(run, ident):
         raise ValueError('Malformed restore attempts.')
     if 'dispatches' in run and (type(run['dispatches']) is not int or run['dispatches'] != ('one' in run) + len(zeroes)):
         raise ValueError('Malformed dispatch count.')
-    if 'baseline' in run and not valid_sample(run['baseline'], case, 0, case['baseline']):
+    if 'baseline' in run and not valid_sample(run['baseline'], run, 0, case['baseline']):
         raise ValueError('Malformed baseline.')
     if 'one' in run and (not valid_attempt(run['one'], run, 1) or run['one']['baseline'] != run['baseline']):
         raise ValueError('Malformed command attempt.')
     if 'observation' in run:
         observed = run['observation']
-        if (not run['one']['accepted'] or not valid_sample(observed, case, 1, case['expected'])
+        if (not run['one']['accepted'] or not valid_sample(observed, run, 1, case['expected'])
                 or not LineTest.later(observed, run['one'])):
             raise ValueError('Malformed feedback observation.')
     if 'zero_readback' in run:
         restored = run['zero_readback']
-        if (not zeroes or not zeroes[-1]['accepted'] or not valid_sample(restored, case, 0, case.get('clear'))
+        if (not zeroes or not zeroes[-1]['accepted'] or not valid_sample(restored, run, 0, case.get('clear'))
                 or not LineTest.later(restored, zeroes[-1])):
             raise ValueError('Malformed restore readback.')
     if state == 'refused' and ('one' in run or zeroes):
@@ -146,7 +149,8 @@ class LineTest:
         self.root = Path(root)
         self.line, self.owner = line, owner
         self.enabled = enabled and line.mode == 'simulation' and type(line.client) is Simulator
-        self.cases = simulator_cases(line.client.fixture) if self.enabled else {}
+        self.mode_names = tuple(line.system_signals.get(role) for role in ('remote_mode', 'local_mode'))
+        self.cases = simulator_cases(line.client.fixture, self.mode_names) if self.enabled else {}
         self.record_event = record_event
         self.directory = self.root / 'line-tests' / 'simulation'
         self.lock, self.wake = RLock(), Event()
@@ -236,7 +240,8 @@ class LineTest:
     def sample(self, case, identity=None):
         with self.line.lock:
             tags, sample = self.line.tags, self.line.sample
-            names = ('Remote', 'Local', case['command'], case['feedback'])
+            remote, local = self.mode_names
+            names = (remote, local, case['command'], case['feedback'])
             metadata = [tags.get(name) for name in names]
             if any(tag is None or tag['data_type'] != 'Bool' or tag['multiplier'] != 1
                    for tag in metadata):
@@ -256,7 +261,7 @@ class LineTest:
                     or self.line.clock() - sample['monotonic_at'] >= LIMIT_MS / 1000):
                 raise ValueError('A complete fresh PLC row is required. Check the simulator read feed.')
             values = sample['values']
-            if values['Remote'] != 1 or values['Local'] != 0:
+            if values[remote] != 1 or values[local] != 0:
                 raise ValueError('A test needs Remote = 1 and Local = 0. Check the reported mode.')
             return {**{key: sample[key] for key in ('id', 'source_at', 'corrected_source_at', 'read_at')},
                     'values': {name: values[name] for name in names}}, metadata

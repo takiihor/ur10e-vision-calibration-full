@@ -18,7 +18,7 @@
     <div class="agv-urgent">
       <div>
         <button class="danger" id="agv-stop" aria-keyshortcuts="Escape" disabled>Stop (software)</button>
-        <div>Esc also sends Stop</div>
+        <div id="agv-stop-shortcut">Esc also sends Stop</div>
         <div id="agv-stop-why">Connect first.</div><div id="agv-stop-outcome"></div>
       </div>
       <div><button class="secondary" id="agv-pause" disabled>Pause (station-call mode)</button><div id="agv-pause-why">Connect first.</div><div id="agv-pause-outcome"></div></div>
@@ -64,7 +64,7 @@
   <section class="agv-panel">
     <h2>Connection</h2>
     <div class="agv-settings">
-      <label>Transport<select id="agv-mode"><option value="simulator">Simulator</option><option value="serial">Serial port</option></select></label>
+      <label>Transport<select id="agv-mode"><!--simulation--><option value="simulator">Simulator</option><!--/simulation--><option value="wired" id="agv-wired-mode" hidden disabled>Wired RS485</option><option value="serial">Serial port</option></select></label>
       <label id="agv-port-label">Port<select id="agv-port" aria-describedby="agv-port-why" disabled><option value="">Select a port</option></select><small id="agv-port-why"></small></label>
     </div>
     <details class="agv-link-settings" id="agv-link-settings">
@@ -72,7 +72,7 @@
       <div class="agv-settings">
         <label>Address (hex)<input id="agv-address" value="00 01" autocomplete="off" spellcheck="false" aria-describedby="agv-connection-note"></label>
         <label>Channel (hex)<input id="agv-channel" value="04" autocomplete="off" spellcheck="false" aria-describedby="agv-connection-note"></label>
-        <label id="agv-stations-config-label">Simulator stations<input id="agv-stations-config" type="number" min="0" max="255" value="3" aria-describedby="agv-connection-note"></label>
+        <label id="agv-stations-config-label" hidden>Simulator stations<input id="agv-stations-config" type="number" min="0" max="255" value="3" aria-describedby="agv-connection-note"></label>
       </div>
     </details>
     <div class="agv-link-actions">

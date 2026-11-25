@@ -15,12 +15,14 @@ afterEach(() => {
 });
 
 const tags = [
-  { tag_name: 'Tank22_DoorOpened', group: 'Tank22', device_address: 'M5', description: 'Synthetic door',
+  { tag_name: 'ExampleTank22_ExampleDoor', group: 'Tank22', device_address: 'M5', description: 'Synthetic door',
     read_write: 'R', data_type: 'Bool', multiplier: 1 },
-  { tag_name: 'Tank21_HaveBasket', group: 'Tank21', device_address: 'M4', description: 'Synthetic basket',
+  { tag_name: 'ExampleTank21_ExampleBasket', group: 'Tank21', device_address: 'M4', description: 'Synthetic basket',
     read_write: 'R', data_type: 'Bool', multiplier: 1 },
-  { tag_name: 'Tank21A_Command', group: 'Tank21A', device_address: 'M8', description: 'Synthetic command',
+  { tag_name: 'ExampleTank21A_ExampleCommand', group: 'Tank21A', device_address: 'M8', description: 'Synthetic command',
     read_write: 'W', data_type: 'Bool', multiplier: 1 },
+  { tag_name: 'FixtureWaterBlock', group: 'System', device_address: 'M9', description: 'Synthetic water-level block',
+    read_write: 'R', data_type: 'Bool', multiplier: 1 },
 ];
 
 function open(test = false) {
@@ -33,12 +35,36 @@ function open(test = false) {
   vi.stubGlobal('fetch', vi.fn(async (path, options) => ({
     ok: true, json: async () => options.method === 'POST' ? { id: 1 } :
       path === '/api/line/diagnostics' ? { events: [{ operation: 'Read', outcome: 'Replied', row_id: 2 }] } :
-      { revision: 1, tags, tanks: { Tank21: { basket: 'Tank21_HaveBasket', door_opened: 'Tank22_DoorOpened' } },
-        warnings: [{code: 'alias', message: 'Tank21 door uses Tank22_DoorOpened.' }] },
+      { revision: 1, tags, tanks: { Tank21: { basket: 'ExampleTank21_ExampleBasket', door_opened: 'ExampleTank22_ExampleDoor',
+        water_level_blocked: 'FixtureWaterBlock' }, Tank22: {} },
+        warnings: [{code: 'alias', message: 'Tank21 door uses ExampleTank22_ExampleDoor.' }] },
   })));
   page = mount(LinePage, { global: { plugins: [PrimeVue] }, props: { test, state, variable, onOutcome: outcomes } });
   return { state, sample, variable, outcomes };
 }
+
+it.each([false, true])('shows a water-level block on the mapped tank with API test mode %s', async test => {
+  const { sample } = open(test);
+  await flushPromises();
+  await page.get('#line-view').setValue('tank');
+  const reading = () => page.get('[data-tag="FixtureWaterBlock"] .line-value').text();
+  expect(reading()).toContain('Blocked: water level not met');
+  await page.get('#line-tank').setValue('Tank22');
+  expect(page.text()).not.toContain('Blocked: water level not met');
+  await page.get('#line-tank').setValue('Tank21');
+  sample.value = 0;
+  await nextTick();
+  expect(reading()).toContain('Water-level block inactive');
+  sample.value = null;
+  await nextTick();
+  expect(reading()).toContain('Unknown');
+  Object.assign(sample, { quality: 'stale', value: 1 });
+  await nextTick();
+  expect(reading()).toContain('Unknown');
+  sample.quality = 'fresh';
+  await page.setProps({ stateError: 'Service unavailable' });
+  expect(reading()).toContain('Unknown');
+});
 
 it('browses raw readbacks with combined filters, advanced metadata and stable selection', async () => {
   open(true);
@@ -49,7 +75,7 @@ it('browses raw readbacks with combined filters, advanced metadata and stable se
   await page.get('#line-access').setValue('W');
   await page.get('#line-query').setValue('m8');
   await page.get('#line-type').setValue('Bool');
-  expect(page.text()).toContain('Tank21A_Command');
+  expect(page.text()).toContain('ExampleTank21A_ExampleCommand');
   expect(page.text()).not.toContain('Synthetic basket');
   await page.get('#line-advanced').setValue(true);
   expect(page.text()).toContain('not published');
@@ -61,10 +87,10 @@ it('shows the mapped values with the same expiry as Scene and queues one catalog
   const { state, sample, variable, outcomes } = open();
   await flushPromises();
   await page.get('#line-view').setValue('tank');
-  expect(page.text()).toContain('Tank22_DoorOpened');
+  expect(page.text()).toContain('ExampleTank22_ExampleDoor');
   expect(page.text()).toContain('0.6 s ago');
   const config = { tanks: [{ id: 'Tank21', label: 'Tank 21' }] };
-  const mappings = { Tank21: { basket: 'Tank21_HaveBasket' } };
+  const mappings = { Tank21: { basket: 'ExampleTank21_ExampleBasket' } };
   expect(sceneLabels(config, variable, null, mappings).at(-1)).toMatchObject({ state: 'Occupied', age: '0.6 s ago' });
   Object.assign(sample, { age_ms: 3200, quality: 'stale', value: null });
   await nextTick();

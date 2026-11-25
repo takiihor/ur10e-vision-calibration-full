@@ -20,6 +20,10 @@ export async function request(path, body, timeout = 8000) {
   return value;
 }
 
+export function simulationEnabled() {
+  return document.querySelector('meta[name="module-simulation"]')?.content !== 'off';
+}
+
 export async function requestBytes(path, cache = 'no-cache') {
   const response = await fetchLocal(path, null, 8000, cache);
   if (!response.ok) throw new Error('Display asset unavailable.');

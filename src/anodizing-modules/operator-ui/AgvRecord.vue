@@ -101,8 +101,8 @@ function download(format) {
 </script>
 
 <template>
-  <div class="agv-workflow">
-    <Panel class="panel agv-surface">
+  <div data-ui="agv.record.workspace" class="agv-workflow">
+    <Panel data-ui="agv.record.checklist" class="panel agv-surface">
       <template #header><h2>Commissioning checklist</h2></template>
       <Message severity="secondary" :pt="{ root: { role: 'note', 'aria-live': 'off' } }">
         <strong>Before testing</strong> Confirm the robot is idle, the track is clear, a person is at the AGV’s e-stop, and fresh status is visible.
@@ -111,8 +111,8 @@ function download(format) {
       <Timeline :value="steps" class="checklist" :pt="{ root: { role: 'list' }, event: { role: 'listitem' } }">
         <template #content="{ item: { number, title, instructions, watch } }">
           <Accordion @update:value="opened">
-            <AccordionPanel :id="'agv-test-' + number" :value="number">
-              <AccordionHeader>
+            <AccordionPanel data-ui="agv.record.checklist.row" :data-ui-key="number" :id="'agv-test-' + number" :value="number">
+              <AccordionHeader data-ui="agv.record.checklist.toggle" :data-ui-key="number">
                 <span class="checklist-label">{{ title }}</span>
                 <Tag :value="agv.session.checklist[number]?.result ?? 'Not tested'"
                   :severity="resultSeverity[agv.session.checklist[number]?.result] ?? 'secondary'" />
@@ -123,12 +123,12 @@ function download(format) {
                 <div class="field-row">
                   <div class="checklist-field">
                     <label :id="'agv-result-label-' + number" :for="'agv-result-' + number">Result</label>
-                    <Select :input-id="'agv-result-' + number" :aria-labelledby="'agv-result-label-' + number"
+                    <Select :pt="{ label: { 'data-ui': 'agv.record.checklist.result', 'data-ui-key': number } }" :input-id="'agv-result-' + number" :aria-labelledby="'agv-result-label-' + number"
                       :model-value="agv.session.checklist[number]?.result ?? 'Not tested'" :options="outcomesList" fluid
                       @update:model-value="updateTest(number, 'result', $event)" />
                   </div>
                   <label :for="'agv-notes-' + number">Notes
-                    <Textarea :id="'agv-notes-' + number" rows="3" :model-value="agv.session.checklist[number]?.notes ?? ''"
+                    <Textarea data-ui="agv.record.checklist.notes" :data-ui-key="number" :id="'agv-notes-' + number" rows="3" :model-value="agv.session.checklist[number]?.notes ?? ''"
                       @update:model-value="updateTest(number, 'notes', $event)" />
                   </label>
                 </div>
@@ -143,27 +143,27 @@ function download(format) {
         </template>
       </Timeline>
     </Panel>
-    <Panel class="panel agv-surface">
+    <Panel data-ui="agv.record.events" class="panel agv-surface">
       <template #header><h2>Events</h2></template>
-      <form class="field-row" @submit.prevent="observed">
+      <form data-ui="agv.record.event.form" class="field-row" @submit.prevent="observed">
         <label for="agv-mark-text">What did you observe?
-          <InputText id="agv-mark-text" v-model="markText" maxlength="120" placeholder="e.g. AGV stopped" required />
+          <InputText data-ui="agv.record.event.text" id="agv-mark-text" v-model="markText" maxlength="120" placeholder="e.g. AGV stopped" required />
         </label>
-        <Button id="agv-mark" label="Mark event" type="submit" severity="secondary" />
+        <Button data-ui="agv.record.event.add" id="agv-mark" label="Mark event" type="submit" severity="secondary" />
       </form>
       <ol id="agv-event-feed">
-        <li v-for="(event, index) in agv.journal.events.slice(-12).reverse()" :key="index">
+        <li data-ui="agv.record.event.row" :data-ui-key="event.id == null ? event.timestamp + '.' + event.field : event.connection + '.' + event.id" v-for="(event, index) in agv.journal.events.slice(-12).reverse()" :key="index">
           {{ localTime(event.timestamp) }} · {{ event.text }}
         </li>
       </ol>
     </Panel>
     <Accordion class="panel agv-surface">
-      <AccordionPanel value="found-settings">
-        <AccordionHeader>Settings as found</AccordionHeader>
+      <AccordionPanel data-ui="agv.record.settings" value="found-settings">
+        <AccordionHeader data-ui="agv.record.settings.toggle">Settings as found</AccordionHeader>
         <AccordionContent>
           <div class="controls found-fields">
             <label v-for="(label, key) in foundFields" :key="key" :for="'agv-found-' + key">{{ label }}
-              <InputText :id="'agv-found-' + key" :type="foundFieldType[key] ?? 'text'"
+              <InputText data-ui="agv.record.settings.field" :data-ui-key="key" :id="'agv-found-' + key" :type="foundFieldType[key] ?? 'text'"
                 :min="key === 'restart-seconds' ? 0 : undefined" :step="key === 'restart-seconds' ? 'any' : undefined"
                 :model-value="agv.session.settings[key] ?? ''" @update:model-value="updateSetting(key, $event)" />
             </label>
@@ -171,25 +171,29 @@ function download(format) {
         </AccordionContent>
       </AccordionPanel>
     </Accordion>
-    <Panel class="panel agv-surface">
+    <Panel data-ui="agv.record.exports" class="panel agv-surface">
       <template #header><h2>Test record</h2></template>
       <div class="controls">
-        <Button id="agv-download-report" label="Download readable report" type="button" severity="secondary" @click="download('markdown')" />
-        <Button id="agv-download" label="Download JSON record" type="button" severity="secondary" @click="download('json')" />
-        <Button id="agv-new-session" label="New test session" type="button" severity="secondary" @click="confirmReset" />
+        <Button data-ui="agv.record.export.markdown" id="agv-download-report" label="Download readable report" type="button" severity="secondary" @click="download('markdown')" />
+        <Button data-ui="agv.record.export.json" id="agv-download" label="Download JSON record" type="button" severity="secondary" @click="download('json')" />
+        <Button data-ui="agv.record.reset" id="agv-new-session" label="New test session" type="button" severity="secondary" @click="confirmReset" />
       </div>
       <p id="agv-record-note" role="status">{{ agv.recordNote }}</p>
-      <ConfirmDialog :draggable="false" :pt="{ root: { class: 'record-dialog', 'aria-describedby': 'agv-reset-description' } }">
+      <ConfirmDialog :draggable="false" :pt="{ root: { 'data-ui': 'agv.record.reset.dialog', class: 'record-dialog', 'aria-describedby': 'agv-reset-description' },
+          pcCloseButton: { root: { 'data-ui': 'agv.record.reset.close' } },
+          pcAcceptButton: { root: { 'data-ui': 'agv.record.reset.accept' } },
+          pcRejectButton: { root: { 'data-ui': 'agv.record.reset.cancel' } } }">
         <template #message="{ message }">
           <p id="agv-reset-description">{{ message.message }}</p>
         </template>
       </ConfirmDialog>
       <Accordion lazy>
-        <AccordionPanel value="command-results">
-          <AccordionHeader>Recent command results</AccordionHeader>
+        <AccordionPanel data-ui="agv.record.commands" value="command-results">
+          <AccordionHeader data-ui="agv.record.commands.toggle">Recent command results</AccordionHeader>
           <AccordionContent>
             <DataTable id="agv-command-results" :value="commands" class="record-table" scrollable scroll-height="24rem"
-              :pt="{ tableContainer: { tabindex: 0 } }" :table-props="{ 'aria-label': 'Recent command results' }">
+              :pt="{ tableContainer: { 'data-ui': 'agv.record.commands.table', tabindex: 0 },
+                bodyRow: ({ props }) => ({ 'data-ui': 'agv.record.commands.row', 'data-ui-key': props.rowData.connection + '.' + props.rowData.tx_id }) }" :table-props="{ 'aria-label': 'Recent command results' }">
               <template #empty>No command results in this session.</template>
               <Column field="timestamp" header="Time"><template #body="{ data }">{{ localTime(data.timestamp) }}</template></Column>
               <Column field="name" header="Command"><template #body="{ data }">{{ agv.commands.get(data.name)?.label ?? data.name }}</template></Column>
@@ -204,13 +208,14 @@ function download(format) {
       </Accordion>
     </Panel>
     <Accordion class="panel agv-surface" lazy>
-      <AccordionPanel value="raw-log">
-        <AccordionHeader>Raw TX/RX log</AccordionHeader>
+      <AccordionPanel data-ui="agv.record.frames" value="raw-log">
+        <AccordionHeader data-ui="agv.record.frames.toggle">Raw TX/RX log</AccordionHeader>
         <AccordionContent>
           <Message v-if="agv.journal.log_gap" severity="warn">Some log entries are missing from this record.</Message>
           <p v-if="agv.state.status_hex">Raw status frame <code>{{ agv.state.status_hex }}</code></p>
           <DataTable id="agv-log" :value="raw" class="record-table" scrollable scroll-height="24rem"
-            :pt="{ tableContainer: { tabindex: 0 } }" :table-props="{ 'aria-label': 'Timestamped TX/RX log' }">
+            :pt="{ tableContainer: { 'data-ui': 'agv.record.frames.table', tabindex: 0 },
+              bodyRow: ({ props }) => ({ 'data-ui': 'agv.record.frames.row', 'data-ui-key': props.rowData.connection + '.' + props.rowData.id }) }" :table-props="{ 'aria-label': 'Timestamped TX/RX log' }">
             <template #empty>No frames in this session.</template>
             <Column field="timestamp" header="Time"><template #body="{ data }">{{ localTime(data.timestamp) }}</template></Column>
             <Column field="direction" header="Direction" />

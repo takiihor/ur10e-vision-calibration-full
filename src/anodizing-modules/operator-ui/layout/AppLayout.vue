@@ -38,11 +38,11 @@ onUnmounted(() => window.removeEventListener('resize', updateViewport));
     <div class="layout-wrapper layout-static" :class="containerClass">
         <AppTopbar :menu-open="menuOpen" :transport="transport" @toggle-menu="toggleMenu" @navigate="hideMobileMenu" />
         <AppSidebar :open="menuOpen" :route="route" @navigate="hideMobileMenu" />
-        <main id="main" class="layout-main-container" :inert="mobileMenuActive || undefined">
+        <main data-ui="layout.main" id="main" class="layout-main-container" :inert="mobileMenuActive || undefined">
             <div class="layout-main">
                 <slot />
             </div>
         </main>
-        <div class="layout-mask" aria-hidden="true" @click="hideMobileMenu" />
+        <div data-ui="layout.navigation.dismiss" class="layout-mask" aria-hidden="true" @click="hideMobileMenu" />
     </div>
 </template>

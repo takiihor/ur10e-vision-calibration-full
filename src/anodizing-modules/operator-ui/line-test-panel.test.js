@@ -22,7 +22,8 @@ function open(state) {
     if (body.action === 'prepare') return { approval: 'fixture-approval', baseline: { id: 12, source_at: '2026-01-01T00:00:04.125Z', values: {} }, seconds: 30, metadata: [] };
     return { id: body.request_id };
   });
-  page = mount(LineTestPanel, { props: { quality: 'fresh', variable: id => ({ value: id === 'line.Remote' ? 1 : 0 }) },
+  page = mount(LineTestPanel, { props: { quality: 'fresh', systemSignals: { remote_mode: 'ExampleRemote', local_mode: 'ExampleLocal' },
+    variable: id => ({ value: id === 'line.ExampleRemote' ? 1 : 0 }) },
     global: { plugins: [PrimeVue] } });
   return send;
 }

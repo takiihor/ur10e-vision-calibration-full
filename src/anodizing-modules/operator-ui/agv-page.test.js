@@ -6,7 +6,7 @@ import PrimeVue from 'primevue/config';
 import ConfirmationService from 'primevue/confirmationservice';
 import AgvPage from './AgvPage.vue';
 import { useAgv } from './useAgv.js';
-import { journalKey, newSession, sessionKey } from '../app/anodizing_web/web/agv-record.mjs';
+import { connectionKey, journalKey, newSession, sessionKey } from '../app/anodizing_web/web/agv-record.mjs';
 
 const stamp = '2026-11-20T08:00:00.000Z';
 const settings = { mode: 'simulator', address: '00 01', channel: '04' };
@@ -16,9 +16,10 @@ const status = {
 };
 let app;
 
-async function open(respond = () => ({})) {
+async function open(respond = () => ({}), simulation = 'on') {
   let agv, sequence = 0;
-  document.head.innerHTML = '<meta name="module-token" content="fixture">';
+  document.head.innerHTML = '<meta name="module-token" content="fixture">' +
+    `<meta name="module-simulation" content="${simulation}">`;
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   vi.stubGlobal('fetch', vi.fn(async (path, options) => {
     const body = options.body && JSON.parse(options.body);
@@ -49,6 +50,58 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
   localStorage.clear();
+});
+
+it('shows running motion as a labelled normal state', async () => {
+  await open(() => ({ status: { ...status, stopped: false, actual_speed_m_h: 500 } }));
+  const motion = app.get('#agv-motion');
+  expect(motion.text()).toBe('Running');
+  expect(motion.attributes('data-state')).toBe('running');
+});
+
+it('shows the fault code and private description without a supplier page reference', async () => {
+  await open(() => ({ status: { ...status, fault_code: 61, fault_description: 'Example guide fault' } }));
+  expect(app.text()).toContain('Fault 61 · Example guide fault');
+  expect(app.text()).not.toContain('(manual p.');
+});
+
+it.each(['on', 'off'])('offers the configured transports with simulation %s', async simulation => {
+  localStorage.setItem(connectionKey, JSON.stringify(settings));
+  const agv = await open(() => ({ connected: false, status: null, settings: null }), simulation);
+  const transport = app.get('[data-ui="agv.link.transport"]');
+  await transport.trigger('click');
+  const options = [...document.querySelectorAll('[role="option"]')].map(option => option.textContent);
+  expect(options).toEqual(simulation === 'on' ? ['Simulator', 'Serial port'] : ['Serial port']);
+  expect(agv.form.mode).toBe(simulation === 'on' ? 'simulator' : 'serial');
+  expect(fetch.mock.calls.every(([, request]) => request.method === undefined)).toBe(true);
+});
+
+it('defaults to the configured status-only wired link while simulation is hidden', async () => {
+  const agv = await open(() => ({
+    connected: false, status: null, settings: null, wired_port: '/dev/example',
+    serial_available: true, motion_block: 'AGV link is status-only.',
+  }), 'off');
+  await app.get('[data-ui="agv.link.transport"]').trigger('click');
+  const options = [...document.querySelectorAll('[role="option"]')].map(option => option.textContent);
+  expect(options).toContain('Wired RS-485');
+  expect(options).not.toContain('Simulator');
+  expect(agv.form.mode).toBe('wired');
+  expect(agv.connectReason).toBe('');
+  expect(fetch.mock.calls.every(([, options]) => options.method === undefined)).toBe(true);
+});
+
+it('renders stable selectors on the actual controls and gives every station its own key', async () => {
+  await open();
+  expect(app.get('[data-ui="agv.link.transport"]').attributes('role')).toBe('combobox');
+  expect(app.get('[data-ui="agv.movement.arm"]').element.tagName).toBe('INPUT');
+  const stations = app.findAll('[data-ui="agv.call.station"]');
+  expect(stations.length).toBeGreaterThan(1);
+  expect(stations.map(button => button.attributes('data-ui-key')))
+    .toEqual(stations.map((_, index) => String(index + 1)));
+  expect(stations.every(button => button.element.tagName === 'BUTTON')).toBe(true);
+  const selectors = app.findAll('[data-ui]').map(element =>
+    JSON.stringify([element.attributes('data-ui'), element.attributes('data-ui-key')]));
+  expect(new Set(selectors).size).toBe(selectors.length);
 });
 
 it('uses the latest stop generation for one movement and leaves an inquiry independent of it', async () => {
@@ -138,6 +191,49 @@ it('allows both stations when the AGV reports one learned leg', async () => {
   await app.get('#agv-station-2').trigger('click');
   await flushPromises();
   expect(requests[1]).toMatchObject({ command: 'call_station', value: 2, stop_generation: 7 });
+});
+
+it('shows sixteen station calls and a separate Parking call for sixteen learned legs', async () => {
+  const requests = [];
+  let armed = false, target = 16;
+  await open(body => {
+    if (body) requests.push(body);
+    if (body?.action === 'arm') armed = body.armed;
+    if (body?.command === 'call_station') target = body.value;
+    return { armed, status: { ...status, max_stations: 16, target_station: target } };
+  });
+  const grid = app.get('[data-ui="agv.call.grid"]');
+  const stations = grid.findAll('[data-ui="agv.call.station"]');
+  expect(stations.map(button => button.attributes('data-ui-key')))
+    .toEqual(Array.from({ length: 16 }, (_, index) => String(index + 1)));
+  expect(stations[15].text()).toContain('Station 16');
+  expect(grid.find('[data-ui="agv.call.parking"]').exists()).toBe(false);
+  const parking = app.get('[data-ui="agv.call.parking"]');
+  expect(parking.text()).toContain('Parking');
+  expect(app.get('[data-ui-key="current"]').text()).toContain('Station 1');
+  expect(app.get('[data-ui-key="target"]').text()).toContain('Station 16');
+
+  app.get('#agv-armed').element.click();
+  await flushPromises();
+  expect([...stations, parking].every(button => !button.element.disabled)).toBe(true);
+  await parking.trigger('click');
+  await flushPromises();
+  expect(requests[1]).toMatchObject({ command: 'call_station', value: 17, stop_generation: 7 });
+  expect(app.get('[data-ui-key="target"]').text()).toContain('Parking');
+});
+
+it('uses local station labels and a different parking number without widening a shorter learned route', async () => {
+  await open(() => ({
+    station_profile: { parking_station: 2, station_labels: { 1: 'Load bay' } },
+    status: { ...status, max_stations: 1, target_station: 2 },
+  }));
+  expect(app.get('[data-ui="agv.call.station"][data-ui-key="1"]').text()).toContain('Load bay');
+  expect(app.get('[data-ui="agv.call.parking"]').attributes('id')).toBe('agv-station-2');
+  expect(app.get('[data-ui-key="current"]').text()).toContain('Load bay');
+  expect(app.get('[data-ui-key="target"]').text()).toContain('Parking');
+  const unlearned = app.get('[data-ui="agv.call.station"][data-ui-key="17"]');
+  expect(unlearned.element.disabled).toBe(true);
+  expect(app.get('#agv-station-17-why').text()).toMatch(/not learned/i);
 });
 
 it('shows a spinner beside a pending connection control without disabling urgent sends', async () => {

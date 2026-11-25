@@ -89,7 +89,7 @@ class SiteProfileTests(unittest.TestCase):
         self.assertEqual(found['picking_boards'], [])
         self.assertEqual(found['settings']['target']['board'], '')
         self.assertEqual(found['settings']['project'].split('/')[0], 'teaching')
-        self.assertNotEqual(found['settings']['project'], 'teaching/tank01-new')
+        self.assertNotEqual(found['settings']['project'], 'teaching/site-project-example')
         board = Path(__file__).parents[2] / 'data/boards/stage2_charuco_realsense_80mm/board_manifest.json'
         (self.root / 'boards/example').mkdir(parents=True)
         (self.root / 'boards/example/board_manifest.json').write_bytes(board.read_bytes())

@@ -52,8 +52,8 @@ async function loadProject() {
 </script>
 
 <template>
-  <div class="scene-grid">
-    <Card class="panel">
+  <div data-ui="scene.page" class="scene-grid">
+    <Card data-ui="scene.view.panel" class="panel">
       <template #title><h2>Line view</h2></template>
       <template #content>
         <p><strong>Display only. No collision checking.</strong>
@@ -73,16 +73,16 @@ async function loadProject() {
           </Message>
           <SceneCanvas :config="config" :labels="labels" :joints="joints" :model="model" />
         </template>
-        <Button as="a" href="/preview/tool-envelope.html" severity="secondary" class="page-link"
+        <Button data-ui="scene.legacy.open" as="a" href="/preview/tool-envelope.html" severity="secondary" class="page-link"
           label="Open Legacy tool and collision preview" />
       </template>
     </Card>
-    <Card class="panel">
+    <Card data-ui="scene.labels.panel" class="panel">
       <template #title><h2 id="scene-labels-heading">Scene labels</h2></template>
       <template #content>
         <Message v-if="stateError" severity="error">{{ stateError }}</Message>
         <ul class="scene-label-list" aria-labelledby="scene-labels-heading">
-          <li v-for="item in labels" :key="item.id" :data-label="item.id">
+          <li data-ui="scene.labels.row" :data-ui-key="item.id" v-for="item in labels" :key="item.id" :data-label="item.id">
             <strong>{{ item.name }}</strong>
             <Tag :value="item.state" :severity="item.unknown ? 'secondary' : 'info'" />
             <span class="scene-age">{{ item.age }}</span>
@@ -90,10 +90,10 @@ async function loadProject() {
             <small v-if="item.taught">Taught tank</small>
           </li>
         </ul>
-        <form class="scene-project" @submit.prevent="loadProject">
+        <form data-ui="scene.project.form" class="scene-project" @submit.prevent="loadProject">
           <label for="scene-project">Teaching project path</label>
-          <InputText id="scene-project" v-model="projectPath" autocomplete="off" aria-describedby="scene-project-status" />
-          <Button type="submit" label="Load project" severity="secondary" :disabled="loading || !projectPath.trim()" />
+          <InputText data-ui="scene.project.path" id="scene-project" v-model="projectPath" autocomplete="off" aria-describedby="scene-project-status" />
+          <Button data-ui="scene.project.load" type="submit" label="Load project" severity="secondary" :disabled="loading || !projectPath.trim()" />
           <p id="scene-project-status" role="status">{{ projectStatus || 'Enter a saved project to show its taught tank.' }}</p>
         </form>
       </template>

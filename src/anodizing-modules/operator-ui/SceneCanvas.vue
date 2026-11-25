@@ -210,21 +210,21 @@ onUnmounted(() => {
   <figure class="scene-figure" :data-frame-ms="frameMs">
     <Message v-if="message" severity="secondary">{{ message }}</Message>
     <template v-else>
-      <div v-if="frameMs !== null" class="scene-view-controls">
-        <Button type="button" label="Fit view" severity="secondary" @click="fit" />
+      <div data-ui="scene.view.controls" v-if="frameMs !== null" class="scene-view-controls">
+        <Button data-ui="scene.view.fit" type="button" label="Fit view" severity="secondary" @click="fit" />
         <small id="scene-keys">Drag to orbit. Right-drag or arrow keys to pan. Use the wheel or + and − to zoom.</small>
       </div>
       <p v-else role="status">Loading 3D drawing…</p>
     </template>
     <div v-show="!message" ref="viewport" class="scene-viewport">
-      <canvas ref="canvas" aria-label="3D display of the line" :tabindex="frameMs === null ? -1 : 0"
+      <canvas data-ui="scene.view.canvas" ref="canvas" aria-label="3D display of the line" :tabindex="frameMs === null ? -1 : 0"
         :aria-describedby="frameMs === null ? undefined : 'scene-keys'"
         @keydown="zoom" @webglcontextlost="lostContext" />
       <template v-for="item in visibleLabels" :key="item.id">
         <div class="scene-map-leader" :style="leaderStyle(item)" aria-hidden="true" />
         <div class="scene-map-anchor" :style="{ left: item.x + 'px', top: item.y + 'px' }" aria-hidden="true" />
       </template>
-      <div v-for="item in visibleLabels" :key="item.id" class="scene-map-label" :class="{ 'scene-unknown': item.unknown }"
+      <div data-ui="scene.view.label.row" :data-ui-key="item.id" v-for="item in visibleLabels" :key="item.id" class="scene-map-label" :class="{ 'scene-unknown': item.unknown }"
         :style="{ left: item.left + 'px', top: item.top + 'px' }" aria-hidden="true">
         <strong>{{ item.name }}</strong><template v-if="item.taught"> · Taught tank</template>
         <div>{{ item.state }}</div>

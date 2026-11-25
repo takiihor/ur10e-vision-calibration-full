@@ -17,7 +17,6 @@ function motionText(status, unknown = 'Unknown') {
 
 function stationLimit(status) {
   const legs = status?.max_stations;
-  // XBOT V2.0 manual lines 630–645 include the start as station 1.
   return legs > 0 ? Math.min(legs + 1, 255) : legs;
 }
 
@@ -98,14 +97,14 @@ const checklistCommands = [
 ];
 const foundFields = {
   operator: 'Operator', date: 'Date', site: 'Site', serial: 'AGV serial number', radio: 'Radio module model',
-  vehicle: 'Vehicle ID [本机编号]', 'radio-channel': 'Radio channel [频道]', reports: '485 timed reports [定时发送485]',
-  restart: 'Automatic restart after stop [停止后自动启动]', 'restart-seconds': 'Automatic restart delay (s)',
-  memory: 'Track memory [轨道记忆]', 'app-mode': 'Manual or auto [运行模式]', 'button-mode': 'Button mode [按钮模式]',
+  vehicle: 'Vehicle ID', 'radio-channel': 'Radio channel', reports: '485 timed reports',
+  restart: 'Automatic restart after stop', 'restart-seconds': 'Automatic restart delay (s)',
+  memory: 'Track memory', 'app-mode': 'Manual or auto', 'button-mode': 'Button mode',
 };
 
 function faultText(status) {
   if (!status || status.fault_code == null) return '—';
-  return status.fault_code === 0 ? 'No fault' : `Fault ${status.fault_code} · ${status.fault_description} (manual p. ${status.fault_page})`;
+  return status.fault_code === 0 ? 'No fault' : `Fault ${status.fault_code} · ${status.fault_description}`;
 }
 
 function linkQualityText(quality) {

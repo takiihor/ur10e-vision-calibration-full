@@ -170,6 +170,6 @@ def test_line_expires_during_server_state_collection():
             return ({}, None, None, False, None, False, None, None, None, 4, None, 0)
 
     state = server_state(SimpleNamespace(scene=None, line=line, agv=DelayedAgv()))
-    reading = item(state, 'Tank21_HaveBasket')
+    reading = item(state, 'ExampleTank21_ExampleBasket')
     assert reading['quality'] == 'stale' and reading['value'] is None
     assert state['line']['quality'] == 'stale'

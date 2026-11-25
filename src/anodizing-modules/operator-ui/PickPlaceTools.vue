@@ -134,27 +134,27 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <details v-for="{ kind, name, commands } in tools" :key="kind" class="panel" :open="tool === kind || undefined">
-    <summary>{{ name }}</summary>
+  <details data-ui="pick.tools.panel" :data-ui-key="kind" v-for="{ kind, name, commands } in tools" :key="kind" class="panel" :open="tool === kind || undefined">
+    <summary data-ui="pick.tools.toggle" :data-ui-key="kind">{{ name }}</summary>
     <template v-if="kind === 'mcu'">
       <p>Each click sends one command. Automatic tests issue their own MCU commands. A reply does not verify grip or release.</p>
-      <label class="pick-check" for="mcu-off"><Checkbox v-model="off" input-id="mcu-off" binary
+      <label class="pick-check" for="mcu-off"><Checkbox :pt="{ input: { 'data-ui': 'pick.tools.agv.off', 'data-ui-key': kind } }" v-model="off" input-id="mcu-off" binary
         :disabled="Boolean(owner?.active || busy || fence || !state.mcu.value)" />AGV is switched off for manual MCU actuation.</label>
       <p>{{ state.mcu.value?.parent ? 'MCU request uses the active grip or release prompt.' :
         agvReason(motion, off) || (off ? 'AGV switched off · operator declaration.' : motion?.detail) }}</p>
     </template>
     <template v-else>
       <label for="power-item">Operator-confirmed item state</label>
-      <Select :model-value="item" input-id="power-item" :options="[
+      <Select :pt="{ label: { 'data-ui': 'pick.tools.item', 'data-ui-key': kind } }" :model-value="item" input-id="power-item" :options="[
         { label: 'Released / no held item', value: released }, { label: 'Held', value: 'operator_confirmed_held' },
       ]" option-label="label" option-value="value" placeholder="Choose current state" @update:model-value="$emit('item', $event)" />
       <p>Power off requires Released / no held item.</p>
     </template>
     <div class="controls">
-      <OperatorButton v-for="[command, label] in commands" :id="kind + '-' + command" :key="command"
+      <OperatorButton data-ui="pick.tools.command" :data-ui-key="kind + '.' + command" v-for="[command, label] in commands" :id="kind + '-' + command" :key="command"
         :label="pending[kind].value.request_id && !why(kind, command) ? 'Retry same request · ' + label : label"
         :why="why(kind, command)" :outcome="outcomes[kind + '-' + command]" @press="send(kind, command)" />
-      <OperatorButton :id="kind + '-check'" label="Check request" :why="busy ? 'Wait for the current request.' :
+      <OperatorButton data-ui="pick.tools.check" :data-ui-key="kind" :id="kind + '-check'" label="Check request" :why="busy ? 'Wait for the current request.' :
         !ids[kind].value ? 'No saved request ID yet.' : ''" :outcome="outcomes[kind + '-check']" @press="inspect(kind)" />
     </div>
     <p v-if="pending[kind].value.request_id" role="status">Submission outcome unconfirmed. Check the request ID or explicitly retry the same request.</p>
@@ -169,8 +169,8 @@ onUnmounted(() => {
         · {{ timestamp(state[kind].value.last_known.observed_at) }}.</p>
     </template>
     <p v-else>No {{ kind === 'mcu' ? 'MCU reply' : 'voltage reading' }} recorded.</p>
-    <details v-if="state[kind].value?.last_known || evidence[kind].value">
-      <summary>Recorded request and reply</summary>
+    <details data-ui="pick.tools.evidence" :data-ui-key="kind" v-if="state[kind].value?.last_known || evidence[kind].value">
+      <summary data-ui="pick.tools.evidence.toggle" :data-ui-key="kind">Recorded request and reply</summary>
       <pre>{{ JSON.stringify(evidence[kind].value ?? state[kind].value.last_known, null, 2) }}</pre>
     </details>
   </details>

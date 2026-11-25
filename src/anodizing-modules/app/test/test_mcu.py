@@ -46,7 +46,7 @@ class MCUTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root/'project').mkdir()
         (self.root/'project/project.json').write_text(json.dumps(dict(schema_version=1,
-            type='marker_pick_project', settings={'robot_ip':'192.168.12.248'}, flow={})))
+            type='marker_pick_project', settings={'robot_ip':'192.0.2.248'}, flow={})))
         self.owner = JobOwner(self.root, allow_manual_pick_place=True)
 
     def submit(self, command='3', request_id='mcu-request-123'):
@@ -73,7 +73,7 @@ class MCUTests(unittest.TestCase):
                     job = self.finish(request_id)
                 self.assertEqual(job['state'], 'done', job['error'])
                 self.assertEqual(sock.sent, [command.encode('ascii')])
-                self.assertEqual(connect.call_args.args[0], ('192.168.12.248',54321))
+                self.assertEqual(connect.call_args.args[0], ('192.0.2.248',54321))
                 self.assertTrue(sock.closed)
                 self.assertEqual(job['mcu']['rx_hex'], response.hex(' '))
                 self.assertNotIn('item_state', job['mcu'])
@@ -294,7 +294,7 @@ class MCUTests(unittest.TestCase):
             self.owner.jobs['parent-pick']['manual']['stage']='awaiting_plan'
             with self.assertRaises(ValueError):self.child(parent)
             self.owner.jobs['parent-pick']['manual']['stage']='awaiting_grip'
-            self.owner.runner.context.settings['robot_ip']='192.168.12.249'
+            self.owner.runner.context.settings['robot_ip']='192.0.2.249'
             with self.assertRaises(ValueError):self.child(parent)
 
     def test_consumed_live_prompt_blocks_stale_persisted_wait(self):

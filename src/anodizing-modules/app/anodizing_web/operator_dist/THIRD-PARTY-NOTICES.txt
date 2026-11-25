@@ -251,12 +251,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-Nord palette
-https://github.com/nordtheme/nord/blob/develop/license
+Dracula Alucard palette
+https://draculatheme.com/spec
+https://github.com/dracula/dracula-theme/blob/main/LICENSE
 
 MIT License (MIT)
 
-Copyright (c) 2016-present Sven Greb <development@svengreb.de> (https://www.svengreb.de)
+Copyright (c) 2023 Dracula Theme
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

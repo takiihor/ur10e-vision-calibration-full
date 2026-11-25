@@ -60,7 +60,7 @@ function confirm() {
 </script>
 
 <template>
-  <section class="panel pick-operation" aria-labelledby="pick-operation-heading">
+  <section data-ui="pick.operation.panel" class="panel pick-operation" aria-labelledby="pick-operation-heading">
     <h2 id="pick-operation-heading">Current operation</h2>
     <Message v-if="manual?.agv_alarm" severity="error" role="alert">{{ manual.agv_alarm }}</Message>
     <p v-if="problem" role="status" data-state="failed">{{ problem }}</p>
@@ -104,18 +104,18 @@ function confirm() {
     </div>
     <template v-if="label">
       <p v-if="phase === 'grip' || phase === 'release'">Use the MCU controls, then check the item physically.</p>
-      <label class="pick-check" for="pick-confirm"><Checkbox v-model="confirmed" input-id="pick-confirm" binary
+      <label class="pick-check" for="pick-confirm"><Checkbox :pt="{ input: { 'data-ui': 'pick.operation.approval' } }" v-model="confirmed" input-id="pick-confirm" binary
         :disabled="Boolean(problem || running)" />{{ declaration }}</label>
-      <OperatorButton id="pick-confirm" :label="label" :why="confirmWhy" :outcome="outcomes['pick-confirm']" primary @press="confirm" />
+      <OperatorButton data-ui="pick.operation.confirm" id="pick-confirm" :label="label" :why="confirmWhy" :outcome="outcomes['pick-confirm']" primary @press="confirm" />
     </template>
-    <details>
-      <summary>Inspect operation and evidence</summary>
+    <details data-ui="pick.operation.evidence">
+      <summary data-ui="pick.operation.evidence.toggle">Inspect operation and evidence</summary>
       <label for="pick-job-id">Operation ID</label>
-      <InputText id="pick-job-id" v-model="id" autocomplete="off" />
+      <InputText data-ui="pick.operation.id" id="pick-job-id" v-model="id" autocomplete="off" />
       <div class="controls">
-        <OperatorButton id="pick-inspect" label="Inspect status" :why="!id.trim() ? 'Enter the operation ID.' : ''"
+        <OperatorButton data-ui="pick.operation.inspect" id="pick-inspect" label="Inspect status" :why="!id.trim() ? 'Enter the operation ID.' : ''"
           :outcome="outcomes['pick-inspect']" @press="$emit('inspect', id.trim())" />
-        <OperatorButton v-if="owner?.active && owner.active !== job?.id" id="pick-follow" label="Follow active operation"
+        <OperatorButton data-ui="pick.operation.follow" v-if="owner?.active && owner.active !== job?.id" id="pick-follow" label="Follow active operation"
           @press="$emit('inspect', owner.active)" />
       </div>
       <p>Inspection reads saved status. Stop ends the operation. It does not release the item or resume motion.

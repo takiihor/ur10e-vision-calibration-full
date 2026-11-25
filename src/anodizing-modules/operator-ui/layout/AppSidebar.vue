@@ -7,7 +7,7 @@ defineEmits(['navigate']);
 </script>
 
 <template>
-    <aside id="operator-nav" class="layout-sidebar" :inert="!open || undefined" :aria-hidden="open ? undefined : true">
+    <aside data-ui="layout.sidebar" id="operator-nav" class="layout-sidebar" :inert="!open || undefined" :aria-hidden="open ? undefined : true">
         <AppMenu :route="route" @navigate="$emit('navigate')" />
     </aside>
 </template>

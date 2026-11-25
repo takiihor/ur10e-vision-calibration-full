@@ -13,6 +13,8 @@ from statistics import median
 from threading import Event, Lock, Thread
 from time import monotonic, sleep
 
+from .site_profile import section
+
 try:
     import serial
     from serial.tools import list_ports
@@ -39,7 +41,6 @@ LATE_ACK_GRACE = .3
 SENT = 'sent'
 LINK_LOST = 'Link lost. The AGV may still be moving. Use its e-stop if needed.'
 PORT_RETRY = 'Reseat the USB plug, reload this page, then select Connect.'
-# XBOT RS485 protocol pp. 1, 4–5.
 COMMANDS = {
     'read_speed': ('Read speed', '21 7D 02'),
     'set_speed': ('Set speed', '23 7D 00 00'),
@@ -57,20 +58,19 @@ COMMANDS = {
     'query_status': ('Query status', '26 FF'),
 }
 ARGUMENTS = {
-    'set_speed': {'min': 500, 'max': 4000, 'default': 500, 'label': 'Speed (m/h)'},  # XBOT manual p. 2.
+    'set_speed': {'min': 500, 'max': 4000, 'default': 500, 'label': 'Speed (m/h)'},
     'call_station': {'min': 1, 'max': 255, 'default': 1, 'label': 'Station number'},
 }
 URGENT = {'stop', 'pause'}
 REPEATABLE = {'set_speed', 'forward', 'reverse', 'call_station', 'attachment_stop'}
 READS = {'query_status', 'read_speed'}
+STATUS_ONLY = 'AGV link is status-only.'
 STATION_CALL_REQUIRED = ('Station call needs the station-call function, set in the XBOT app. '
                          'In standard mode, use Forward/Reverse.')
 
 
 def station_limit(learned_legs):
-    # XBOT V2.0 manual lines 630–645 numbers the start as 1. Android 3.5.3
-    # DrawLine includes that start in its count + 1 points. Treat RS485 byte 17 the same way.
-    # RS485 protocol lines 142–149 encode the target in one byte.
+    # The start counts as a station, and the target occupies one byte.
     return min(learned_legs + 1, ARGUMENTS['call_station']['max']) if learned_legs else 0
 
 
@@ -166,7 +166,7 @@ class Splitter:
             if len(self.buffer) < offset + 4:
                 break
             length, command = self.buffer[offset + 2:offset + 4]
-            # The published status layout ends at byte 30 (XBOT protocol pp. 2, 5).
+            # The supported status layout ends at byte 30.
             if length < 5 or (command == 0x25 and length > 31):
                 next_header = self.buffer.find(HEADER, offset + 2)
                 end = next_header if next_header >= 0 else len(self.buffer)
@@ -194,7 +194,7 @@ class Splitter:
         return frames
 
 
-# Offsets start at the inner header (XBOT RS485 protocol pp. 2, 5–6).
+# Offsets start at the inner header.
 STATUS_FIELDS = {
     4: ('vehicle_id', 1), 5: ('battery_percent', 1), 6: ('set_speed_m_h', 2),
     8: ('stopped', 1), 9: ('obstacle_stop', 1), 10: ('station_arrival', 1),
@@ -207,30 +207,6 @@ STATUS_FIELDS = {
 FLAGS = {'stopped', 'obstacle_stop', 'station_arrival', 'command_stop', 'paused'}
 
 
-# XBOT user manual V2.0, printed pp. 16–17. The status field holds one byte.
-FAULTS = {
-    2: 'Communication failure', 9: 'CPU initialization error', 10: 'Bluetooth board communication fault',
-    11: 'Left motor current sensor fault', 12: 'Left motor current sensor fault',
-    13: 'Left motor current sensor fault', 14: 'Right motor current sensor fault',
-    15: 'Right motor current sensor fault', 16: 'Right motor current sensor fault',
-    17: 'Motor-to-controller communication error', 18: 'Controller-to-motor communication error',
-    19: 'No data from the front magnetic guide', 21: 'No data from the rear magnetic guide',
-    25: 'Controller received no Bluetooth panel data', 26: 'Drive voltage fault',
-    29: 'CPU initialization error', 34: 'Gyroscope data fault', 35: 'Gyroscope initialization fault',
-    36: 'Left motor Hall sensor fault', 37: 'Too many slowdown markers', 39: 'Right motor Hall sensor fault',
-    40: 'Upgrade platform error', 61: 'Off track', 62: 'Too many stations', 63: 'Route learning error',
-    64: 'Motor stalled', 65: 'Vehicle lifted off the ground', 66: 'Excessive swaying or rotation',
-    67: 'Invalid gyroscope rotation rate', 68: 'Excessive rotation speed', 69: 'Excessive motor speed difference',
-    70: 'Motors turning in opposite directions', 71: 'Motor Hall sensor fault', 72: 'Gyroscope data unavailable',
-    73: 'Motor count error', 74: 'Motor mismatch', 75: 'Missing RFID card in sequence',
-    77: 'Target station missing', 78: 'RFID card unreadable', 79: 'Servo drive Hall count error',
-    80: 'Battery management system error',
-    203: 'Left motor pre-zone error', 206: 'Left motor phase current out of range',
-    209: 'Left motor overheating', 211: 'Left motor drive MOSFET overheating',
-    216: 'Left motor braking resistor configuration error', 217: 'Left motor system error',
-    219: 'Left motor electrical angle calculation error', 221: 'Left motor speed calculation error',
-    241: 'Left motor overspeed',
-}
 EVENT_FIELDS = ('stopped', 'current_station', 'target_station', 'fault_code',
                 'obstacle_stop', 'command_stop', 'paused')
 
@@ -241,6 +217,9 @@ def timestamp():
 
 def port_failure(exc):
     message = str(exc).lower()
+    if exc.errno in (errno.EBUSY, errno.EWOULDBLOCK):
+        return ('Serial port is busy. Disconnect the AGV link in the other instance '
+                'or close the app using the port, then select Connect.')
     if exc.errno in (errno.EACCES, errno.EPERM) or 'permission denied' in message:
         return 'Serial permission denied. Log out and back in on the IPC, then select Connect.'
     return f'Serial port is busy or missing. {PORT_RETRY}'
@@ -248,14 +227,13 @@ def port_failure(exc):
 
 def decode(frame):
     if frame.command == 0x21:
-        # The two-byte reply was observed on AGV600 2026-11-19.
         if len(frame.data) == 2 or (len(frame.data) == 3 and frame.data[0] == 0x7D):
             return {'read_speed_m_h': int.from_bytes(frame.data[-2:], 'little')}
     if frame.command == 0x01 and not frame.data:
         return {'command': '01', 'data': '', 'description': 'unidentified frame 01 (not in the XBOT protocol)'}
     if frame.command != 0x25:
         return {'command': f'{frame.command:02X}', 'data': hex_bytes(frame.data)}
-    # Short ACK observed on AGV600 2026-11-19, not in the XBOT protocol.
+    # A short reply acknowledges a command without replacing status.
     if len(frame.data) == 1:
         return {'acknowledgement': True, 'vehicle_id': frame.data[0]}
     inner = frame.encode()[len(frame.prefix):]
@@ -462,6 +440,25 @@ class Connection:
 
     def __init__(self, owner):
         self.owner = owner
+        root = getattr(owner, 'root', None)
+        profile = section(root, 'agv') if root is not None else {}
+        descriptions = profile.get('fault_descriptions')
+        self.fault_descriptions = ({code: label for code, label in descriptions.items()
+                                    if code.isascii() and code.isdecimal() and 0 < len(code) <= 3
+                                    and isinstance(label, str) and 0 < len(label) <= 240}
+                                   if isinstance(descriptions, dict) else {})
+        wired_port = profile.get('wired_port')
+        self.wired_port = (wired_port.strip() or None) if isinstance(wired_port, str) else None
+        parking = profile.get('parking_station')
+        labels = profile.get('station_labels')
+        self.station_profile = {
+            'parking_station': parking if type(parking) is int and 1 <= parking <= 255 else 17,
+            'station_labels': {
+                key: name.strip() for key, name in labels.items()
+                if re.fullmatch(r'[1-9][0-9]{0,2}', key) and int(key) <= 255
+                and isinstance(name, str) and 1 <= len(name.strip()) <= 80
+            } if isinstance(labels, dict) else {},
+        }
         self.recipe_active = False
         self.recipe_statuses = deque(maxlen=64)
         self.motion_poll_at = 0
@@ -767,8 +764,7 @@ class Connection:
                     self._record('RX', raw, {'error': 'Incomplete AGV status.', 'report': decoded})
                     continue
                 fault = decoded['fault_code']
-                decoded['fault_page'] = 17 if fault >= 200 else 16
-                decoded['fault_description'] = FAULTS.get(fault, 'Unknown fault') if fault else 'No fault'
+                decoded['fault_description'] = self.fault_descriptions.get(str(fault), 'Unknown fault') if fault else 'No fault'
                 self._record('RX', raw, decoded)
                 self._status_received(decoded, raw)
                 if self.reading == 'query_status':
@@ -799,8 +795,9 @@ class Connection:
         robot_configured = getattr(self.owner, 'robot_configured', False)
         return dict(robot_interlock=robot_configured, recipe_active=self.recipe_active, connected=self.transport is not None, connection_id=self.id, sequence=self.sequence, settings=self.settings,
                     connection_started_at=self.connected_iso, stop_generation=self.stop_generation,
-                    armed=self.armed, halt_pending=bool(self._urgent_pending(now)),
-                    motion_block=motion_block(self.owner), status=self.status,
+                    armed=self.armed, station_profile=self.station_profile, halt_pending=bool(self._urgent_pending(now)),
+                    wired_port=self.wired_port, status=self.status,
+                    motion_block=STATUS_ONLY if self.wired_port else motion_block(self.owner),
                     status_hex=self.status_hex, status_age_s=age, status_time=self.status_iso,
                     connection_age_s=None if self.connected_at is None else now - self.connected_at,
                     stale=self.stale, events=list(self.events),
@@ -923,13 +920,18 @@ class Connection:
             transport = Simulator(prefix, loss_fraction=loss, seed=seed) if loss else Simulator(prefix)
             transport.stations = stations
             transport.mode = agv_mode
-        elif mode == 'serial':
+        elif mode in ('serial', 'wired'):
             if serial is None:
                 raise ValueError('Serial connection requires pyserial.')
-            port = body.get('port')
-            if not isinstance(port, str) or port not in {item['device'] for item in serial_ports()}:
-                raise ValueError(f'Serial port is busy or missing. {PORT_RETRY}')
-            # XBOT RS485 protocol p. 1. The IPC/adapter must handle RS485 direction switching.
+            if mode == 'wired':
+                port = self.wired_port
+                if not port:
+                    raise ValueError('Configure agv.wired_port before selecting Wired RS485.')
+            else:
+                port = body.get('port')
+                if not isinstance(port, str) or port not in {item['device'] for item in serial_ports()}:
+                    raise ValueError(f'Serial port is busy or missing. {PORT_RETRY}')
+            # The serial adapter must handle RS485 direction switching.
             try:
                 transport = serial.Serial(port=port, baudrate=9600, bytesize=8, parity='N',
                                           stopbits=1, timeout=0, write_timeout=WRITE_TIMEOUT, exclusive=True)
@@ -938,7 +940,7 @@ class Connection:
                 self.error = port_failure(exc)
                 raise ValueError(self.error) from exc
         else:
-            raise ValueError('Select Simulator or Serial port.')
+            raise ValueError('Select a supported AGV transport.')
         self.transport = transport
         self.splitter = Splitter(prefix)
         self.id += 1
@@ -1011,7 +1013,12 @@ class Connection:
         except OSError as close_error:
             self._record('Link', b'', {'error': str(close_error)})
 
+    def _tx_prefix(self):
+        return b'' if (self.settings or {}).get('mode') == 'wired' else self.splitter.prefix
+
     def _write(self, name, raw, value, attempt, background=False, *, tx_id=None, requested_halt=None):
+        if self.wired_port and (name not in READS or raw != command_frame(name, None, self._tx_prefix()).encode()):
+            raise ValueError(STATUS_ONLY)
         if name not in READS and name not in URGENT and name != 'set_speed':
             self.teaching_generation += 1
         try:
@@ -1035,7 +1042,7 @@ class Connection:
 
     def _send(self, name, value, *, background=False, prewrite=None, recipe_check=None,
               status_hold_s=None, requested_halt=None, mode_unverified=False):
-        frame = command_frame(name, value, self.splitter.prefix)
+        frame = command_frame(name, value, self._tx_prefix())
         if name in URGENT:
             self._cancel_resend()
         else:
@@ -1366,6 +1373,9 @@ class Connection:
         action, name = body.get('action'), body.get('command')
         if action == 'send' and (not isinstance(name, str) or name not in COMMANDS):
             raise ValueError('Select a known AGV command.')
+        if self.wired_port and ((action == 'send' and name not in READS)
+                                or (action == 'arm' and body.get('armed') is True)):
+            raise ValueError(STATUS_ONLY)
         if action == 'connect' and hasattr(self.owner, 'line_test_fence'):
             with self.owner.lock:
                 if getattr(self.owner, 'line_test_fence', False):
@@ -1495,6 +1505,8 @@ class Connection:
     def recipe_link(self, connection_id=None, *, stop_generation):
         # Wait for a foreground read. Recipe feedback drains an in-flight background read.
         with self.send_lock, self.lock:
+            if self.wired_port:
+                raise ValueError(STATUS_ONLY)
             if self.transport is None or self.recipe_active:
                 raise ValueError('Connect the AGV on the AGV page before starting the recipe.')
             if connection_id is not None:

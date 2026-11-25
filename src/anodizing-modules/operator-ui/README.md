@@ -2,6 +2,15 @@
 
 Open `/operator/` on the local Anodizing Modules service. Home reports service and AGV state. The AGV link opens commissioning. The sidebar opens the Vue modules. Calibration, Teaching and Pick/place link to their standalone pages. The service starts at the original landing page.
 
+## UI IDs
+
+Open `/operator/?ui=ids` to reveal IDs on visible controls and panels. Use
+`/operator/?ui=ids#/agv` to open the AGV route with labels. The
+[UI ID registry](UI_IDS.md) lists each selector and the source that declares it.
+Keep IDs stable across copy and layout changes. When adding a control or panel,
+add its entry to `ui-ids.json` and run `node generate-ui-ids.mjs`. Use the
+existing record or option identity as `data-ui-key` for repeated elements.
+
 ## Build and package
 
 From this directory on a development machine with Node 22 and npm:
@@ -12,7 +21,9 @@ npm test -- --maxWorkers=2
 npm run build
 ```
 
-The exact dependency versions and integrity hashes are in `package-lock.json`. The locally adapted Sakai 5.0.0 layout supplies the topbar, collapsible sidebar and content area. The layout uses local CSS, system fonts and bundled PrimeIcons. PrimeVue uses the Nord dark preset in `nord.js`, built on Aura. It supplies the CSS colour tokens for both routes. Connect and Query status use Frost. Stop and critical alerts use Aurora red. State colours have a matching icon and label. The contrast test checks the emitted tokens for 4.5:1 text and 3:1 control boundaries and focus rings, including PrimeVue fields, overlays, states and data views. The bundle carries the Sakai and dependency notices. [Nord palette](https://www.nordtheme.com/docs/colors-and-palettes/) · [Nord MIT licence](https://github.com/nordtheme/nord/blob/develop/license)
+The exact dependency versions and integrity hashes are in `package-lock.json`. The locally adapted Sakai 5.0.0 layout supplies the topbar, collapsible sidebar and content area. The layout uses local CSS, system fonts and bundled PrimeIcons. PrimeVue uses the Alucard light preset in `alucard.js` with the existing Aura component styles. The legacy landing, AGV, calibration, teaching and pick/place pages use matching colors in `../app/anodizing_web/web/teacher-style.css` and retain their original layout and typography.
+
+Red marks Stop and alarms, amber marks warnings, green marks running and normal states, and cyan marks information and actions. Purple and pink appear in header accents. State labels and icons remain visible. Run `npm test -- alucard.test.js` to verify contrast, or prefix it with `THEME_CONTRAST_REPORT=1` to emit the measured token pairs as CSV. The targets are 7:1 for text, 4.5:1 for the primary and danger fills against their surroundings, and 3:1 for control boundaries, badges and focus indicators. The bundle includes the palette and dependency notices. [Alucard spec](https://draculatheme.com/spec) · [Dracula Theme MIT licence](https://github.com/dracula/dracula-theme/blob/main/LICENSE)
 
 Vite writes `../app/anodizing_web/operator_dist/`, including the hashed assets and HTTP allowlist. Commit the generated output with the UI changes. Build the Python wheel from a clean app source directory with the generated output present. The Python package includes the entry, asset allowlist, fonts, CSS, JavaScript and notices. The IPC only needs the Python package and its usual dependencies. For local iteration, use `npm run build -- --watch` with the normal Python service in simulation.
 
@@ -101,8 +112,8 @@ files in the private service data directory. The example is synthetic.
     "simulation_fixture": "line-fixture.json",
     "tanks": {
       "Tank21": {
-        "basket": "Tank21_HaveBasket",
-        "door_opened": "Tank22_DoorOpened"
+        "basket": "ExampleTank21_ExampleBasket",
+        "door_opened": "ExampleTank22_ExampleDoor"
       },
       "Tank22": {}
     }
@@ -116,17 +127,25 @@ the worker cadence. Omit a signal or use null to simulate missing feedback.
 ```json
 {
   "tags": [
-    {"tag_name":"Tank21_HaveBasket","device_address":"M4","data_type":"Bool","read_write":"R","description":"Synthetic basket","multiplier":1},
-    {"tag_name":"Tank22_DoorOpened","device_address":"M5","data_type":"Bool","read_write":"R","description":"Synthetic door","multiplier":1}
+    {"tag_name":"ExampleTank21_ExampleBasket","device_address":"M4","data_type":"Bool","read_write":"R","description":"Synthetic basket","multiplier":1},
+    {"tag_name":"ExampleTank22_ExampleDoor","device_address":"M5","data_type":"Bool","read_write":"R","description":"Synthetic door","multiplier":1}
   ],
   "rows": [
-    {"Tank21_HaveBasket":1,"Tank22_DoorOpened":0},
-    {"Tank21_HaveBasket":1,"Tank22_DoorOpened":null}
+    {"ExampleTank21_ExampleBasket":1,"ExampleTank22_ExampleDoor":0},
+    {"ExampleTank21_ExampleBasket":1,"ExampleTank22_ExampleDoor":null}
   ]
 }
 ```
 
-For live reads, set `origin` to the confirmed base HTTP(S) origin, `clock_zone`
+For live reads, set `line.routes` with `list` and `read` paths, for example
+`"/example/catalog"` and `"/example/sample"`. Supply the real paths only in the
+machine's private profile. Invalid or missing routes keep the client disconnected.
+Set `system_signals` to map `remote_mode`, `local_mode`, and `main_inlet` to
+the installation's read-only tags. Simulator write tests use these mode
+bindings. Optional `tank_tag_pattern` (one capturing group), `alarm_tag_pattern`,
+and `tag_units_by_suffix` supply catalog grouping and units.
+
+Set `origin` to the confirmed base HTTP(S) origin, `clock_zone`
 to the confirmed IANA timezone, and `clock_offset_s` to the measured seconds
 to add to the supplier clock. Enter zero only if measured. Provide
 `PLC_API_KEY` through the service environment. Restart for configuration
@@ -142,6 +161,14 @@ tank monitor and matching Scene anchor. For a door alias, enter the original
 supplier tag only under the confirmed physical tank. Keep shared addresses
 and disputed feedback out of the physical map. Scene's old `status_key` still
 serves the Scene-only scripted fixture when line reads are disabled.
+
+For a confirmed water-level inhibit, add `water_level_blocked` under the
+physical tank's `line.tanks` entry and assign the read-only Bool tag with
+multiplier 1. Confirm with the PLC owner that `1` means the water-level
+condition inhibits the operation and `0` means that inhibit is inactive.
+Tank monitor on both Line routes shows “Blocked: water level not met” for a
+fresh `1`. A fresh `0` shows “Water-level block inactive”. Unavailable
+readings show “Unknown”. This indication reports the mapped inhibit only.
 
 The worker preserves the supplier's engineering values, raw timestamp and row
 ID. It separates HTTP 200 from PLC freshness. After two advancing rows,
@@ -239,6 +266,28 @@ downloads outside Git and release artifacts. Select the archive in the test
 view to see the historical API and human totals, provenance and original downloads.
 
 ## AGV stations and rod transfers
+
+The **AGV** call panel provides sixteen numbered stations and a separate Parking
+button by default. The display defaults to parking at target 17. To map parking
+and station names for a site, add an optional `agv` section to the private
+`<data-dir>/site-profile.json` and restart the service. The names below are examples.
+
+```json
+{
+  "agv": {
+    "parking_station": 17,
+    "station_labels": { "1": "Example station" }
+  }
+}
+```
+
+Use integer target numbers from 1 to 255 for parking and decimal number keys
+in `station_labels`. Labels accept up to 80 characters after trimming. Site
+labels and the parking assignment only change the display. Each button sends
+its original numeric target, and the service accepts targets from 1 through the
+reported `max_stations + 1`, capped at 255, once a route is learned. The panel
+keeps unlearned targets visible with a disabled reason. To simulate sixteen
+learned legs, set **Simulator stations** to 17 before connecting.
 
 Connect the serial link on **AGV** before running robot motion. A fresh stopped report with zero speed and no fault admits the job. The service checks the AGV throughout robot work. If the AGV moves or the status reaches 3 seconds old, the service requests both software Stops. An interrupted Pick/place job leaves item state unknown.
 

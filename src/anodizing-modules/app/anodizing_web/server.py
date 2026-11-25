@@ -3,6 +3,7 @@ import argparse
 import fcntl
 import hashlib
 import os
+import re
 import stat
 import tempfile
 import json
@@ -207,7 +208,8 @@ class Handler(BaseHTTPRequestHandler):
                 data, _, _ = self.server.cached_asset(OPERATOR_DIST / 'index.html')
                 nonce = secrets.token_urlsafe(24)
                 rendered = data.replace(b'__TOKEN__', self.server.token.encode()).replace(
-                    b'__STYLE_NONCE__', nonce.encode())
+                    b'__STYLE_NONCE__', nonce.encode()).replace(
+                    b'__SIMULATION__', b'on' if self.simulation_enabled else b'off')
                 return self.reply(200, rendered, 'text/html; charset=utf-8', style_nonce=nonce)
             mime = OPERATOR_TYPES.get(Path(name).suffix)
             if mime and Path(name).parent == Path('assets') and '..' not in Path(name).parts:
@@ -219,6 +221,10 @@ class Handler(BaseHTTPRequestHandler):
         except FileNotFoundError:
             pass
         return self.reply(404, {'error': 'Not found.'})
+
+    @property
+    def simulation_enabled(self):
+        return os.environ.get('ANODIZING_DISABLE_SIMULATION') != '1'
 
     def authorized(self, *, token):
         host = self.headers.get('Host')
@@ -516,12 +522,16 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 description = b'Run simulated PICK and PLACE requests.'
                 guidance = b'Pick/place hardware controls are disabled.'
+            if not self.simulation_enabled:
+                description = b'Review saved teaching inputs for Pick/place.'
             data = data.replace(b'__PICK_PLACE_DESCRIPTION__', description).replace(b'__PICK_PLACE_GUIDANCE__', guidance)
         if name == 'calibration.html':
             editor, _, _ = self.server.cached_asset(files('ur_handeye').joinpath('web', 'tool-envelope.html'))
             fragment = editor[editor.index(b'<section id="tool-editor"'):editor.index(b'<footer>')]
             data = data.replace(b'__TOOL_EDITOR__', fragment.replace(b'id="message"', b'id="tool-message"'))
         if name.endswith('.html'):
+            if not self.simulation_enabled:
+                data = re.sub(rb'<!--simulation-->.*?<!--/simulation-->', b'', data, flags=re.DOTALL)
             for placeholder, fragment in ((b'__ROBOT_CARD__','robot-card.html'), (b'__MANUAL_JOB_PANEL__','manual-job-panel.html')):
                 if placeholder in data:
                     part, _, _ = self.server.cached_asset(WEB / fragment)
@@ -598,6 +608,8 @@ class Handler(BaseHTTPRequestHandler):
             path = urlsplit(self.path).path
             owner = self.server.owner
             if path == '/api/tests/line':
+                if not self.simulation_enabled:
+                    raise PermissionError('Simulation is disabled on this service.')
                 return self.reply(200, self.server.line_tests.action(body))
             if path == '/api/line/refresh':
                 if body != {'action': 'refresh'}:
@@ -625,6 +637,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/agv-travel-pose':
                 return self.reply(200, travel_pose.save(owner, body))
             if path == '/api/agv':
+                if (body.get('action') == 'connect' and body.get('mode', 'simulator') == 'simulator'
+                        and not self.simulation_enabled):
+                    raise PermissionError('Simulation is disabled on this service.')
                 return self.reply(200, self.server.agv.submit(body))
             if path == '/api/mcu':
                 return self.reply(202, mcu.submit(owner, body))
@@ -632,6 +647,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(404, {'error': 'Not found.'})
             request_id = body.pop('request_id', None)
             module = path.rsplit('/', 1)[-1]
+            simulated = module == 'pick-place' or (module in ('calibration', 'teaching') and body.get('action') == 'simulate')
+            if simulated and not self.simulation_enabled:
+                raise PermissionError('Simulation is disabled on this service.')
             if module == 'calibration':
                 function = lambda job_id: calibration.run(owner, self.server.root, body, job_id, self.server.allow_camera, self.server.allow_manual)
             elif module == 'teaching':

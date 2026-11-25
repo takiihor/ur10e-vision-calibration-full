@@ -96,10 +96,13 @@ def complete(record):
         return False
     for phase, value in [('one', 1), ('zero', 0)]:
         step = record.get(phase) or {}
-        read = step.get('observed') or {}
+        observed = step.get('observed') or {}
+        read = {key.casefold(): val for key, val in observed.items()}
+        if len(read) != len(observed):
+            return False
         accepted, baseline = timestamp(step.get('accepted_at')), timestamp(step.get('baseline_utc'))
         if (step.get('receipt_valid') is not True or read.get('fresh') is not True
-                or read.get('command_value') != value or read.get('Remote') != 1 or read.get('Local') != 0
+                or read.get('command_value') != value or read.get('remote') != 1 or read.get('local') != 0
                 or min(accepted, baseline) == MIN_TIME or timestamp(read.get('supplier_utc')) <= max(accepted, baseline)
                 or record.get('feedback_tag') and (value == 1 or record.get('feedback_clear_required'))
                 and read.get('feedback_value') != value):

@@ -60,7 +60,7 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 - **Messages follow one pattern:** what happened, then why if it is known, then what to do next. For example: "No reply in 1.5 s. The radio may be unplugged. Reseat the USB plug, reload, Connect."
 - **No hex, no exception text, no Python names in primary messages.** Those belong in the log and the record.
 - **Use units everywhere:** m/h with km/h alongside, %, s, station numbers.
-- **Name modes and faults.** For example "Mode 2: station calling" and "Fault 61: off track (manual p. 15)".
+- **Name modes and faults.** For example "Mode 2: station calling" and "Fault 61: Example guide fault".
 - **Language.** English labels. Keep the vendor's Chinese term in brackets where the operator has to find it in the XBOT app, e.g. "485 timed reports [定时发送485]".
 - **Local time.** Times appear in local time (HH:MM:SS, with milliseconds for events). The record keeps ISO timestamps.
 

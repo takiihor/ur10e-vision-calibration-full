@@ -6,14 +6,14 @@ defineProps({ route: String });
 defineEmits(['navigate']);
 
 const model = [
-    { label: 'Home', url: '#/', icon: 'pi pi-fw pi-home' },
-    { label: 'Calibration', url: '#/calibration', icon: 'pi pi-fw pi-camera' },
-    { label: 'Teaching', url: '#/teaching', icon: 'pi pi-fw pi-book' },
-    { label: 'AGV', url: '#/agv', icon: 'pi pi-fw pi-truck' },
-    { label: 'Scene', url: '#/scene', icon: 'pi pi-fw pi-map' },
-    { label: 'Line', url: '#/line', icon: 'pi pi-fw pi-chart-line' },
-    { label: 'Recorder', url: '#/records', icon: 'pi pi-fw pi-file' },
-    { label: 'Pick/place', url: '#/pick-place', icon: 'pi pi-fw pi-box' },
+    { ui: 'nav.home', label: 'Home', url: '#/', icon: 'pi pi-fw pi-home' },
+    { ui: 'nav.calibration', label: 'Calibration', url: '#/calibration', icon: 'pi pi-fw pi-camera' },
+    { ui: 'nav.teaching', label: 'Teaching', url: '#/teaching', icon: 'pi pi-fw pi-book' },
+    { ui: 'nav.agv', label: 'AGV', url: '#/agv', icon: 'pi pi-fw pi-truck' },
+    { ui: 'nav.scene', label: 'Scene', url: '#/scene', icon: 'pi pi-fw pi-map' },
+    { ui: 'nav.line', label: 'Line', url: '#/line', icon: 'pi pi-fw pi-chart-line' },
+    { ui: 'nav.recorder', label: 'Recorder', url: '#/records', icon: 'pi pi-fw pi-file' },
+    { ui: 'nav.pick.place', label: 'Pick/place', url: '#/pick-place', icon: 'pi pi-fw pi-box' },
 ];
 
 const moduleUrl = route => route?.replace(/^#\/tests\/(robot|mcu|tool-power)$/, '#/pick-place')
@@ -21,7 +21,7 @@ const moduleUrl = route => route?.replace(/^#\/tests\/(robot|mcu|tool-power)$/, 
 </script>
 
 <template>
-    <nav aria-label="Modules">
+    <nav data-ui="nav.panel" aria-label="Modules">
         <ul class="layout-menu">
             <li class="layout-root-menuitem">
                 <div class="layout-menuitem-root-text">Modules</div>

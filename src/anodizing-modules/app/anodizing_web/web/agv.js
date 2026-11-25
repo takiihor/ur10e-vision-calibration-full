@@ -179,6 +179,12 @@ function commandValue(name, preset) {
 
 function showPorts(ports) {
   const select = $('port');
+  if ($('mode').value === 'wired') {
+    const port = state.wired_port;
+    select.replaceChildren(new Option(port, port));
+    select.value = port;
+    return;
+  }
   let selected = state.connected ? state.settings.port : select.value;
   const listed = device => ports.some(port => port.device === device);
   if (!state.connected && !listed(selected)) {
@@ -206,6 +212,7 @@ function disabled(id, reason) {
 
 function commandReason(name, preset) {
   if (!state.connected) return 'Connect first.';
+  if (state.wired_port && !reads.has(name)) return state.motion_block;
   if (name === 'pause' && !statusStale() && state.status?.mode === 0) return pauseStationOnly;
   if (urgent.has(name)) return '';
   if (name === 'call_station' && state.status?.mode === 0) return stationCallRequired;
@@ -225,6 +232,11 @@ function commandReason(name, preset) {
   if (name === 'call_station' && maximum > 0 && value > maximum) return `Choose a learned station from 1 to ${maximum}.`;
   if (value === undefined) return name === 'set_speed' ? 'Enter a whole number from 500 to 4000 m/h.' : 'Enter a whole number from 1 to 255.';
   return '';
+}
+
+function transportLabel({mode, port}) {
+  if (mode === 'wired') return `Wired RS485 · ${port}`;
+  return mode === 'simulator' ? 'Simulator' : 'Serial AGV';
 }
 
 function renderStatus() {
@@ -252,7 +264,7 @@ function renderStatus() {
     if (current) button.setAttribute('aria-current', 'true');
     else button.removeAttribute('aria-current');
   }
-  display('transport', state.connected ? state.settings.mode === 'simulator' ? 'Simulator' : 'Serial AGV' : 'No open connection');
+  display('transport', state.connected ? transportLabel(state.settings) : 'No open connection');
   $('link-quality').hidden = !state.connected || !state.link_quality;
   if (state.link_quality) display('link-quality', linkQualityText(state.link_quality));
   const liveStatus = status ? state.status_hex : null;
@@ -262,7 +274,9 @@ function renderStatus() {
   const actual = status?.actual_speed_m_h;
   display('station-label', standard ? 'Stop counter (not a station number in standard mode)'
     : maximum === 0 ? 'Stop counter (no route learned)' : 'Current station');
-  display('state-motion', motionText(status));
+  const motion = motionText(status);
+  display('state-motion', motion);
+  $('state-motion').dataset.tone = motion === 'Running' ? 'running' : '';
   display('state-station', String(status?.current_station ?? '—'));
   display('state-target', String(status?.target_station ?? '—'));
   display('state-speed', actual == null ? '—' : speedText(actual) + (actual ? actual < 0 ? ' · Reverse' : ' · Forward' : ''));
@@ -300,7 +314,8 @@ function renderOutcome(id) {
 
 function render() {
   renderStatus();
-  const serialMode = $('mode').value === 'serial';
+  const wiredMode = $('mode').value === 'wired';
+  const serialMode = wiredMode || $('mode').value === 'serial';
   const connectionLocked = busy ? 'Wait for the current request.' : state.connected ? 'Disconnect to change link settings.' : '';
   for (const id of ['mode', 'address', 'channel', 'stations-config']) {
     $(id).disabled = !!connectionLocked;
@@ -310,7 +325,8 @@ function render() {
   $('stations-config-label').hidden = serialMode;
   const unavailablePort = !capability?.serial_available ? 'Serial support is unavailable. Use the IPC app environment.' :
     !$('port').value ? `Select a serial port. If it is missing, reseat the USB plug and reload.` : '';
-  disabled('port', connectionLocked || (!serialMode ? 'Select Serial port first.' : !capability?.serial_available ? unavailablePort : ''));
+  disabled('port', connectionLocked || (wiredMode ? 'Port is set by the IPC site profile.'
+    : !serialMode ? 'Select Serial port first.' : !capability?.serial_available ? unavailablePort : ''));
   const stationCount = Number($('stations-config').value);
   const connectReason = connectionLocked || (!capability ? 'Waiting for the page service.' : !prefixIsValid()
     ? 'Check the address and channel in Link settings.' : serialMode ? unavailablePort
@@ -325,7 +341,8 @@ function render() {
   $('movement').dataset.armed = String(!!state.armed);
   $('silence-label').hidden = !state.connected || state.settings.mode !== 'simulator';
   $('silence').checked = state.silent || false;
-  display('interlock', state.robot_interlock === false ? 'No robot interlock: AGV-only test bench.'
+  display('interlock', state.wired_port ? state.motion_block
+    : state.robot_interlock === false ? 'No robot interlock: AGV-only test bench.'
     : state.robot_interlock ? 'Robot travel pose required for motion. Save the pose on Teaching.'
     : 'Checking robot interlock…');
   display('connection-note', reportError || ($('link-settings').open ? connectionLocked || connectReason : ''));
@@ -405,7 +422,17 @@ function ingest(next, connection) {
 function apply(next) {
   if (next.connection_id < state.connection_id || next.sequence <= state.sequence) return;
   if (next.commands) {
-    if (!capability) buildCommands(next.commands);
+    if (!capability) {
+      buildCommands(next.commands);
+      $('wired-mode').disabled = $('wired-mode').hidden = !next.wired_port;
+      if (next.wired_port) {
+        const serialOption = $('wired-mode').nextElementSibling;
+        if (serialOption) serialOption.textContent = 'Serial port (LoRa)';
+        $('stop-shortcut').hidden = true;
+        $('stop').removeAttribute('aria-keyshortcuts');
+      }
+      if (next.wired_port && !next.connected) $('mode').value = 'wired';
+    }
     capability = next;
   }
   const connection = connectionKeyFor(next);
@@ -466,6 +493,7 @@ function changeNetworkError(error) {
 function requestError(error) {
   if (!error.api) return state.connected ? linkLost : 'Page service unavailable. Reload this page, then select Connect.';
   const raw = error.message;
+  if (raw === 'AGV link is status-only.') return raw;
   if (raw === linkLost || /^(Serial permission denied\.|Serial port is busy or missing\.)/.test(raw)) return raw;
   if (/^(Tick Armed|A robot job is running|Choose a learned station|Connect an AGV|Service is closing|Job storage failed|Robot state is uncertain|AGV movement needs|Stop, Pause or disarming cancelled|AGV Stop or Pause is awaiting)/.test(raw)) {
     return 'Refused: ' + raw[0].toLowerCase() + raw.slice(1);
@@ -511,8 +539,7 @@ async function post(body, {id, priority = false, viaEsc = false} = {}) {
           saveJournal();
         }
       } else {
-        const connected = result.settings?.mode === 'simulator' ? 'Simulator' : 'Serial AGV';
-        const text = {connect: 'Connected · ' + connected, disconnect: 'Disconnected.',
+        const text = {connect: result.settings ? 'Connected · ' + transportLabel(result.settings) : '', disconnect: 'Disconnected.',
           arm: result.armed ? 'Armed. Movement controls are enabled.' : 'Disarmed.',
           silence: result.silent ? 'Silent link simulation on.' : 'Silent link simulation off.'};
         outcomes.set(id, {direct: {text: text[body.action], tone: 'done'}});
@@ -531,7 +558,7 @@ async function post(body, {id, priority = false, viaEsc = false} = {}) {
 }
 
 function sendCommand(command, id, preset, viaEsc = false) {
-  if (command === 'pause' && commandReason(command, preset)) return;
+  if ((command === 'pause' || (state.wired_port && !reads.has(command))) && commandReason(command, preset)) return;
   const body = {action: 'send', command, value: commandValue(command, preset), background: false};
   if (commands.get(command)?.motion) body.stop_generation = state.stop_generation;
   return post(body, {id, priority: urgent.has(command), viaEsc});
@@ -573,7 +600,7 @@ window.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
   event.preventDefault();
   if (event.repeat) return;
-  if (state.connected) return sendCommand('stop', 'stop', undefined, true);
+  if (state.connected && !state.wired_port) return sendCommand('stop', 'stop', undefined, true);
   lastPressed = 'stop';
   outcomes.set('stop', {direct: {text: commandReason('stop'), tone: 'waiting'}});
   renderOutcome('stop');
@@ -582,6 +609,7 @@ buildChecklist();
 
 $('link-settings').addEventListener('toggle', render);
 $('mode').addEventListener('input', () => {
+  if ($('port').value === state.wired_port) $('port').value = '';
   if (capability) showPorts(capability.ports);
   if ($('mode').value === 'serial') void api(null, true).then(apply, () => {});
   render();
@@ -631,7 +659,11 @@ $('new-session').addEventListener('click', () => {
   render();
 });
 
-if (['simulator', 'serial'].includes(savedSettings?.mode)) $('mode').value = savedSettings.mode;
+if (['simulator', 'serial'].includes(savedSettings?.mode)) {
+  const defaultMode = $('mode').value;
+  $('mode').value = savedSettings.mode;
+  if (!$('mode').value) $('mode').value = defaultMode;
+}
 for (const id of ['address', 'channel']) if (typeof savedSettings?.[id] === 'string') $(id).value = savedSettings[id];
 if ('ResizeObserver' in window) new ResizeObserver(entries =>
   document.body.style.setProperty('--agv-top-height', entries[0].target.offsetHeight + 'px')).observe(document.querySelector('.agv-safety'));

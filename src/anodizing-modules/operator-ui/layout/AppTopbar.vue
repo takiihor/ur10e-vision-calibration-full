@@ -8,12 +8,12 @@ defineEmits(['toggle-menu', 'navigate']);
 </script>
 
 <template>
-    <header class="layout-topbar">
+    <header data-ui="layout.header" class="layout-topbar">
         <div class="layout-topbar-logo-container">
-            <Button class="layout-menu-button layout-topbar-action" type="button" severity="secondary" icon="pi pi-bars"
+            <Button data-ui="layout.navigation.toggle" class="layout-menu-button layout-topbar-action" type="button" severity="secondary" icon="pi pi-bars"
                 aria-label="Toggle navigation" :aria-expanded="menuOpen" aria-controls="operator-nav"
                 @click="$emit('toggle-menu')" />
-            <a href="#/" class="layout-topbar-logo" @click="$emit('navigate')">Operator app</a>
+            <a data-ui="layout.home" href="#/" class="layout-topbar-logo" @click="$emit('navigate')">Operator app</a>
         </div>
         <div class="layout-topbar-actions">
             <Tag class="transport-label" severity="secondary" :value="transport" />

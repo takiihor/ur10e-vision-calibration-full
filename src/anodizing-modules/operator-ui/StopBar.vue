@@ -25,20 +25,20 @@ watch([() => feedback.value?.text, () => feedback.value?.tone], ([text, tone]) =
 </script>
 
 <template>
-  <section class="stop-bar" aria-label="Urgent controls">
+  <section data-ui="safety.panel" class="stop-bar" aria-label="Urgent controls">
     <div class="stop-line">
       <div class="stop-actions">
-        <OperatorButton id="stop" label="AGV Stop (software)" urgent stop shortcut
+        <OperatorButton data-ui="agv.stop" id="stop" label="AGV Stop (software)" urgent stop shortcut
           :why="agv.commandReason('stop')" :outcome="agv.feedback('stop')" @press="agv.send('stop')" />
-        <OperatorButton id="pause" label="AGV Pause (station-call mode)" urgent
+        <OperatorButton data-ui="agv.pause" id="pause" label="AGV Pause (station-call mode)" urgent
           :why="agv.commandReason('pause')" :outcome="agv.feedback('pause')" @press="agv.send('pause')" />
       </div>
       <div v-if="targets.length" class="stop-actions">
-        <OperatorButton v-for="target in targets" :key="target.job_id" :id="target.kind" :label="target.label" urgent stop
+        <OperatorButton data-ui="safety.module.stop" :data-ui-key="target.kind + '.' + target.job_id" v-for="target in targets" :key="target.job_id" :id="target.kind" :label="target.label" urgent stop
           :outcome="targetOutcomes[target.kind + '/' + target.job_id]" @press="$emit('target-stop', target)" />
       </div>
       <div v-if="lineActive || lineStopOutcome" class="stop-actions line-stop-action">
-        <OperatorButton id="line-stop" label="Line Stop · clear command" urgent stop
+        <OperatorButton data-ui="line.stop" id="line-stop" label="Line Stop · clear command" urgent stop
           :shortcut="lineEscape && Boolean(lineActive)" :why="!lineActive ? 'No active line test.' : ''"
           :outcome="lineStopOutcome" @press="$emit('line-stop')" />
       </div>

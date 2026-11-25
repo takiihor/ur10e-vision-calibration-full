@@ -12,7 +12,7 @@ from test_operator import request, service
 
 COMMAND = 'FixtureCommand'
 FEEDBACK = 'FixtureFeedback'
-TAGS = [tag('Remote', 'M1'), tag('Local', 'M2'), tag(COMMAND, 'M3', access='W'),
+TAGS = [tag('ExampleRemote', 'M1'), tag('ExampleLocal', 'M2'), tag(COMMAND, 'M3', access='W'),
         tag(FEEDBACK, 'M4')]
 CASE = dict(id='fixture', command=COMMAND, feedback=FEEDBACK, baseline=0, expected=1,
             clear=0, seconds=4, basis='Synthetic mapping', provisional=False)
@@ -21,9 +21,10 @@ CASE = dict(id='fixture', command=COMMAND, feedback=FEEDBACK, baseline=0, expect
 class Rig:
     def __init__(self, root, *, enabled=True):
         self.time = Fake()
-        self.sim = Simulator(dict(tags=TAGS, rows=[dict(Remote=1, Local=0, FixtureCommand=0, FixtureFeedback=0)],
+        self.sim = Simulator(dict(tags=TAGS, rows=[dict(ExampleRemote=1, ExampleLocal=0, FixtureCommand=0, FixtureFeedback=0)],
                                   test_cases=[CASE]), wall=self.time.at)
         self.line = Line('simulation', self.sim, clock=lambda: self.time.sec, wall=self.time.at,
+                         system_signals={'remote_mode': 'ExampleRemote', 'local_mode': 'ExampleLocal'},
                          clock_zone='UTC', clock_offset_s=0)
         self.owner = JobOwner(root)
         self.test = LineTest(root, self.line, self.owner, enabled)
@@ -109,7 +110,7 @@ def test_refused_gate_sends_no_command(tmp_path, gate):
             rig.action('start', **body)
             row = rig.sim.rows[0]
             if gate in ('remote', 'local', 'partial', 'command', 'feedback'):
-                field, value = {'remote': ('Remote', 0), 'local': ('Local', 1),
+                field, value = {'remote': ('ExampleRemote', 0), 'local': ('ExampleLocal', 1),
                                 'partial': (FEEDBACK, None), 'command': (COMMAND, 1),
                                 'feedback': (FEEDBACK, 1)}[gate]
                 row[field] = value
@@ -135,14 +136,14 @@ def test_refused_gate_sends_no_command(tmp_path, gate):
 def test_stop_skips_observation_and_recovery_waits_for_both_mode_bits(tmp_path):
     rig = Rig(tmp_path)
     rig.start()
-    rig.sim.rows[0]['Local'] = 1
+    rig.sim.rows[0]['ExampleLocal'] = 1
     rig.time.sec += 1
     rig.line.step()
     rig.action('stop', request_id='fixture-run')
     rig.test.tick()
     assert rig.writes == [1]
     assert rig.test.status()['alarm']
-    rig.sim.rows[0]['Local'] = 0
+    rig.sim.rows[0]['ExampleLocal'] = 0
     rig.poll(2)
     assert rig.writes == [1, 0]
     assert rig.test.status()['history'][0]['state'] == 'finished'

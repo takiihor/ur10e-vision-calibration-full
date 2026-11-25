@@ -40,7 +40,7 @@ The helper prints a unique `anodizing-verify.*` directory under `/tmp`. To retai
 .agents/skills/verify-anodizing/scripts/verify teaching-setup /absolute/path/to/evidence
 ```
 
-Read `requests.jsonl` alongside the response HTML and JSON for the user action and its outcome. Saved HTML redacts the module token. Fixture evidence records its SHA-256 and state checks where applicable. `isolation.json` records the namespace and interfaces before startup. `network.strace` records the launched app's socket calls. A passing run shows its loopback bind and accepted HTTP traffic, zero IP `connect` calls, and no socket address for `192.168.12.248` or the UR ports `29999`, `30001`–`30004`, `30020`. Use `cleanup.json` and `result.json` to confirm shutdown and success. Retain logs and report the unmet precondition on failure.
+Read `requests.jsonl` alongside the response HTML and JSON for the user action and its outcome. Saved HTML redacts the module token. Fixture evidence records its SHA-256 and state checks where applicable. `isolation.json` records the namespace and interfaces before startup. `network.strace` records the launched app's socket calls. A passing run shows its loopback bind and accepted HTTP traffic, zero IP `connect` calls, and no socket address for `192.0.2.248` or the UR ports `29999`, `30001`–`30004`, `30020`. Use `cleanup.json` and `result.json` to confirm shutdown and success. Retain logs and report the unmet precondition on failure.
 
 ## Cleanup
 

@@ -37,7 +37,7 @@ class SocketTraceTest(unittest.TestCase):
             check_trace(BIND)
 
     def test_rejects_any_inet_connect_even_if_blocked(self):
-        for host, port in [('192.168.12.248', 30004), ('127.0.0.1', 29999), ('127.0.0.1', 8871)]:
+        for host, port in [('192.0.2.248', 30004), ('127.0.0.1', 29999), ('127.0.0.1', 8871)]:
             with self.subTest(host=host, port=port), self.assertRaises(RuntimeError):
                 check_trace(BIND + ACCEPT +
                     f'2 connect(8, {{sa_family=AF_INET, sin_port=htons({port}), '

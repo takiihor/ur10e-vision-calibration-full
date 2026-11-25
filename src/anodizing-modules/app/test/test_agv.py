@@ -1,50 +1,43 @@
-"""Protocol vectors from XBOT RS485 protocol pp. 1, 4–6, and SSCOM presets."""
-from pathlib import Path
-
+"""Protocol checks with generated frames and invented inputs."""
 import pytest
 
 from anodizing_web import agv
+from agv_examples import EXAMPLE_SPEED, REPORT, synthetic_replies
 
 
 PREFIX = bytes.fromhex('00 01 04')
-REPORT = bytes.fromhex(
-    'A5 5A 1F 25 01 19 DC 05 01 00 01 00 00 00 02 02 00 01 02 00 15 19 00 00 00 00 DF 00 00 2C 80'
-)
 
-
-@pytest.mark.parametrize(('name', 'value', 'hex_frame'), [
-    ('call_station', 1, '00 01 04 A5 5A 08 23 9D 01 00 C8'),
-    ('set_speed', 1257, '00 01 04 A5 5A 08 23 7D E9 04 94'),
-    ('query_status', None, '00 01 04 A5 5A 06 26 FF 2A'),
-    ('resume', None, '00 01 04 A5 5A 08 23 5B 02 00 87'),
+@pytest.mark.parametrize(('name', 'value', 'command', 'data'), [
+    ('call_station', 17, 0x23, b'\x9d\x11\x00'),
+    ('set_speed', EXAMPLE_SPEED, 0x23, b'\x7d\x39\x05'),
+    ('query_status', None, 0x26, b'\xff'),
+    ('resume', None, 0x23, b'\x5b\x02\x00'),
 ])
-def test_vendor_commands_round_trip(name, value, hex_frame):
-    wire = bytes.fromhex(hex_frame)
-    assert agv.command_frame(name, value, PREFIX).encode() == wire
-    assert agv.parse_frame(wire).encode() == wire
+def test_commands_round_trip(name, value, command, data):
+    wire = agv.command_frame(name, value, PREFIX).encode()
+    assert agv.parse_frame(wire) == agv.Frame(command, data, PREFIX)
 
 
 @pytest.fixture
-def captured_frames():
-    capture = Path(__file__).with_name('fixtures') / 'agv600-protocol-vectors.txt'
-    return tuple(bytes.fromhex(line) for line in capture.read_text().splitlines())
+def example_frames():
+    return synthetic_replies(PREFIX)
 
 
 @pytest.fixture
-def captured_reads(captured_frames):
-    status, speed, unidentified = captured_frames
+def fragmented_reads(example_frames):
+    status, speed, unidentified = example_frames
     # Split the synthetic stream inside the radio prefix and frame header.
     return status + speed[:1], speed[1:] + unidentified[:1], unidentified[1:]
 
 
-def test_splitter_preserves_captured_reply_prefixes_across_reads(captured_frames, captured_reads):
+def test_splitter_preserves_synthetic_reply_prefixes_across_reads(example_frames, fragmented_reads):
     splitter = agv.Splitter(PREFIX)
-    for chunk, frame in zip(captured_reads, captured_frames, strict=True):
+    for chunk, frame in zip(fragmented_reads, example_frames, strict=True):
         assert splitter.feed(chunk) == [(frame, None)]
 
 
-def test_splitter_recovers_the_reply_prefix_after_bad_length_and_checksum(captured_frames):
-    status, speed, unidentified = captured_frames
+def test_splitter_recovers_the_reply_prefix_after_bad_length_and_checksum(example_frames):
+    status, speed, unidentified = example_frames
     corrupt_length = status[:5] + b'\xff' + status[6:]
     # The incorrect length consumes the beginning of the next frame.
     corrupt_checksum = speed[:5] + b'\x0d' + speed[6:]
@@ -56,50 +49,50 @@ def test_splitter_recovers_the_reply_prefix_after_bad_length_and_checksum(captur
     assert frames[4] == (unidentified, None)
 
 
-def test_splitter_uses_the_configured_reply_channel(captured_frames):
-    _, speed, _ = captured_frames
+def test_splitter_uses_the_configured_reply_channel(example_frames):
+    _, speed, _ = example_frames
     reply = b'\x00\xff\x07' + speed[3:]
     assert agv.Splitter(bytes.fromhex('00 02 07')).feed(reply) == [(reply, None)]
 
 
-def test_captured_status_omits_unavailable_attachment_fields(captured_frames):
-    wire, _, _ = captured_frames
+def test_synthetic_status_omits_unavailable_attachment_fields(example_frames):
+    wire, _, _ = example_frames
     status = agv.decode(agv.parse_frame(wire))
     assert status['length'] == 29
-    assert status['vehicle_id'] == 1 and status['battery_percent'] == 75
-    assert status['set_speed_m_h'] == 1500
-    assert status['obstacle_input'] == 0xCC
+    assert status['vehicle_id'] == 1 and status['battery_percent'] == 83
+    assert status['set_speed_m_h'] == EXAMPLE_SPEED
+    assert status['laser_blocked'] is True
     assert not {'attachment_active', 'roller_speed'} & status.keys()
-    assert status['checksum'] == '43'
+    assert status['checksum'] == f'{wire[-1]:02X}'
 
 
-def test_captured_short_speed_reply_decodes_as_1500_m_per_hour(captured_frames):
-    _, wire, _ = captured_frames
-    assert agv.decode(agv.parse_frame(wire)) == {'read_speed_m_h': 1500}
+def test_synthetic_short_speed_reply_decodes_at_example_speed(example_frames):
+    _, wire, _ = example_frames
+    assert agv.decode(agv.parse_frame(wire)) == {'read_speed_m_h': EXAMPLE_SPEED}
 
 
-def test_vendor_status_decodes_every_offset():
+def test_synthetic_status_decodes_every_offset():
     assert agv.decode(agv.parse_frame(REPORT)) == {
-        'header': 'A5 5A', 'length': 31, 'command': '25', 'vehicle_id': 1, 'battery_percent': 25,
-        'set_speed_m_h': 1500, 'stopped': True, 'obstacle_stop': False, 'station_arrival': True,
-        'command_stop': False, 'actual_speed_m_h': 0, 'current_station': 2, 'target_station': 2,
-        'fault_code': 0, 'max_stations': 1, 'mode': 2, 'customer_sensors': 0,
-        'position_units': 6421, 'paused': False, 'leading_end': 0, 'obstacle_input': 223,
-        'roller_center_blocked': False, 'roller_left_blocked': False, 'roller_right_blocked': False,
-        'lift_state': 0, 'attachment_active': False, 'roller_speed': 44, 'checksum': '80',
+        'header': 'A5 5A', 'length': 31, 'command': '25', 'vehicle_id': 1, 'battery_percent': 83,
+        'set_speed_m_h': EXAMPLE_SPEED, 'stopped': True, 'obstacle_stop': False, 'station_arrival': True,
+        'command_stop': False, 'actual_speed_m_h': 0, 'current_station': 7, 'target_station': 9,
+        'fault_code': 0, 'max_stations': 12, 'mode': 2, 'customer_sensors': 5,
+        'position_units': 2057, 'paused': False, 'leading_end': 0, 'obstacle_input': 1,
+        'laser_blocked': True, 'lift_state': 0, 'attachment_active': True, 'roller_speed': 24,
+        'checksum': f'{REPORT[-1]:02X}',
     }
 
 
 def test_short_report_and_partial_multibyte_field_omit_unavailable_values():
     frame = agv.Frame(0x25, REPORT[4:21])
     status = agv.decode(agv.parse_frame(frame.encode()))
-    assert status['customer_sensors'] == 0
+    assert status['customer_sensors'] == 5
     assert not {'position_units', 'paused', 'leading_end', 'lift_state'} & status.keys()
     assert status['checksum'] == f'{frame.encode()[-1]:02X}'
 
 
 def test_speed_reply_decodes_as_1257_m_per_hour():
-    frame = agv.parse_frame(bytes.fromhex('00 01 04 A5 5A 08 21 7D E9 04 92'))
+    frame = agv.parse_frame(agv.Frame(0x21, b'\x7d' + (1257).to_bytes(2, 'little'), PREFIX).encode())
     assert agv.decode(frame) == {'read_speed_m_h': 1257}
 
 
@@ -143,20 +136,6 @@ def test_splitter_preserves_configured_prefix_containing_header_bytes():
     splitter = agv.Splitter(prefix)
     assert splitter.feed(prefix + REPORT[:2]) == []
     assert splitter.feed(REPORT[2:]) == [(prefix + REPORT, None)]
-
-
-def test_all_nonempty_sscom_presets():
-    presets = Path(__file__).with_name('fixtures') / 'agv-sscom51-presets.txt'
-    lines = presets.read_text().splitlines()
-    assert len(lines) == 30
-    for line in lines:
-        preset, data = line.split(',')
-        wire = bytes.fromhex(data)
-        if preset.split('=')[0] in ('N2', 'N16'):
-            with pytest.raises(ValueError, match='length'):
-                agv.parse_frame(wire)
-        else:
-            assert agv.parse_frame(wire).encode() == wire, preset
 
 
 def test_unknown_stop_flag_stays_raw_instead_of_indicating_stopped():

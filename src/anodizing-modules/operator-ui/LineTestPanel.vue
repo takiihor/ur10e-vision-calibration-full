@@ -8,7 +8,7 @@ import Tag from 'primevue/tag';
 import Textarea from 'primevue/textarea';
 import { downloadBlob, request, requestDownload } from './api';
 
-const props = defineProps({ quality: String, variable: Function, catalog: Object });
+const props = defineProps({ quality: String, variable: Function, catalog: Object, systemSignals: Object });
 const emit = defineEmits(['outcome', 'changed']);
 const path = '/api/tests/line';
 const state = ref(null);
@@ -54,7 +54,10 @@ const saved = computed(() => selectedRun.value ? history.value.find(run => run.i
 const rows = computed(() => (archive.value?.rows ?? []).filter(row =>
   !archiveFilter.value || row.api === archiveFilter.value));
 const unavailable = 'Line test service unavailable. Check the simulator and reload the page.';
-const modeReady = computed(() => props.variable('line.Remote')?.value === 1 && props.variable('line.Local')?.value === 0);
+const modeReady = computed(() => {
+  const { remote_mode: remote, local_mode: local } = props.systemSignals ?? {};
+  return remote && local && props.variable('line.' + remote)?.value === 1 && props.variable('line.' + local)?.value === 0;
+});
 const armReason = computed(() => statusError.value || state.value?.reason ||
   (state.value?.enabled ? '' : 'Checking line test availability.'));
 const reviewReason = computed(() => armReason.value || (!armed.value ? 'Arm a simulator write session.' :
@@ -234,33 +237,33 @@ defineExpose({
 </script>
 
 <template>
-  <Card class="panel line-content">
+  <Card data-ui="line.test.panel" class="panel line-content">
     <template #title><h2>0/1 command test <Tag severity="warn" value="Simulation" /></h2></template>
     <template #content>
-      <p v-for="item in state?.unresolved ?? []" :key="item.id">
+      <p data-ui="line.test.unresolved.row" :data-ui-key="item.id" v-for="item in state?.unresolved ?? []" :key="item.id">
         Unresolved test {{ item.id }}<template v-if="item.command"> · {{ item.command }}</template>.
       </p>
       <Message v-if="statusError" severity="error" role="alert">{{ statusError }}</Message>
       <div class="line-actions">
-        <Button v-if="!armed" id="line-arm" label="Arm simulator writes" :disabled="Boolean(armReason || working)" @click="arm" />
+        <Button data-ui="line.test.arm" v-if="!armed" id="line-arm" label="Arm simulator writes" :disabled="Boolean(armReason || working)" @click="arm" />
         <template v-else>
           <Tag severity="warn" :value="'Armed · ' + remaining + ' s'" />
-          <Button label="Disarm simulator writes" severity="secondary" :disabled="Boolean(working)" @click="disarm" />
+          <Button data-ui="line.test.disarm" label="Disarm simulator writes" severity="secondary" :disabled="Boolean(working)" @click="disarm" />
         </template>
         <span v-if="!armed && armReason">{{ armReason }}</span>
       </div>
       <div class="line-controls">
         <template v-if="manual.length">
           <label for="line-command-search">Search command name, description or address
-            <InputText id="line-command-search" v-model="query" type="search" />
+            <InputText data-ui="line.test.search" id="line-command-search" v-model="query" type="search" />
           </label>
           <label for="line-command-group">Command group
-            <select id="line-command-group" v-model="group"><option value="">All groups</option>
+            <select data-ui="line.test.group" id="line-command-group" v-model="group"><option value="">All groups</option>
               <option v-for="item in groups" :key="item">{{ item }}</option>
             </select>
           </label>
           <label for="line-command">Writable 0/1 command
-            <select id="line-command" v-model="command"><option value="">All commands</option>
+            <select data-ui="line.test.command" id="line-command" v-model="command"><option value="">All commands</option>
               <option v-for="tag in shownCommands" :key="tag.tag_name" :value="tag.tag_name">
                 {{ tag.tag_name }} · {{ tag.device_address }}
               </option>
@@ -268,7 +271,7 @@ defineExpose({
           </label>
         </template>
         <label for="line-case">Reviewed feedback case
-          <select id="line-case" v-model="selected"><option value="">Choose a case</option>
+          <select data-ui="line.test.case" id="line-case" v-model="selected"><option value="">Choose a case</option>
             <option v-for="item in cases" :key="item.id" :value="item.id">{{ item.command }} → {{ item.feedback }}</option>
           </select>
         </label>
@@ -281,24 +284,24 @@ defineExpose({
       </p>
       <p v-if="mapping?.guidance">{{ mapping.guidance }}</p>
       <div class="line-actions">
-        <Button id="line-review" label="Review 0→1→0 test" :disabled="Boolean(reviewReason || working || review)" @click="prepare" />
+        <Button data-ui="line.test.review" id="line-review" label="Review 0→1→0 test" :disabled="Boolean(reviewReason || working || review)" @click="prepare" />
         <span v-if="reviewReason">{{ reviewReason }}</span>
       </div>
-      <section v-if="review" class="line-approval" aria-labelledby="line-approval-heading">
+      <section data-ui="line.test.approval" v-if="review" class="line-approval" aria-labelledby="line-approval-heading">
         <h3 id="line-approval-heading">Approve one simulator test</h3>
         <p>Baseline PLC row {{ review.baseline.id }} at {{ localTime(review.baseline.source_at) }}.
           {{ review.item.command }} {{ review.metadata[2]?.device_address }}: 0 → 1 → 0.
           {{ review.item.feedback }} {{ review.metadata[3]?.device_address }}: {{ review.item.baseline }} → {{ review.item.expected }}.
           Approval expires in {{ approvalSeconds }} s.</p>
         <div class="line-actions">
-          <Button id="line-confirm" label="Approve and send 1" :disabled="Boolean(working || reviewReason || !approvalSeconds)" @click="start" />
-          <Button label="Cancel approval" severity="secondary" @click="review = null" />
+          <Button data-ui="line.test.approve" id="line-confirm" label="Approve and send 1" :disabled="Boolean(working || reviewReason || !approvalSeconds)" @click="start" />
+          <Button data-ui="line.test.cancel" label="Cancel approval" severity="secondary" @click="review = null" />
           <span v-if="!approvalSeconds">Approval expired. Cancel and review a new test.</span>
         </div>
       </section>
       <p v-if="feedback" :data-state="feedback.tone" role="status">{{ feedback.text }}</p>
 
-      <section v-if="active" aria-labelledby="line-active-heading">
+      <section data-ui="line.test.active" v-if="active" aria-labelledby="line-active-heading">
         <h3 id="line-active-heading">Active simulator test</h3>
         <p role="status">{{ { checking: 'Checking catalog and baseline', observing: 'Watching feedback',
           clearing: 'Restoring command zero' }[active.state] ?? 'Sending' }}
@@ -315,17 +318,17 @@ defineExpose({
     </template>
   </Card>
 
-  <Card class="panel line-content">
+  <Card data-ui="line.history.panel" class="panel line-content">
     <template #title><h2>Line test evidence</h2></template>
     <template #content>
       <div class="line-controls">
         <label for="line-history-filter">Simulator API result
-          <select id="line-history-filter" v-model="historyFilter"><option value="">All results</option>
+          <select data-ui="line.history.filter" id="line-history-filter" v-model="historyFilter"><option value="">All results</option>
             <option v-for="item in ['Pass', 'Fail', 'Observed', 'Refused', 'Restore unconfirmed']" :key="item">{{ item }}</option>
           </select>
         </label>
         <label for="line-run">Simulator test
-          <select id="line-run" v-model="selectedRun"><option value="">Latest matching test</option>
+          <select data-ui="line.history.run" id="line-run" v-model="selectedRun"><option value="">Latest matching test</option>
             <option v-for="record in shownHistory" :key="record.id" :value="record.id">
               {{ record.case.command }} · {{ localTime(record.at) }} · {{ record.api }}
             </option>
@@ -336,8 +339,8 @@ defineExpose({
       <template v-else>
         <p><Tag severity="secondary" :value="'API · ' + saved.api" /> <Tag severity="secondary" :value="'Human · ' + (saved.human?.result ?? 'Not checked')" /></p>
         <p>{{ saved.reason }}</p>
-        <details>
-          <summary>Baseline, receipts and readback</summary>
+        <details data-ui="line.history.receipts">
+          <summary data-ui="line.history.receipts.toggle">Baseline, receipts and readback</summary>
           <dl class="capabilities">
             <dt>Command and feedback</dt><dd>{{ saved.case.command }} → {{ saved.case.feedback }}</dd>
             <dt>Mapping</dt><dd>{{ saved.case.basis }}</dd>
@@ -347,35 +350,35 @@ defineExpose({
             <dt>Accepted 0</dt><dd>{{ saved.zero_attempts?.at(-1)?.accepted ? localTime(saved.zero_attempts.at(-1).at) : 'Unconfirmed' }}</dd>
             <dt>Later zero readback</dt><dd>{{ saved.zero_readback?.id ?? 'Unconfirmed' }}</dd>
           </dl>
-          <ul v-if="saved.judgments?.length"><li v-for="(item, index) in saved.judgments" :key="index">
+          <ul v-if="saved.judgments?.length"><li data-ui="line.history.judgment.row" :data-ui-key="index" v-for="(item, index) in saved.judgments" :key="index">
             {{ localTime(item.at) }} · {{ item.result }} · {{ item.notes }}
           </li></ul>
         </details>
         <div class="line-controls">
           <label for="line-human-result">Human result
-            <select id="line-human-result" v-model="human"><option>Not checked</option><option>Pass</option><option>Fail</option></select>
+            <select data-ui="line.history.result" id="line-human-result" v-model="human"><option>Not checked</option><option>Pass</option><option>Fail</option></select>
           </label>
           <label for="line-human-notes">Observation or notes
-            <Textarea id="line-human-notes" v-model="notes" maxlength="2000" rows="2" />
+            <Textarea data-ui="line.history.notes" id="line-human-notes" v-model="notes" maxlength="2000" rows="2" />
           </label>
         </div>
         <div class="line-actions">
-          <Button id="line-save-judgment" label="Save human result" :disabled="Boolean(working)" @click="saveJudgment" />
-          <Button v-for="[format, suffix] in [['summary', 'md'], ['json', 'json'], ['csv', 'csv']]" :key="format"
+          <Button data-ui="line.history.save" id="line-save-judgment" label="Save human result" :disabled="Boolean(working)" @click="saveJudgment" />
+          <Button data-ui="line.history.download" :data-ui-key="format" v-for="[format, suffix] in [['summary', 'md'], ['json', 'json'], ['csv', 'csv']]" :key="format"
             :label="'Download ' + format" severity="secondary"
             @click="download('run/' + saved.id + '/' + format, 'line-test-' + saved.id + '.' + suffix)" />
         </div>
       </template>
       <div class="line-controls">
         <label for="line-archive">Historical archive
-          <select id="line-archive" @change="selectArchive"><option value="">Choose an imported archive</option>
+          <select data-ui="line.archive.select" id="line-archive" @change="selectArchive"><option value="">Choose an imported archive</option>
             <option v-for="item in archives" :key="item.id" :value="item.id">
               {{ item.context?.mode ?? 'Original reports' }} · {{ item.files.length }} files · {{ item.id.slice(0, 10) }}
             </option>
           </select>
         </label>
         <label v-if="archive" for="line-archive-filter">Archived API result
-          <select id="line-archive-filter" v-model="archiveFilter"><option value="">All results</option>
+          <select data-ui="line.archive.filter" id="line-archive-filter" v-model="archiveFilter"><option value="">All results</option>
             <option>Pass</option><option>Fail</option><option>Unchecked</option>
           </select>
         </label>
@@ -387,9 +390,9 @@ defineExpose({
         <p>Human · {{ archive.human_counts.Pass }} Pass / {{ archive.human_counts.Fail }} Fail /
           {{ archive.human_counts['Not checked'] }} Not checked</p>
         <p>{{ archive.history_events }} saved history events. {{ archive.unmatched }} unmatched entries are available in the originals.</p>
-        <details>
-          <summary>Historical labels and provenance</summary>
-          <ul class="line-readings"><li v-for="row in rows" :key="JSON.stringify(row.identity)">
+        <details data-ui="line.archive.provenance">
+          <summary data-ui="line.archive.provenance.toggle">Historical labels and provenance</summary>
+          <ul class="line-readings"><li data-ui="line.archive.provenance.row" :data-ui-key="JSON.stringify(row.identity)" v-for="row in rows" :key="JSON.stringify(row.identity)">
             <strong>{{ row.identity[0] }} · {{ row.identity[1] }}</strong>
             <p>API · {{ row.api }} · {{ row.api_source }}<br />Human · {{ row.human }}</p>
             <small v-if="row.api_evidence">{{ row.api_evidence.source }} {{ row.api_evidence.evidence_ref }}
@@ -398,10 +401,10 @@ defineExpose({
               {{ row.human_evidence.observed_at || row.human_evidence.at }}</small>
           </li></ul>
         </details>
-        <details>
-          <summary>Original files ({{ archive.files.length }})</summary>
-          <ul><li v-for="(name, index) in archive.files" :key="name">
-            <Button :label="'Download ' + name" severity="secondary"
+        <details data-ui="line.archive.files">
+          <summary data-ui="line.archive.files.toggle">Original files ({{ archive.files.length }})</summary>
+          <ul><li data-ui="line.archive.file.row" :data-ui-key="name" v-for="(name, index) in archive.files" :key="name">
+            <Button data-ui="line.archive.download" :data-ui-key="name" :label="'Download ' + name" severity="secondary"
               @click="download('archives/' + archive.id + '/' + index, name.split('/').at(-1))" />
           </li></ul>
         </details>

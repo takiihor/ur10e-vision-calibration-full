@@ -77,6 +77,39 @@ def test_legacy_landing_describes_pick_place_capability(service, enabled, descri
     assert guidance.encode() in page
 
 
+@pytest.mark.parametrize('disabled', [False, True])
+def test_simulation_choices_and_requests_follow_instance_config(service, monkeypatch, disabled):
+    monkeypatch.delenv('ANODIZING_DISABLE_SIMULATION', raising=False)
+    if disabled:
+        monkeypatch.setenv('ANODIZING_DISABLE_SIMULATION', '1')
+
+    agv_page = request(service, '/agv')[2]
+    assert b'<option value="serial">Serial port</option>' in agv_page
+    assert (b'<option value="simulator">' in agv_page) is not disabled
+    assert (b'data-action="simulate"' in request(service, '/calibration')[2]) is not disabled
+    mode = b'off' if disabled else b'on'
+    assert b'name="module-simulation" content="' + mode + b'"' in request(service, '/operator/')[2]
+
+    if disabled:
+        for path, body in [
+            ('/api/agv', {'action': 'connect'}),
+            ('/api/agv', {'action': 'connect', 'mode': 'simulator'}),
+            ('/api/calibration', {'action': 'simulate'}),
+            ('/api/teaching', {'action': 'simulate'}),
+            ('/api/pick-place', {'action': 'PICK'}),
+            ('/api/tests/line', {'action': 'arm'}),
+        ]:
+            code, _, payload = request(service, path, method='POST', body=body)
+            assert code == 403 and json.loads(payload)['error'] == 'Simulation is disabled on this service.'
+        assert service.agv.transport is None
+    else:
+        try:
+            code, _, payload = request(service, '/api/agv', method='POST', body={'action': 'connect'})
+            assert code == 200 and json.loads(payload)['settings']['mode'] == 'simulator'
+        finally:
+            service.agv.close()
+
+
 def test_state_is_authenticated_read_only_and_copies_acquisition_time(service, monkeypatch):
     link = service.agv
     clock = [10.0]

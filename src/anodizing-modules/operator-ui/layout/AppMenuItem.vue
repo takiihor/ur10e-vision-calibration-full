@@ -8,7 +8,7 @@ defineEmits(['navigate']);
 
 <template>
     <li :class="{ 'active-menuitem': active }">
-        <a :href="item.url" :class="{ 'active-route': active }" :aria-current="active ? 'page' : undefined"
+        <a :data-ui="item.ui" :href="item.url" :class="{ 'active-route': active }" :aria-current="active ? 'page' : undefined"
             @click="$emit('navigate')">
             <i :class="item.icon" class="layout-menuitem-icon" aria-hidden="true" />
             <span class="layout-menuitem-text">{{ item.label }}</span>

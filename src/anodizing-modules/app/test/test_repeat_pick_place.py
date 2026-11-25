@@ -422,7 +422,7 @@ class AutomaticMCUTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name);(self.root/'project').mkdir()
         (self.root/'project/project.json').write_text(json.dumps(dict(schema_version=1,type='marker_pick_project',
-            settings={'robot_ip':'192.168.12.248'},flow={})))
+            settings={'robot_ip':'192.0.2.248'},flow={})))
         project,host,digest=_project(self.root,'project')
         self.owner=JobOwner(self.root,allow_manual_pick_place=True)
         self.parent='p'*80

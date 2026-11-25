@@ -1,5 +1,5 @@
 import { computed, onMounted, onUnmounted, reactive, shallowRef, ref } from 'vue';
-import { request, requestError } from './api';
+import { request, requestError, simulationEnabled } from './api';
 import {
   badFrame, connectionKey, emptyJournal, eventText, faultText, isoNow, journalKey,
   load, newSession, reads, resultText, save, seconds, sessionKey, stationCallRequired, stationLimit, urgent,
@@ -35,7 +35,7 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
 
   const savedSettings = ref(load(connectionKey, null));
   const form = reactive({
-    mode: savedSettings.value?.mode === 'serial' ? 'serial' : 'simulator',
+    mode: !simulationEnabled() || savedSettings.value?.mode === 'serial' ? 'serial' : 'simulator',
     port: '', address: savedSettings.value?.address ?? '00 01',
     channel: savedSettings.value?.channel ?? '04', stations: 3, speed: 500, station: 1,
   });
@@ -81,9 +81,10 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     if (!/^[a-f\d]{2}\s*[a-f\d]{2}$/i.test(String(form.address).trim()) || !/^[a-f\d]{2}$/i.test(String(form.channel).trim())) {
       return 'Enter two address bytes and one channel byte in Link settings.';
     }
-    if (form.mode === 'serial') {
+    if (form.mode === 'serial' || form.mode === 'wired') {
       if (!capability.value.serial_available) return 'Serial support is unavailable. Open AGV test in the serial app environment.';
-      if (!form.port) return 'Select a serial port. Reseat the USB plug and refresh ports if needed.';
+      if (form.mode === 'wired' && !capability.value.wired_port) return 'Configure a wired port on the service.';
+      if (form.mode === 'serial' && !form.port) return 'Select a serial port. Reseat the USB plug and refresh ports if needed.';
     } else if (!Number.isInteger(form.stations) || form.stations < 0 || form.stations > 255) {
       return 'Enter a simulator station count from 0 to 255.';
     }
@@ -179,6 +180,7 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
       const next = await request('/api/agv?ports=1');
       if (retired) return;
       if (!capability.value || next.sequence > capability.value.sequence) {
+        if (!capability.value && !next.connected && next.wired_port) form.mode = 'wired';
         capability.value = next;
         portError.value = next.port_error ? 'Ports could not be listed. Reseat the USB plug, then refresh ports.' : '';
         apply(next, requestedAt);

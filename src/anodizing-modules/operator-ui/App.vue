@@ -15,7 +15,7 @@ import LineTestPanel from './LineTestPanel.vue';
 import PickPlacePage from './PickPlacePage.vue';
 import TeacherPage from './TeacherPage.vue';
 import CalibrationPage from './CalibrationPage.vue';
-import { request } from './api';
+import { request, simulationEnabled } from './api';
 import { useAgv } from './useAgv';
 
 const route = ref(location.hash);
@@ -23,7 +23,8 @@ const isAgv = computed(() => ['#/agv', '#/tests/agv'].includes(route.value));
 const isScene = computed(() => ['#/scene', '#/tests/scene'].includes(route.value));
 const isRecords = computed(() => ['#/records', '#/tests/records'].includes(route.value));
 const lineRoute = computed(() => /^#\/(line|tests\/line-api)(?:\/(tank|signals|alarms|catalog|diagnostics))?$/.exec(route.value));
-const lineTest = computed(() => lineRoute.value?.[1] === 'tests/line-api');
+const allowSimulation = simulationEnabled();
+const lineTest = computed(() => allowSimulation && lineRoute.value?.[1] === 'tests/line-api');
 const pickRoute = computed(() => /^#\/(?:pick-place|tests\/(pick-place|robot|mcu|tool-power))$/.exec(route.value));
 const isTeacher = computed(() => ['#/teaching', '#/tests/teaching'].includes(route.value));
 const isCalibration = computed(() => ['#/calibration', '#/tests/calibration'].includes(route.value));
@@ -238,7 +239,8 @@ onUnmounted(() => {
       @view="selectLineView"
       @outcome="(outcome, choose) => agv.showOutcome('line-read', outcome, choose)">
       <template v-if="lineTest" #default="{ quality, catalog }">
-        <LineTestPanel ref="linePanel" :quality="quality" :catalog="catalog" :variable="agv.variableInfo" @changed="refreshService"
+        <LineTestPanel ref="linePanel" :quality="quality" :catalog="catalog" :variable="agv.variableInfo"
+          :system-signals="agv.line?.system_signals" @changed="refreshService"
           @outcome="(outcome, choose) => agv.showOutcome('line-test', outcome, choose)" />
       </template>
     </LinePage>
@@ -251,8 +253,8 @@ onUnmounted(() => {
     <CalibrationPage v-else-if="isCalibration" :service="offline ? null : service" :agv="agv"
       :stop-outcomes="targetOutcome" @changed="refreshService"
       @outcome="(outcome, choose) => agv.showOutcome('calibration', outcome, choose)" />
-    <div v-else class="home-grid">
-      <Card class="panel home-card" aria-labelledby="service-heading">
+    <div data-ui="home.page" v-else class="home-grid">
+      <Card data-ui="home.service.panel" class="panel home-card" aria-labelledby="service-heading">
         <template #title><h2 id="service-heading">Service</h2></template>
         <template #content>
           <Message v-if="offline" severity="error" icon="pi pi-times-circle">{{ offline }}</Message>
@@ -264,7 +266,7 @@ onUnmounted(() => {
           </Message>
           <p v-else role="status"><ProgressSpinner class="control-spinner" aria-hidden="true" /> Checking service…</p>
           <p v-if="service && !offline">{{ active ? `Current operation · ${active.module} · ${active.state}` : 'No active job' }}</p>
-          <Button v-if="active?.module === 'calibration'" as="a" href="#/calibration" class="page-link"
+          <Button data-ui="home.calibration.open" v-if="active?.module === 'calibration'" as="a" href="#/calibration" class="page-link"
             label="Open current Calibration operation" severity="secondary" />
           <dl v-if="service && !offline" class="capabilities">
             <dt>Camera</dt><dd>{{ service.allow_camera ? 'Enabled' : 'Disabled' }}</dd>
@@ -274,7 +276,7 @@ onUnmounted(() => {
           </dl>
         </template>
       </Card>
-      <Card class="panel home-card" aria-labelledby="agv-heading">
+      <Card data-ui="home.agv.panel" class="panel home-card" aria-labelledby="agv-heading">
         <template #title><h2 id="agv-heading">AGV status</h2></template>
         <template #content>
           <Message v-if="agv.stateError" severity="error" icon="pi pi-times-circle">{{ agv.stateError }}</Message>
@@ -283,7 +285,7 @@ onUnmounted(() => {
             <dt>Reported motion</dt><dd>{{ agv.stale || !agv.state.connected || agv.variable('moving') == null ? 'Unknown' : agv.variable('moving') ? 'Running' : 'Stopped' }}</dd>
             <dt>Current station</dt><dd>{{ !agv.stale && agv.state.connected ? agv.variable('current_station') ?? 'Unknown' : 'Unknown' }}</dd>
           </dl>
-          <Button as="a" href="#/agv" class="page-link" label="Open AGV commissioning" severity="secondary" />
+          <Button data-ui="home.agv.open" as="a" href="#/agv" class="page-link" label="Open AGV commissioning" severity="secondary" />
         </template>
       </Card>
     </div>
