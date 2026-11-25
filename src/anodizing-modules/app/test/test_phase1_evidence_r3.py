@@ -44,7 +44,8 @@ def test_delayed_plc_sample_does_not_hide_immersion_time(tmp_path):
         record = run['steps'][0]
         assert record['dwell_s'] == pytest.approx(record['lift_s'] - record['placed_s'])
         assert record['dwell_s'] == pytest.approx(39)
-        assert run['state'] == 'inspection'
+        assert run['state'] == 'succeeded' and run['final_hold'] == 'output'
+        assert run['inspection'] and record['inspection'] and run['jobs'][-1]['job']['result']['alarm']
     finally:
         executor.close()
 
@@ -103,7 +104,7 @@ def test_plc_admission_requires_independent_positive_matching_settings(tmp_path,
         executor.close()
 
 
-def test_torn_marker_repair_preserves_bytes_and_requires_safe_observation(tmp_path):
+def test_torn_marker_and_missing_job_keep_named_fences_even_at_a_safe_hold(tmp_path):
     marker = tmp_path / '.executor-active.json'
     devices = FakeDevices()
     ident = 'lost-job-1'
@@ -124,14 +125,16 @@ def test_torn_marker_repair_preserves_bytes_and_requires_safe_observation(tmp_pa
         devices.hold_available = False
         request = dict(identity, job_id=ident, missing=True, repair_active_marker=True,
                        disposition='Verified basket at input and equipment off.')
-        with pytest.raises(ValueError, match='[Ss]afe hold|observ'):
-            executor.reconcile(request)
-        assert executor.status()['recovery_required']
-        assert marker.read_bytes() == b'{'
-        devices.hold_available = True
-        executor.reconcile(request)
-        assert not executor.status()['recovery_required']
-        assert any(p.read_bytes() == b'{' for p in tmp_path.iterdir() if p.is_file())
+        effects = list(devices.effects)
+        for available in (False, True):
+            devices.hold_available = available
+            with pytest.raises(ValueError, match='call a technician'):
+                executor.reconcile(request)
+            status = executor.status()
+            assert status['recovery_required']
+            assert set(status['evidence_faults']) == {marker.name, f'.jobs/{ident}.json'}
+            assert marker.read_bytes() == b'{' and not (tmp_path / '.jobs' / f'{ident}.json').exists()
+            assert devices.effects == effects
     finally:
         executor.close()
 
