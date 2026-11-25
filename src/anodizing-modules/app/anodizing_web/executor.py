@@ -86,7 +86,7 @@ def validate_measured_rows(result, checkpoint):
                 raise ValueError('Measured rows disagree with the confirmed placement, PLC sample or lift.')
     if rows == saved:
         return
-    # Earlier builds updated only the result when the parked exposure was measured.
+    # A later parked exposure updates the result after the lift checkpoint was saved.
     if (result.get('open_air') and rows and len(rows) == len(saved) and rows[:-1] == saved[:-1]
             and saved[-1]['air_s'] is None and (not saved[-1]['inspection'] or rows[-1]['inspection'])
             and dict(rows[-1], air_s=None, inspection=saved[-1]['inspection']) == saved[-1]):
@@ -837,7 +837,6 @@ class Executor:
                 if clock_unknown:
                     result['open_air_closed_unknown'] = True
                 self.open_air = None
-            job['checkpoint']['steps'][-1] = deepcopy(row)
             self.owner._save(job)
         if alarm:
             with self.guard:

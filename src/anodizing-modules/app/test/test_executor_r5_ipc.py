@@ -461,3 +461,43 @@ def test_fresh_stop_evidence_confirms_both_overlapping_receipts(tmp_path):
         assert executor.status()['stop']['stop_id'] == newer['stop_id']
     finally:
         executor.close()
+
+
+def test_technician_restores_exact_result_before_restarting_and_acknowledging(tmp_path):
+    from anodizing_web.executor_http import Client, control_listener
+    from test_executor_phase1 import running
+
+    devices = FakeDevices(state_path=tmp_path / '.fake-devices.json')
+    executor = Executor(tmp_path, devices)
+    try:
+        request = visit(session(executor))
+        executor.submit(request)
+        ident = request['job_id']
+        original = terminal(executor, ident)
+        relative = '.jobs/' + ident + '.json'
+        path = tmp_path / relative
+        intact = path.read_bytes()
+        path.unlink()
+
+        token = 'r5-private-test-executor-token-string'
+        listener = control_listener(0, executor, token)
+        with running(listener):
+            client = Client(listener.server_port, token)
+            status = client('status', {'job_id': ident})
+            assert status['job'] is None
+            assert 'call a technician' in status['evidence_faults'][relative]
+            with pytest.raises(ValueError, match='technician'):
+                client('acknowledge', request)
+            path.write_bytes(intact)
+            assert client('status', {'job_id': ident})['recovery_required']
+    finally:
+        executor.close()
+
+    restarted = Executor(tmp_path, FakeDevices(state_path=devices.state_path))
+    try:
+        identity = lease(restarted)
+        assert restarted.status(ident)['job'] == original
+        assert restarted.acknowledge(dict(identity, job_id=ident))['acknowledged']
+        assert restarted.devices.effects == []
+    finally:
+        restarted.close()

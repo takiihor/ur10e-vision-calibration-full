@@ -307,7 +307,8 @@ def test_open_air_exposure_alarms_locally_without_next_job(tmp_path):
         request['params']['steps'][0]['limits']['air'] = 2
         plant(executor, request)
         executor.submit(request)
-        assert terminal(executor, request['job_id'])['outcome'] == 'succeeded'
+        at_park = terminal(executor, request['job_id'])
+        assert at_park['outcome'] == 'succeeded'
         clock.now += 120
 
         def expired_state():
@@ -316,6 +317,8 @@ def test_open_air_exposure_alarms_locally_without_next_job(tmp_path):
         state = wait_for(expired_state, lambda state: not executor.armed)
         assert state['quality_alarm']['job_id'] == request['job_id']
         assert state['quality_alarm']['open_air']
+        assert state['quality_alarm']['measured_air_s'] == 120
+        assert state['job']['checkpoint'] == at_park['checkpoint']
         row = state['job']['result']['steps'][0]
         assert row['inspection'] and row['air_s'] is None
     finally:
