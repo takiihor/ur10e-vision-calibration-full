@@ -29,6 +29,11 @@ def atomic_json(path, value):
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temp, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         if os.path.exists(temp):
             os.unlink(temp)
@@ -77,7 +82,7 @@ class JobOwner:
                     continue
                 if job['state'] in ('running', 'waiting'):
                     job.update(state='interrupted', pending=None, error='Service restarted. Review the saved artifacts.')
-                    if job.get('calibration_motion_approved'):
+                    if job.get('calibration_motion_approved') or job['module'] == 'executor':
                         job['execution_uncertain'] = True
                     if job.get('manual'):
                         manual = job['manual']
@@ -191,6 +196,8 @@ class JobOwner:
             job = {'id': request_id, 'module': module, 'fingerprint': fingerprint,
                    'state': 'running', 'created': time.time(), 'events': [], 'pending': None,
                    'result': None, 'error': None}
+            if module == 'executor':
+                job['executor_payload'] = payload
             if module == 'calibration':
                 job['calibration_action'] = payload.get('action')
             if mode:

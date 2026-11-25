@@ -94,6 +94,10 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     if (!state.value.connected) return 'Connect first.';
     if (busy.value || resetPending) return pendingWait;
     if (armed.value) return '';
+    if (state.value.executor_link) {
+      if (state.value.recovery_required) return 'Reconcile the interrupted executor job first.';
+      return freshReport.value ? '' : 'Query fresh stopped status first.';
+    }
     return state.value.motion_block || (stale.value ? 'Wait for a fresh status report.' : '');
   });
 
@@ -230,7 +234,13 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
         return;
       }
       setServiceError('');
-      if (body.command) {
+      if (next.executor_stop) {
+        const confirmed = next.executor_stop.confirmed;
+        outcomes.set(id, { direct: { text: confirmed ? 'Stopped status confirmed' : 'Stop unconfirmed',
+          tone: confirmed ? 'done' : 'failed' } });
+      } else if (body.command === 'call_station' && next.executor_link) {
+        outcomes.set(id, { direct: { text: 'Executor accepted the station visit.', tone: 'done' } });
+      } else if (body.command) {
         const name = next.urgent_command ?? body.command;
         const sent = next.results[name];
         const observed = current.results[name];
@@ -256,7 +266,7 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
           connect: current.connected ? `Connected · ${current.settings?.mode === 'simulator' ? 'Simulator' : 'Serial AGV'}` :
             'The link closed. Inspect the connection before trying again.',
           disconnect: current.connected ? 'The link changed. Inspect the connection.' : 'Disconnected.',
-          arm: armed.value ? 'Armed. Movement controls are enabled.' : 'Disarmed.',
+          arm: armed.value ? (next.executor_link && next.motion_block ? 'Armed · commissioning' : 'Armed. Movement controls are enabled.') : 'Disarmed.',
           silence: current.silent ? 'Silent link simulation on.' : 'Silent link simulation off.',
         };
         outcomes.set(id, { direct: { text: text[body.action], tone: 'done' } });
@@ -274,6 +284,10 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
   }
 
   function commandReason(name, value) {
+    if (state.value.executor_link) {
+      if (name === 'stop') return '';
+      if (!['query_status', 'call_station'].includes(name)) return 'This control is unavailable on the executor link.';
+    }
     if (!state.value.connected) return 'Connect first.';
     if (name === 'pause' && freshReport.value?.mode === 0) return pauseStationOnly;
     if (urgent.has(name)) return '';
@@ -303,6 +317,7 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     const why = commandReason(name, value);
     if (!why) {
       const body = { action: 'send', command: name, value };
+      if (name === 'call_station' && state.value.executor_link) body.request_id = crypto.randomUUID();
       if (commands.value.get(name)?.motion) body.stop_generation = state.value.stop_generation;
       return post(body, id, viaEsc);
     }

@@ -440,8 +440,11 @@ class Connection:
 
     record_event = None
 
-    def __init__(self, owner):
+    def __init__(self, owner, *, commissioning_arm=False, wire_trace=None, wired_station_jobs=False):
         self.owner = owner
+        self.commissioning_arm = commissioning_arm
+        self.wire_trace = wire_trace
+        self.wired_station_jobs = wired_station_jobs
         root = getattr(owner, 'root', None)
         profile = section(root, 'agv') if root is not None else {}
         descriptions = profile.get('fault_descriptions')
@@ -748,6 +751,8 @@ class Connection:
             chunk = self.transport.read(min(4096, self.transport.in_waiting))
         except OSError as exc:
             raise ReceiveError(str(exc)) from exc
+        if chunk and self.wire_trace is not None:
+            self.wire_trace('RX', chunk)
         for raw, error in self.splitter.feed(chunk):
             if error:
                 self._record('RX', raw, {'error': error})
@@ -1041,14 +1046,22 @@ class Connection:
         return b'' if (self.settings or {}).get('mode') == 'wired' else self.splitter.prefix
 
     def _write(self, name, raw, value, attempt, background=False, *, tx_id=None, requested_halt=None):
-        if self.wired_port and (name not in READS or raw != command_frame(name, None, self._tx_prefix()).encode()):
-            raise ValueError(STATUS_ONLY)
+        if self.wired_port:
+            allowed = READS | {'call_station', 'stop', 'pause'} if self.wired_station_jobs and self.recipe_active else READS
+            if name not in allowed or raw != command_frame(name, value, self._tx_prefix()).encode():
+                raise ValueError(STATUS_ONLY)
         if name not in READS and name not in URGENT and name != 'set_speed':
             self.teaching_generation += 1
         try:
             written = self.transport.write(raw)
+        except OSError:
+            if self.wire_trace is not None:
+                self.wire_trace('TX?', raw)
+            raise
         finally:
             self.last_write_at = monotonic()
+        if written and self.wire_trace is not None:
+            self.wire_trace('TX', raw[:written])
         if written != len(raw):
             raise OSError('Incomplete write. The command may have reached the AGV.')
         sent_at = self.last_write_at
@@ -1398,7 +1411,7 @@ class Connection:
         if action == 'send' and (not isinstance(name, str) or name not in COMMANDS):
             raise ValueError('Select a known AGV command.')
         if self.wired_port and ((action == 'send' and name not in READS)
-                                or (action == 'arm' and body.get('armed') is True)):
+                                or (action == 'arm' and body.get('armed') is True and not self.commissioning_arm)):
             raise ValueError(STATUS_ONLY)
         if action == 'connect' and hasattr(self.owner, 'line_test_fence'):
             with self.owner.lock:
@@ -1509,6 +1522,13 @@ class Connection:
                                 raise ValueError('AGV Stop or Pause is awaiting delivery. Wait before disconnecting.')
                             self._close()
                         elif action == 'arm' and type(body.get('armed')) is bool:
+                            if body['armed'] and self.commissioning_arm:
+                                status = self.status or {}
+                                if ((self.settings or {}).get('mode') != 'wired' or self.status_at is None
+                                        or monotonic()-self.status_at >= RECIPE_STALE_S
+                                        or status.get('fault_code') != 0 or status.get('obstacle_stop') is not False
+                                        or status.get('stopped') is not True or status.get('actual_speed_m_h') != 0):
+                                    raise ValueError('Arm requires fresh stopped wired feedback without faults.')
                             self.armed = body['armed']
                             if not self.armed:
                                 self.stop_generation += 1
@@ -1529,7 +1549,7 @@ class Connection:
     def recipe_link(self, connection_id=None, *, stop_generation):
         # Wait for a foreground read. Recipe feedback drains an in-flight background read.
         with self.send_lock, self.lock:
-            if self.wired_port:
+            if self.wired_port and (not self.wired_station_jobs or (self.settings or {}).get('mode') != 'wired'):
                 raise ValueError(STATUS_ONLY)
             if self.transport is None or self.recipe_active:
                 raise ValueError('Connect the AGV on the AGV page before starting the recipe.')

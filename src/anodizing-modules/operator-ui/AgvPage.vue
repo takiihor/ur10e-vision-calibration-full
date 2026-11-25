@@ -40,6 +40,7 @@ const disconnectReason = computed(() => !agv.state.connected ? 'Connect first.' 
       agv.busy ? 'Wait for the current request.' : '');
 const portsBusy = ref(false);
 const transports = computed(() => {
+  if (agv.capability?.executor_link) return [{ label: 'IPC executor', value: 'wired' }];
   const available = [{ label: 'Serial port', value: 'serial' }];
   if (agv.capability?.wired_port || agv.state.wired_port) available.unshift({ label: 'Wired RS-485', value: 'wired' });
   if (simulationEnabled()) available.unshift({ label: 'Simulator', value: 'simulator' });

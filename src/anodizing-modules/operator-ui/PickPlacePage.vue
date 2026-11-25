@@ -7,6 +7,7 @@ import Select from 'primevue/select';
 import OperatorButton from './OperatorButton.vue';
 import PickPlaceFields from './PickPlaceFields.vue';
 import PickPlaceJob from './PickPlaceJob.vue';
+import ProgrammePanel from './ProgrammePanel.vue';
 import PickPlaceTools from './PickPlaceTools.vue';
 import { request } from './api';
 import {
@@ -555,6 +556,7 @@ onUnmounted(() => {
         </details>
       </section>
 
+      <ProgrammePanel @changed="emit('changed')" />
       <section data-ui="pick.recipe.panel" class="panel" aria-labelledby="recipe-heading">
         <h2 id="recipe-heading">Automatic rod transfer test</h2>
         <p>The rod starts at A. One transfer is one pickup and placement. Two transfers run A → B → A.</p>

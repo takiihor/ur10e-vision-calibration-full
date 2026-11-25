@@ -34,10 +34,11 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, port, root, *, allow_camera=False, allow_teaching=False, allow_manual=False, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False, allow_agv_in_recipe=False, simulate_scene=False, line_mode='disabled', allow_line_api_test_writes=False):
+    def __init__(self, port, root, *, allow_camera=False, allow_teaching=False, allow_manual=False, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False, allow_agv_in_recipe=False, simulate_scene=False, line_mode='disabled', allow_line_api_test_writes=False, executor_client=None, programme_steps=None):
         lock_path = Path(tempfile.gettempdir()) / f'anodizing-modules-{os.getuid()}.lock'
         self.lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         self.data_lock_fd = None
+        self.executor_link = self.programme = self.programme_executor = None
         try:
             info = os.fstat(self.lock_fd)
             if info.st_uid != os.getuid() or not stat.S_ISREG(info.st_mode):
@@ -107,7 +108,22 @@ class Server(ThreadingHTTPServer):
             port = self.server_address[1]
             self.hosts = {f'127.0.0.1:{port}', f'localhost:{port}'}
             self.line.start()
+            if executor_client is not None:
+                from .executor_link import ExecutorLink
+                self.executor_link = ExecutorLink(executor_client, self.agv)
+            if programme_steps is not None:
+                from .executor import Executor, FakeDevices
+                from .programme import Programme
+                self.programme_executor = Executor(self.root / 'simulation-executor', FakeDevices())
+                self.programme = Programme(self.root / 'programme', self.programme_executor.dispatch, programme_steps)
+                self.programme.start_service()
         except BaseException:
+            if self.programme:
+                self.programme.close()
+            if self.programme_executor:
+                self.programme_executor.close()
+            if self.executor_link:
+                self.executor_link.close()
             if self.data_lock_fd is not None:
                 os.close(self.data_lock_fd)
             if self.lock_fd is not None:
@@ -141,6 +157,11 @@ class Server(ThreadingHTTPServer):
 
     def server_close(self):
         super().server_close()
+        if self.programme:
+            self.programme.close()
+            self.programme_executor.close()
+        if self.executor_link:
+            self.executor_link.close()
         self.line.close()
         self.owner.shutdown()
         self.agv.close()
@@ -239,6 +260,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(403, {'error': 'Request is not authorized.'})
         if path.startswith('/operator/'):
             return self.operator_asset(path)
+        if path == '/api/programme':
+            programme = getattr(self.server, 'programme', None)
+            return self.reply(200, programme.status() if programme else {'recipe': None, 'run': None})
         if path == '/api/state':
             return self.reply(200, operator_state.server_state(self.server))
         if path == '/api/tests/line':
@@ -272,6 +296,9 @@ class Handler(BaseHTTPRequestHandler):
                      'path': str(self.server.model_source) if self.server.model_source else None, 'valid': valid}
             return self.reply(200, {'app_id': 'anodizing_modules_v1', 'owner': self.server.owner.status(),
                                     'line_test': self.server.line_tests.status(summary=True), 'data_dir': str(self.server.root),
+                                    'programme': {'id': programme_run['id'], 'state': programme_run['state']}
+                                    if (getattr(self.server, 'programme', None) and
+                                        (programme_run := self.server.programme.status()['run'])) else None,
                                     'allow_camera': self.server.allow_camera,
                                     'allow_teaching': self.server.allow_teaching, 'allow_manual': self.server.allow_manual,
                                     'allow_manual_pick_place': self.server.owner.allow_manual_pick_place,
@@ -281,11 +308,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/agv-travel-pose':
             return self.reply(200, travel_pose.state(self.server.owner, check_live=urlsplit(self.path).query != 'cached=1'))
         if path == '/api/agv':
+            if getattr(self.server, 'executor_link', None):
+                return self.reply(200, self.server.executor_link.status())
             query = urlsplit(self.path).query
             if query in ('cached=1', 'ports=1'):
                 return self.reply(200, self.server.agv.commissioning(ports=query == 'ports=1'))
             return self.reply(200, self.server.agv.capability())
         if path == '/api/agv-link':
+            if getattr(self.server, 'executor_link', None):
+                return self.reply(200, self.server.executor_link.status())
             return self.reply(200, self.server.agv.link_state())
         if path == '/api/agv-robot-motion':
             from .recipe_agv import motion_state
@@ -607,6 +638,26 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('Send a JSON object.')
             path = urlsplit(self.path).path
             owner = self.server.owner
+            if path == '/api/programme':
+                programme = getattr(self.server, 'programme', None)
+                if not programme:
+                    raise PermissionError('The simulation programme is unavailable.')
+                action = body.get('action')
+                if action == 'save':
+                    result = programme.save(body.get('revision'), body.get('limits'))
+                elif action == 'finalize':
+                    result = programme.finalize(body.get('revision'))
+                elif action == 'start':
+                    result = programme.start(body.get('revision'), body.get('basket'))
+                elif action == 'stop':
+                    result = programme.stop()
+                elif action == 'resume':
+                    result = programme.resume(body.get('job_id'))
+                elif action == 'disposition':
+                    result = programme.disposition(body.get('job_id'), body.get('note'))
+                else:
+                    raise ValueError('Choose a programme action.')
+                return self.reply(200, result)
             if path == '/api/tests/line':
                 if not self.simulation_enabled:
                     raise PermissionError('Simulation is disabled on this service.')
@@ -637,6 +688,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/agv-travel-pose':
                 return self.reply(200, travel_pose.save(owner, body))
             if path == '/api/agv':
+                if getattr(self.server, 'executor_link', None):
+                    return self.reply(200, self.server.executor_link.submit(body))
                 if (body.get('action') == 'connect' and body.get('mode', 'simulator') == 'simulator'
                         and not self.simulation_enabled):
                     raise PermissionError('Simulation is disabled on this service.')
@@ -671,6 +724,14 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8870)
+    parser.add_argument('--role', choices=('orchestrator', 'executor', 'status-display'),
+                        default=os.getenv('ANODIZING_ROLE', 'orchestrator'))
+    parser.add_argument('--executor-port', type=int, default=os.getenv('ANODIZING_EXECUTOR_PORT', '0'))
+    parser.add_argument('--executor-token-file', default=os.getenv('ANODIZING_EXECUTOR_TOKEN_FILE'))
+    parser.add_argument('--executor-build', default=os.getenv('ANODIZING_EXECUTOR_BUILD', 'development'))
+    parser.add_argument('--status-display-port', type=int, default=8871)
+    parser.add_argument('--fake-executor', action='store_true')
+    parser.add_argument('--programme-file', default=os.getenv('ANODIZING_PROGRAMME_FILE'))
     parser.add_argument('--data-dir', default='data', help='Allowed IPC data directory')
     parser.add_argument('--allow-camera', action='store_true', help='Allow camera-only board capture')
     parser.add_argument('--allow-teaching', action='store_true', help='Allow read-only camera and RTDE teaching')
@@ -688,8 +749,35 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error('Port must be 1 to 65535.')
+    if args.role not in ('orchestrator', 'executor', 'status-display'):
+        parser.error('Choose a supported installation role.')
+    if args.role == 'executor':
+        if not args.executor_token_file or not 1 <= args.status_display_port <= 65535:
+            parser.error('An executor token file and valid display port are required.')
+        import signal
+        from .executor_http import interrupt, serve
+        signal.signal(signal.SIGTERM, interrupt)
+        try:
+            serve(args)
+        except KeyboardInterrupt:
+            pass
+        return
+    if args.role == 'status-display':
+        from .executor_http import serve_display
+        serve_display(args.port, args.status_display_port)
+        return
+    if args.executor_port and not args.executor_token_file:
+        parser.error('Configure a service token file for the IPC executor.')
+    executor_client = None
+    if args.executor_port:
+        from .executor_http import Client
+        executor_client = Client(args.executor_port, Path(args.executor_token_file).read_text().strip())
+    programme_steps = None
+    if args.programme_file:
+        programme_steps = json.loads(Path(args.programme_file).read_text())
     server = Server(args.port, args.data_dir, allow_camera=args.allow_camera, allow_teaching=args.allow_teaching, allow_manual=args.allow_manual, allow_auto_calibration=args.allow_auto_calibration, robot_model=args.robot_model, allow_teacher_motion=args.allow_teacher_motion, allow_manual_pick_place=args.allow_manual_pick_place, allow_agv_in_recipe=args.allow_agv_in_recipe, simulate_scene=args.simulate_scene, line_mode=args.line_mode,
-                    allow_line_api_test_writes=args.allow_line_api_test_writes)
+                    allow_line_api_test_writes=args.allow_line_api_test_writes,
+                    executor_client=executor_client, programme_steps=programme_steps)
     print(f'Anodizing modules: http://127.0.0.1:{args.port}/  data: {server.root}', flush=True)
     try:
         server.serve_forever(poll_interval=.2)

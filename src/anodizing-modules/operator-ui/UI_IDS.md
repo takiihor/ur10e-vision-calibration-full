@@ -7,7 +7,7 @@ Use the ID when requesting a UI change, for example “make `agv.stop` bigger”
 Select one item in a repeated control by its key, for example `[data-ui="agv.call.station"][data-ui-key="2"]`.
 Some keys identify records or choices from the current data. Native HTML select choices use the parent select’s ID and the option value.
 
-334 registered IDs.
+349 registered IDs.
 
 | ID | Description | Source |
 | --- | --- | --- |
@@ -243,6 +243,21 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `pick.tools.item` | Held-item state for tool power | [PickPlaceTools.vue](PickPlaceTools.vue) |
 | `pick.tools.panel` | MCU commands or tool power workspace | [PickPlaceTools.vue](PickPlaceTools.vue) |
 | `pick.tools.toggle` | Open MCU commands or tool power | [PickPlaceTools.vue](PickPlaceTools.vue) |
+| `programme.basket.id` | Enter basket identifier | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.basket.ready` | Confirm the reviewed basket at input | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.draft.save` | Save a new draft recipe revision | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.inspection.note` | Enter the inspection disposition | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.inspection.record` | Record the inspection disposition | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.limit.input` | Editable limit in seconds | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.panel` | Basket programme and recipe limit editor | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.record.panel` | Show recovered basket record | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.record.step` | Recorded basket dwell and transfer | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.record.summary` | Open the basket record | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.revision.finalize` | Finalize reviewed recipe limits | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.run.resume` | Resume the reviewed simulation | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.run.start` | Start the simulated programme | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.run.stop` | Request programme Stop | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.step.row` | Recipe step and effective limits | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `recorder.agv.checklist` | AGV checklist and test exports | [RecordsPage.vue](RecordsPage.vue) |
 | `recorder.agv.legacy` | Open legacy AGV page | [RecordsPage.vue](RecordsPage.vue) |
 | `recorder.current.panel` | Current recording status | [RecordsPage.vue](RecordsPage.vue) |

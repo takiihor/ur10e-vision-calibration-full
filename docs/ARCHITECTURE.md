@@ -172,3 +172,46 @@ power loss, a blocked destination and Stop during a partition.
    Confirm local Stop and e-stop indications and recovery steps.
 6. Confirm who operates the radio backup and who verifies physical
    isolation of the former owner before changeover.
+
+## Phase 1 operation
+
+Set `ANODIZING_ROLE` to `orchestrator`, `executor`, or `status-display`.
+The installed executor uses its own stable data directory. Set the version
+label with `ANODIZING_EXECUTOR_BUILD` and give the service its token through
+`ANODIZING_EXECUTOR_TOKEN_FILE`. Its control port is loopback. The separate
+loopback display port serves cached status to the kiosk. A display-only
+installation can read that display port using `--status-display-port`
+as its source and `--port` as its own listener.
+
+Set `ANODIZING_EXECUTOR_PORT` on the orchestrator to the local forwarded
+control port and `ANODIZING_EXECUTOR_TOKEN_FILE` to its private service
+token file. The orchestrator sends the lease heartbeat independently of
+the browser. Its existing AGV page uses the backed-by-executor Wired
+link. In commissioning the executor accepts Connect, a status query,
+software Arm, Disarm and Disconnect. Arm checks fresh stationary status
+and writes no command. Live station visits and dips remain fenced.
+Software Stop can latch even when disarmed. The commissioning transport
+cannot attempt a wire halt. Use the physical e-stop for intervention.
+
+The shipped production role uses only the wired driver. The backup serial
+radio requires a deliberate maintenance changeover to the existing serial
+mode on the controller. Disarm, disconnect and verify physical isolation
+of the executor before removing its forwarded endpoint from the
+controller configuration and enabling local serial support. Restore the
+executor path only after verified radio isolation.
+
+Set `ANODIZING_PROGRAMME_FILE` to a private JSON list of ordered steps
+with `id`, `tank`, `role`, `station` and positive `setpoint` in seconds.
+The existing Pick/place screen exposes the simulated basket programme.
+Its scheduler uses the versioned job contract against simulated devices
+with a separate journal. Configuration of this programme grants no live
+travel or chemistry permission. Start at the reviewed input, inspect the
+effective draft revision, and start the simulated run. The run's revision
+and result history are durable in the orchestrator data directory.
+Inspection or uncertain execution holds require an explicit disposition.
+
+The wired commissioning service journals each raw received chunk and
+transmitted frame in its private data directory. Keep live capture out of
+version control. The offline executor suite covers the job contract,
+process loss, lease expiry, the wired path with a fake UART and pose source,
+and refusal of an unsupported control over the display listener.

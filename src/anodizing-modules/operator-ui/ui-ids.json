@@ -1160,6 +1160,81 @@
     "description": "Open MCU commands or tool power"
   },
   {
+    "id": "programme.basket.id",
+    "description": "Enter basket identifier",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.basket.ready",
+    "description": "Confirm the reviewed basket at input",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.draft.save",
+    "description": "Save a new draft recipe revision",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.inspection.note",
+    "description": "Enter the inspection disposition",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.inspection.record",
+    "description": "Record the inspection disposition",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.limit.input",
+    "description": "Editable limit in seconds",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.panel",
+    "description": "Basket programme and recipe limit editor",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.record.panel",
+    "description": "Show recovered basket record",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.record.step",
+    "description": "Recorded basket dwell and transfer",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.record.summary",
+    "description": "Open the basket record",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.revision.finalize",
+    "description": "Finalize reviewed recipe limits",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.run.resume",
+    "description": "Resume the reviewed simulation",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.run.start",
+    "description": "Start the simulated programme",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.run.stop",
+    "description": "Request programme Stop",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.step.row",
+    "description": "Recipe step and effective limits",
+    "component": "ProgrammePanel.vue"
+  },
+  {
     "id": "recorder.agv.checklist",
     "component": "RecordsPage.vue",
     "description": "AGV checklist and test exports"

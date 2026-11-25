@@ -173,7 +173,7 @@ def operation_variables(owner):
 
 
 def server_state(server):
-    sample = server.agv.state_sample()
+    sample = (getattr(server, 'executor_link', None) or server.agv).state_sample()
     scene = getattr(server, 'scene', None)
     owner = getattr(server, 'owner', None)
     variables = tuple(scene.variables(server.owner, server)) if scene else ()

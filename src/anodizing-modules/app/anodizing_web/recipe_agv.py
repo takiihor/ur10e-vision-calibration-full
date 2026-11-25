@@ -89,8 +89,9 @@ def learned(status, station):
 
 class StationVisit:
     def __init__(self, connection, robot_stop, *, strict_station=True, connection_id=None,
-                 stop_generation=None, switched_off=False):
+                 stop_generation=None, switched_off=False, allow_wired=False):
         self.connection = connection
+        self.allow_wired = allow_wired
         self.robot_stop = robot_stop
         self.strict_station = strict_station
         self.connection_id = connection_id
@@ -115,7 +116,7 @@ class StationVisit:
         link = (nullcontext() if self.switched_off else
                 self.connection.recipe_link(self.connection_id, stop_generation=self.stop_generation))
         with link as transport:
-            if not self.switched_off:
+            if not self.switched_off and not (self.allow_wired and transport == 'wired'):
                 require_serial(transport)
             self.transport = transport
             self.started = time.monotonic()

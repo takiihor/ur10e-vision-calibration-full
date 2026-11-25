@@ -68,18 +68,24 @@ let timer, observer, checking = false, retired = false;
 const transport = computed(() => {
   if (agv.state.sequence === -1 || agv.serviceError) return 'AGV transport · Unknown';
   if (!agv.state.connected) return 'AGV transport · Disconnected';
-  return agv.state.settings?.mode === 'serial' ? 'AGV transport · Serial' : 'AGV transport · Simulator';
+  const labels = { wired: agv.state.executor_link ? 'IPC executor' : 'Wired RS-485', serial: 'Serial', simulator: 'Simulator' };
+  return 'AGV transport · ' + (labels[agv.state.settings?.mode] ?? 'Unknown');
 });
 const active = computed(() => service.value?.owner?.jobs?.find(job => job.id === service.value.owner.active));
 const targetControls = {
   teacher: { path: '/api/teacher-control', label: 'Teacher Stop (software)' },
   manual: { path: '/api/manual-control', label: 'Pick/place Stop (software)' },
   calibration: { path: '/api/calibration-control', label: 'Calibration Stop (software)' },
+  programme: { path: '/api/programme', label: 'Stop simulated programme' },
 };
-const targets = computed(() => (service.value?.owner?.stop_targets ?? []).filter(({ kind }) => targetControls[kind]).map(({ kind, job_id }) => ({
-  kind, job_id,
-  ...targetControls[kind],
-})));
+const targets = computed(() => {
+  const current = service.value?.programme;
+  const targets = [...(service.value?.owner?.stop_targets ?? [])];
+  if (['running', 'held', 'Stop unconfirmed'].includes(current?.state)) {
+    targets.push({ kind: 'programme', job_id: current.id });
+  }
+  return targets.filter(({ kind }) => targetControls[kind]).map(target => ({ ...target, ...targetControls[target.kind] }));
+});
 
 
 async function refreshService() {
@@ -116,8 +122,13 @@ async function stopTarget(target) {
   show('Sending…', 'running');
   const wait = setInterval(() => show(`Waiting for Stop reply… ${Math.max(0, Math.ceil((8000 - Date.now() + started) / 1000))} s`, 'waiting'), 1000);
   try {
-    await request(target.path, { job_id: target.job_id, action: 'stop' });
-    show('Stop requested. Check the machine for confirmation.', 'done');
+    const result = await request(target.path, { job_id: target.job_id, action: 'stop' });
+    if (target.kind === 'programme') {
+      show(result.state === 'stopped' ? 'Simulated Stop confirmed.' : 'Stop unconfirmed',
+        result.state === 'stopped' ? 'done' : 'failed');
+    } else {
+      show('Stop requested. Check the machine for confirmation.', 'done');
+    }
   } catch {
     show('Stop unconfirmed. Use the robot’s e-stop if needed and open the module for details.', 'failed');
   } finally {
