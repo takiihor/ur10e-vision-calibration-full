@@ -109,12 +109,17 @@
         }
       ],
       "baseline_files": 39,
-      "bundle_files": 41,
+      "bundle_files": 40,
       "changed": [
         {
           "baseline_sha256": "36db9c51618c0c21b6216de7fe20e1b4fd5b92e5d4d312a43329f70cedb8200c",
           "bundle_sha256": "84ee10dad1e82c69550a881c326cddf56d02a12f46b888f7419e784623fa5e5c",
           "path": "README.md"
+        },
+        {
+          "baseline_sha256": "cb3f05f733cb9ee8d65cecb4cdf434a85ad1a24354cd4247d4643349ea5dc308",
+          "bundle_sha256": "d189089d4ffcdb5b3355d5991e25cf59a81c12ec54d06bdf11ca3d6b56206281",
+          "path": "docs/REFERENCE.md"
         },
         {
           "baseline_sha256": "85d3b2bfbdd8c02a7901fb6dd99371492e691887cd94c756dfed2cd7154914cb",
@@ -127,13 +132,16 @@
           "path": "src/charuco_realsense/__init__.py"
         }
       ],
-      "deleted": [],
+      "deleted": [
+        {
+          "path": "docs/measurements/2026-10-28-80mm.json",
+          "sha256": "eae0b204acb3c944e3d244104f7123fdab59718563ef9297fe1bac3eae4dfa25"
+        }
+      ],
       "unchanged": [
         ".github/workflows/ci.yml",
         ".gitignore",
         "deploy/charuco-realsense.service",
-        "docs/REFERENCE.md",
-        "docs/measurements/2026-10-28-80mm.json",
         "kill.sh",
         "main.py",
         "requirements.txt",
@@ -187,6 +195,16 @@
           "path": "README.md"
         },
         {
+          "baseline_sha256": "5b662a3d7beb522f03da16194fc91e00bfe7de86c9e7f629d18f1f583ec07742",
+          "bundle_sha256": "a16886bbbebac9d6157c7973fd065113e3bbf1de9c0595032ed4fa3ed8374488",
+          "path": "examples/arduino.json"
+        },
+        {
+          "baseline_sha256": "6019ec7164a9685237d721cd22bff76f311b71a1eed5a6c0f9ba0ab7f6179ddb",
+          "bundle_sha256": "ef4e902264c281422a8b7d6dfce794a90010dc79ae01b14caed56b20edc64ea3",
+          "path": "examples/rg2.json"
+        },
+        {
           "baseline_sha256": "04cebccfb747868b98c24cdf9b368d0ad1fd08c8479bedbdf33d007b1247d409",
           "bundle_sha256": "d524d1054eff575ee2c5c888e6468ddd41a39f3a4e8021527e029af7f512dc36",
           "path": "examples/vision-basler.json"
@@ -195,6 +213,11 @@
           "baseline_sha256": "8ab7a50e7f338fe60d5a2818273eaccf7332e4999eba8592d1e4ecedf04e6536",
           "bundle_sha256": "f2d920181f457a15fe92dd554c7b1d367957980ad9069c51c72caad555ba0de1",
           "path": "pyproject.toml"
+        },
+        {
+          "baseline_sha256": "3dc1ef4a24734a850e365ee3531d2a7ded227fdaf8169499550f845b7707f32c",
+          "bundle_sha256": "aa031a84596d16545ef37212e193a288c28220bf5811444efac3e7678f828aaa",
+          "path": "src/ur_pick_place/manual.py"
         },
         {
           "baseline_sha256": "d2c2d47e764686a141df42c6bad3bfbbbbc5c02696365cbcc56e1eebb35565d9",
@@ -232,6 +255,16 @@
           "path": "src/ur_pick_place/vision/validation.py"
         },
         {
+          "baseline_sha256": "7e224835ef327f4b3feac0324b7399014b065024105a6b9ba918e30087374957",
+          "bundle_sha256": "220c99039f390ca501b6235a816cc71f7edaed4e4e5164e9926b3951193fa92d",
+          "path": "src/ur_pick_place/web/index.html"
+        },
+        {
+          "baseline_sha256": "3ed900bccc3ac0cd748ecef82ef952c4a1799196f4122eeb50676644e0fe08e2",
+          "bundle_sha256": "4997aa576f79f12fc6fba05f2cd2cb6cf20284425ce936de482a163d4c689fac",
+          "path": "src/ur_pick_place/web/teacher.html"
+        },
+        {
           "baseline_sha256": "97c426ee9d8db3053e149d643b4314c2072e4e780f04fdba5def271ea6a50353",
           "bundle_sha256": "612ada9bd90d94fbad3b873572eb870c792520fb51780db7bf8258850c8d9384",
           "path": "tests/marker_validation_browser.cjs"
@@ -262,8 +295,6 @@
         "docs/browser-preview.png",
         "docs/robot-tool-preview.svg",
         "docs/tool-envelope.png",
-        "examples/arduino.json",
-        "examples/rg2.json",
         "examples/target.json",
         "examples/vision-aruco.json",
         "examples/vision-charuco.json",
@@ -279,7 +310,6 @@
         "src/ur_pick_place/grippers/adapters.py",
         "src/ur_pick_place/grippers/arduino_driver.py",
         "src/ur_pick_place/grippers/rg2_driver.py",
-        "src/ur_pick_place/manual.py",
         "src/ur_pick_place/poses.py",
         "src/ur_pick_place/robot.py",
         "src/ur_pick_place/sequence_ui.py",
@@ -301,11 +331,9 @@
         "src/ur_pick_place/web/UR-MODEL-NOTICE.txt",
         "src/ur_pick_place/web/app.js",
         "src/ur_pick_place/web/collision-scene.example.json",
-        "src/ur_pick_place/web/index.html",
         "src/ur_pick_place/web/robot-preview.js",
         "src/ur_pick_place/web/style.css",
         "src/ur_pick_place/web/teacher.css",
-        "src/ur_pick_place/web/teacher.html",
         "src/ur_pick_place/web/teacher.js",
         "src/ur_pick_place/web/tool-envelope.css",
         "src/ur_pick_place/web/tool-envelope.html",

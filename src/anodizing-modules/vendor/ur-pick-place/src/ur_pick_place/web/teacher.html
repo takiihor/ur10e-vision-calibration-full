@@ -15,7 +15,7 @@
 <p><a href="/tool-envelope.html" target="_blank" rel="noopener">Open tool box draft</a></p>
 <form id="setup" novalidate><div class="fields">
 <label class="wide">Saved hand-eye calibration<input id="calibration" list="calibrations" required placeholder="Path to calibration.json"><datalist id="calibrations"></datalist><small>Maps the selected wrist camera to the robot. Select the printed picking target separately below.</small></label>
-<label>Camera<select id="camera_provider"><option value="realsense">RealSense</option><option value="basler">Basler</option></select></label><label>Robot IP<input id="robot_ip" required placeholder="192.168.12.248"></label><label>Marker type<select id="kind"><option value="charuco">ChArUco board</option><option value="aruco">Single ArUco marker</option></select></label>
+<label>Camera<select id="camera_provider"><option value="realsense">RealSense</option><option value="basler">Basler</option></select></label><label>Robot IP<input id="robot_ip" required placeholder="192.0.2.248"></label><label>Marker type<select id="kind"><option value="charuco">ChArUco board</option><option value="aruco">Single ArUco marker</option></select></label>
 <label class="wide charuco">Printed picking board<select id="picking-board"><option value="">Custom board — enter its manifest and name below</option></select><small>Select the board attached to the object. Your tank labels have an 80 × 80 mm checkerboard pattern.</small></label>
 <label class="wide charuco">Picking board manifest<input id="manifest" list="manifests" placeholder="Path to board_manifest.json"><datalist id="manifests"></datalist></label>
 <label class="charuco wide">Picking board name<input id="board" placeholder="For example, tank15"></label>

@@ -8,8 +8,8 @@ Review and unpack the source bundle into a new directory. Do not replace the exi
 
 ```bash
 export MODULE_BUNDLE=/path/to/anodizing-modules
-export ANODIZING_PYTHON=/home/user/anodizing_line/anodizing_modules_20261104/.venv/bin/python
-export ANODIZING_DATA_DIR=/home/user/anodizing_line/anodizing_modules_20261104/data
+export ANODIZING_PYTHON=$MODULE_BUNDLE/.venv/bin/python
+export ANODIZING_DATA_DIR=$MODULE_BUNDLE/data
 cd "$MODULE_BUNDLE"
 sha256sum -c /path/to/SOURCE_MANIFEST.sha256
 ./tools/probe.bash
@@ -112,10 +112,10 @@ In a second IPC terminal with the same variables, run the simulation-only smoke 
 
 It refuses a service started with hardware opt-ins. It creates a uniquely named `smoke/` folder and checks a simulated teaching, PICK and shifted PLACE. The service binds only to IPC loopback. It validates Host, Origin, a process token and bounded JSON requests. One service and one job owner are allowed at a time. Job records are under `.jobs`; accepted calibration and read-only jobs continue when a browser or tunnel disconnects. Supervised Teacher movement is the exception: it requires a live heartbeat and requests a stop after heartbeat loss. Reload and select the existing job ID. A repeated ID with the same request returns its stored state; a different request with that ID is refused. On service restart an unfinished job is marked interrupted. A server shutdown waits for workers to clean up; it interrupts a running calibration worker.
 
-On the laptop, start the tunnel with the existing IPC SSH account and Wi-Fi address:
+On the laptop, set IPC_SSH_TARGET to the SSH target from your private installation notes and start the tunnel:
 
 ```bash
-./tools/tunnel.bash USER@192.168.1.251
+./tools/tunnel.bash "$IPC_SSH_TARGET"
 ```
 
 Use the laptop's copy of the bundle for that command. Then open `http://127.0.0.1:8870/`, or directly open `/calibration`, `/teaching`, or `/pick-place` at that address. Keep the IPC service and tunnel running. The request token changes when the service restarts; reload the page afterward.
@@ -253,9 +253,7 @@ ANODIZING_PYTHON=/path/to/python ./tools/test-all.bash
 
 The runner imports the vendor trees directly, runs the app and four vendor
 suites, and leaves the opt-in browser checks skipped when Node or Chrome is not
-installed. It is also used by `.github/workflows/tests.yml`. The historical
-`review/results/final-13115877.txt` is a 36-test focused subset, not this full
-suite.
+installed. It is also used by `.github/workflows/tests.yml`. The historical 36-test run covered a focused subset.
 
 The package-level `provenance/` directory contains deterministic baseline
 archives, the per-file vendor mapping and an offline verifier:
@@ -278,3 +276,10 @@ The Robot steps card is available on Calibration, Teaching and Pick/place. It do
 Choose a base X/Y/Z increment of 1, 5 or 10 mm, or a tool-local rotation of 1, 2 or 5 degrees. A +/− click prepares one frozen start and endpoint. It does not authorize motion. Review the endpoint and pinned settings in Current operation. Check the physical area and approve once. The IPC checks the full joint path before one unblended moveJ. The TCP path can curve and change height or orientation. Workspace bounds apply to the start and endpoint. A tool rotation keeps the requested TCP endpoint position fixed. No gripper command is sent.
 
 The shared IPC owner retains the worker through cleanup. Stop cancels pending approval or stops the accepted move. A disconnect does not repeat or resume work. Network failures leave the request blocked for inspection. A definite rejected request permits correction and a new explicit click. Dispatch evidence uses the existing `*.manual-path.json` restart fence. These changes require offline regression and browser acceptance before activation. Fake robot checks do not validate physical clearance, model accuracy or controller timing.
+
+
+When a private site profile contains `agv.wired_port`, the web service offers
+Wired RS-485 on both AGV pages. It uses bare outgoing frames and accepts bare
+or radio-prefixed replies. This profile fences motion and recipes in every
+transport. Use the private device path for the approved serial adapter.
+Optional `agv.fault_descriptions` maps decimal fault codes to local descriptions.

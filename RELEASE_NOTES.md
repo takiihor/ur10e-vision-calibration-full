@@ -26,7 +26,7 @@
   serial selection, capture native Mono8 and fit intrinsics offline with held-out
   views and residual diagnostics. The fitter checks the capture serial when
   available and rejects byte-identical images shared by the training and holdout sets.
-- [Provisional Basler intrinsics](review/results/basler-encoder-intrinsics/README.md)
+- [Synthetic Basler intrinsics example](review/results/basler-encoder-intrinsics/README.md)
   use restricted `k1` and `k2` with 0.340 px RMS over five holdout views. They are
   review artifacts for the recorded optical settings and require metric validation.
 
@@ -65,8 +65,7 @@ software review artifact, not a hardware qualification.
 - Test corrections: stale camera kwargs, mock cleanup, `cv2`/`sys.modules`
   isolation, subprocess import path, full-pose browser move counts, missing
   external fixture, replay/CLI ordering, and charuco-generator config paths.
-- `review/results/final-13115877.txt` is labelled as a 36-test focused subset,
-  not full-suite acceptance.
+- The historical 36-test run covered a focused subset.
 
 ### Limitations and open items
 

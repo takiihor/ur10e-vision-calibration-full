@@ -198,7 +198,7 @@ for example with `~/.config/autostart/charuco-monitor.desktop`:
 [Desktop Entry]
 Type=Application
 Name=ChArUco monitor
-Exec=/home/USER/development/charuco-realsense/start_camera.sh gui --board front --auto-record
+Exec=/path/to/charuco-realsense gui --board front --auto-record
 ```
 
 ### Host checklist

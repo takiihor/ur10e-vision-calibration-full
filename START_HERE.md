@@ -17,9 +17,7 @@ The three modules run without the ano app or ROS.
   they contain confidential site data and exceed GitHub's per-file limit.
 - `environment/`: installed Python package versions and the recorded IPC launch
   configuration. This is a version record, not a copied virtual environment.
-- `review/`: handoff, review findings, patch, historical software test results
-  and two screenshots made with fake devices. `results/final-13115877.txt` is a
-  focused 36-test subset, not the full suite.
+- `review/`: historical review index and synthetic calibration example.
 - `provenance/`: per-file vendor baseline delta mapping and an offline verifier.
   The baseline archives are not included. The bundled vendor trees are not
   unmodified baselines.

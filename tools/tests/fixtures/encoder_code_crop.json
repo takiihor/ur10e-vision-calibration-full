@@ -1,6 +1,0 @@
-{
-  "source": "capture/code-cell-frame.png",
-  "bounds_xyxy": [2191, 0, 2341, 141],
-  "dimensions": [150, 141],
-  "method": "Original grayscale crop; marked code cell at crop coordinate (75, 66), visually identified independently of detector output."
-}

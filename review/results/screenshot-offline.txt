@@ -1,6 +1,0 @@
-test_capture_review_screenshots (test_robot_browser_independent.RobotBrowser.test_capture_review_screenshots) ... ok
-
-----------------------------------------------------------------------
-Ran 1 test in 3.760s
-
-OK
