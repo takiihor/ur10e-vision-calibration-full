@@ -307,7 +307,13 @@ function renderStatus() {
 function renderOutcome(id) {
   const element = controls.get(id)?.outcome;
   const outcome = outcomes.get(id);
-  const feedback = resultText(outcome?.name, outcome?.result, outcome?.viaEsc, outcome?.requested) ?? outcome?.direct;
+  const stop = id === 'stop' && state.executor_link && state.executor_stop;
+  const feedback = stop && outcome?.direct?.tone !== 'running' ? {
+    text: [stop.received ? 'Stop received' : 'Stop receipt unconfirmed',
+      stop.halt_attempted ? 'Halt attempted' : 'Halt attempt unconfirmed',
+      stop.confirmed ? 'Stopped status confirmed' : 'Stop unconfirmed'].join(' · '),
+    tone: stop.confirmed ? 'done' : 'failed',
+  } : resultText(outcome?.name, outcome?.result, outcome?.viaEsc, outcome?.requested) ?? outcome?.direct;
   if (element) {
     if (element.textContent !== (feedback?.text ?? '')) element.textContent = feedback?.text ?? '';
     element.dataset.state = feedback?.tone ?? '';
@@ -529,6 +535,10 @@ async function post(body, {id, priority = false, viaEsc = false} = {}) {
     render();
   }
   try {
+    if (state.executor_link && (body.armed === true || body.command === 'call_station')) {
+      body = { ...body, executor_boot: state.executor_boot, executor_session: state.executor_session,
+        stop_generation: state.stop_generation };
+    }
     const result = await api({connection_id: state.connection_id, ...body});
     changeNetworkError(false);
     if (body.action === 'connect' && result.connected) {
@@ -540,7 +550,9 @@ async function post(body, {id, priority = false, viaEsc = false} = {}) {
     apply(result);
     if (id && outcomes.get(id) === pending) {
       const name = result.urgent_command ?? body.command;
-      if (result.connection_id !== state.connection_id || (name && !result.results[name])) {
+      if (result.executor_link && ['stop', 'call_station'].includes(body.command)) {
+        outcomes.delete(id);
+      } else if (result.connection_id !== state.connection_id || (name && !result.results[name])) {
         outcomes.set(id, {direct: {text: 'Connection changed. Check the AGV before trying again.', tone: 'failed'}});
       } else if (body.command) {
         const resultConnection = connectionKeyFor(result);

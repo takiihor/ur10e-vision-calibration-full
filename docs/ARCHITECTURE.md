@@ -57,9 +57,15 @@ the scheduler supplies a new job ID. The controller retries delivery using
 the original ID. Only the executor can make bounded device retries under
 local interlocks. For a station visit, the device acknowledgement proves
 receipt. Arrival needs fresh matching station and stopped feedback. The
-controller records a manual visit before sending it and follows that ID
-through a lost reply or controller restart. The operator acknowledges the
-terminal result before starting another manual visit.
+controller records a manual visit with its original boot, session and
+Stop generation before sending it. Katana looks up that ID through a lost
+reply or restart. It may retry a missing submission only under the
+original authority. The AGV page offers reconciliation by that ID when
+the outcome is unknown or the original authority changed and the result
+is missing. Verify the simulated hold, record the disposition and then
+acknowledge the result. Katana archives the original ID, outcome and
+disposition in `executor-manual-history/<job-id>.json` before clearing
+the current intent.
 
 A paired `dip` job identifies both step IDs, the source and destination,
 tank and taught-endpoint references, expected basket state, time bounds,
@@ -211,21 +217,116 @@ The existing Pick/place screen exposes the simulated basket programme.
 For a two-host or two-process simulation, run the executor with
 `--fake-executor` and point the orchestrator at its authenticated loopback
 or forwarded port. The programme and AGV page share that client's lease.
-The programme checks the simulation capability and job versions before
-starting. It keeps its own journal and uses the same HTTP API as the
+Start and Resume require the boot, controller session and Stop generation
+returned when the operator reviewed the programme. The simulation job
+versions and review are both checked before the programme claims the
+executor. A commissioning-only link disables these buttons and still
+allows Connect to obtain recovery feedback after a previously held run.
+The programme keeps its own journal and uses the same HTTP API as the
 commissioning link. To run an isolated local simulation alongside the
 commissioning link, set `ANODIZING_LOCAL_FAKE_PROGRAMME=1`. A standalone app
 with no executor endpoint can simulate locally. Configuration of this
 programme grants no live travel or chemistry permission.
+
+Provision `fake-plc-setpoints.json` in the fake executor data directory.
+For local simulation, use the `simulation-executor` subdirectory of the
+operator data directory. This private JSON object maps synthetic tank IDs
+to their positive PLC setpoints in seconds. Review and provision it
+independently of the programme file. The fake PLC starts its timer from
+this setting. Admission refuses a dip when the setting is missing, zero
+or different from the reviewed plan. The commissioning service does not
+load this file or offer dips.
+
+At the first station job the fake executor verifies the input handoff,
+binds the basket to the run and checks that the first dip starts at input.
+An independently verified output hold for a previous run allows the
+simulated unload and next input load, including when two successive baskets
+have the same label. A different basket at input or an unverified hold
+blocks the load before station travel.
 
 Start at the reviewed input, inspect the effective draft revision, and
 start the simulated run. The run's revision and result history are durable
 in the orchestrator data directory. Record an explicit disposition for
 inspection or uncertain execution, including a missing executor result.
 Stop changes dispatch permission independently of the basket outcome.
+The urgent area distinguishes receipt, halt attempt and confirmed halt.
+An outstanding Stop survives reload. Once a successful Arm clears the
+current Stop, the prior confirmation appears as history.
+
+Actual dwell is the interval between confirmed immersion and lift on
+one executor boot. The record keeps the PLC cycle, elapsed time, exact
+simulated done edge and sample time. For anodize, overstay runs from the
+qualified done edge to lift. A late sample therefore cannot hide either
+immersion or post-done time.
+
+The fake executor keeps device state in a separate `.fake-devices.json`
+file. A device effect invalidates the previous snapshot before changing
+state and replaces it after the change. Missing, unreadable and incomplete
+snapshots with a job history leave the simulated state unknown. An intact
+snapshot still has to show a stopped AGV, a released gripper, a verified
+hold and equipment off before disposition. In a recovery exercise, the
+simulated plant needs an independently verified observation of station,
+basket, location, gripper and equipment after an incomplete effect.
+A new executor never supplies this evidence from its default input state.
+For a missing or unreadable simulated device snapshot, keep the simulator
+stopped and preserve the original file if present. Obtain the current
+state from the independent fake plant fixture or an explicitly staged
+offline reset, and record how and when it was verified. In the fake executor
+data directory, prepare a private regular JSON file with these keys:
+
+| Keys | Verified observation |
+|---|---|
+| `station`, `stopped` | Station number (0–255) and whether the AGV is stopped |
+| `location`, `gripper`, `basket`, `run_id` | Robot and basket state. Use null for an absent basket or unknown run binding |
+| `cycle`, `equipment_on` | Nonnegative PLC cycle number and whether tank equipment is on |
+| `reserve_s` | Finite nonnegative usable simulated autonomy in seconds, or null if unknown |
+| `recovery_input` | Object with `source`, `observed_utc` (Unix seconds) and `disposition` describing the independent verification |
+
+Move the reviewed file into place as `.fake-devices.json` on the same
+filesystem, restart the simulator and record the controller's disposition.
+The executor re-observes the state and requires a safe hold before release.
+Keep the safe-hold evidence with the original data. This file procedure
+applies only to offline simulation.
+The snapshot's `reserve_s` field records usable simulated autonomy in
+seconds. Unknown or stale readings block admission. An admitted job needs
+the configured fake travel, dwell and transfer durations plus a synthetic
+10-second recovery margin. The simulator consumes those durations and
+records the available and required reserve at admission and at each stage.
+A depleted supply stops dispatch and retains the earlier confirmed stages,
+including on executor restart. These values do not establish a physical
+battery budget or brownout response.
+Katana records the new observation with the job ID, executor boot and
+observation times. The original job outcome remains in the basket history.
+
+If `.executor-active.json` is unreadable, keep the executor inhibited.
+Identify the outstanding job from the controller's durable programme or
+manual intent and verify the simulated devices independently. The AGV
+page offers executor recovery for an unreadable marker or a reported job
+fence. Use the original job ID from the current manual intent, the
+durable manual history or the retained programme record. When a programme
+owns the outstanding intent, use its disposition. If the original ID is
+missing, restore the controller journal or known backup before release.
+Pass the actual `job_id` and `repair_active_marker: true` with the
+disposition to the authenticated reconciliation operation. Set `missing: true` if
+the result is missing, or `observed_only: true` if verifying a terminal
+hold between jobs or a previously recorded terminal job. The executor
+preserves the original marker bytes in a sibling `.unreadable` file and
+atomically replaces the marker after saving the evidence. For an orphan
+job, Katana records the current event in `executor-recovery.json` and
+archives acknowledged evidence in `executor-recovery-history/`. An
+unresolved job or job file keeps its independent fence. If the
+job ID cannot be established, preserve the files and leave dispatch
+inhibited for maintenance review.
 
 The wired commissioning service journals each raw received chunk and
 transmitted frame in its private data directory. Keep live capture out of
 version control. The offline executor suite covers the job contract,
 process loss, lease expiry, the wired path with a fake UART and pose source,
 and refusal of an unsupported control over the display listener.
+
+The executor reads `ANODIZING_HEARTBEAT_S` and `ANODIZING_LEASE_S` at
+startup and advertises both intervals in health. The defaults are 1 and
+3 seconds. Both must be finite and positive, and the lease must exceed
+the heartbeat interval. Both controller paths use the advertised cadence.
+Recordings take their connection ID, transport settings and executor boot
+from the active AGV adapter when recording starts.

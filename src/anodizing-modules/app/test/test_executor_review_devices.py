@@ -12,7 +12,7 @@ from anodizing_web.executor_http import display_listener
 from anodizing_web.executor_link import ExecutorLink
 
 from agv_examples import EXAMPLE_PREFIX, EXAMPLE_ROUTE, REPORT
-from test_executor_phase1 import Clock, pair, running, terminal
+from test_executor_phase1 import FAKE_TANK_SETPOINTS, Clock, pair, running, terminal
 
 
 def arm(executor):
@@ -26,7 +26,7 @@ def arm(executor):
 
 @pytest.mark.parametrize('mismatch', ['station', 'source', 'gripper', 'basket'])
 def test_dip_refuses_unverified_handoff_before_placement(tmp_path, mismatch):
-    devices = FakeDevices()
+    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     executor = Executor(tmp_path, devices)
     try:
         request = pair(arm(executor))
@@ -55,7 +55,7 @@ def test_dip_refuses_unverified_handoff_before_placement(tmp_path, mismatch):
     ('done', False), ('equipment_on', True), ('basket_present', False), ('cycle', -1),
 ])
 def test_anodize_rejects_unqualified_plc_observation_before_lift(tmp_path, flag, value):
-    devices = FakeDevices()
+    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     original = devices.plc.finish
 
     def unsuitable(step, baseline):
@@ -78,7 +78,7 @@ def test_anodize_rejects_unqualified_plc_observation_before_lift(tmp_path, flag,
 
 @pytest.mark.parametrize('breach', ['understay', 'post-done overstay', 'paired air', 'cross-job air'])
 def test_quality_breach_latches_at_immersion_or_dwell_but_finishes_safe_hold(tmp_path, breach):
-    devices = FakeDevices()
+    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     perform = devices.perform
     clock = Clock()
     # Fake time advances explicitly in addition to the configured timer/travel budgets.
@@ -126,8 +126,40 @@ def test_quality_breach_latches_at_immersion_or_dwell_but_finishes_safe_hold(tmp
         executor.close()
 
 
+def test_anodize_distinguishes_a_delayed_plc_transition_from_a_late_poll(tmp_path):
+    clock = Clock()
+    devices = FakeDevices(clock=clock, setpoints=FAKE_TANK_SETPOINTS)
+    finish = devices.plc.finish
+
+    def delayed(step, baseline):
+        if step['role'] != 'anodize':
+            return finish(step, baseline)
+        clock.now += 4
+        done = finish(step, baseline)
+        clock.now += 9
+        return done
+
+    devices.plc.finish = delayed
+    executor = Executor(tmp_path, devices)
+    try:
+        request = pair(arm(executor))
+        anodize = request['params']['steps'][0]
+        anodize['role'] = 'anodize'
+        anodize['limits']['overstay'] = 3
+        devices.agv.station = anodize['station']
+        executor.submit(request)
+        job = terminal(executor, request['job_id'])
+        record = job['result']['steps'][0]
+        assert record['plc']['done_s'] - record['placed_s'] == 34
+        assert record['plc']['sample_s'] - record['plc']['done_s'] == 9
+        assert record['dwell_s'] == 43
+        assert job['outcome'] == 'held'
+    finally:
+        executor.close()
+
+
 def test_interrupted_pair_retains_confirmed_first_dwell(tmp_path):
-    devices = FakeDevices()
+    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     perform = devices.perform
 
     def interrupt(effect, value):
@@ -232,7 +264,7 @@ def test_wired_export_preserves_verified_arrival_timestamp(qualified_wire):
 def test_remote_mode_fences_native_robot_paths_even_when_opted_in(tmp_path):
     from anodizing_web.server import Server
 
-    devices = FakeDevices()
+    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     remote = Executor(tmp_path / 'remote', devices)
     try:
         server = Server(0, tmp_path / 'orchestrator', executor_client=remote.dispatch,
@@ -251,7 +283,7 @@ def test_remote_mode_fences_native_robot_paths_even_when_opted_in(tmp_path):
 
 def test_elapsed_hold_and_station_travel_are_recorded_at_next_dip(tmp_path):
     clock = Clock()
-    devices = FakeDevices()
+    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     devices.clock, devices.started = clock, clock()
     executor = Executor(tmp_path, devices)
     try:
@@ -332,16 +364,19 @@ field('pick-agv-stop').click().then(() => {
 
 
 @pytest.mark.parametrize(('interlock', 'reason'), [
-    ('hold_available', 'receiving hold'), ('battery', 'reserve'),
+    ('hold_available', 'receiving hold'), ('reserve_s', 'reserve'),
 ])
 def test_fault_after_first_lift_fences_transfer_and_keeps_the_confirmed_dwell(tmp_path, interlock, reason):
-    devices = FakeDevices()
+    state_path = tmp_path / '.fake-devices.json'
+    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS, state_path=state_path)
     perform = devices.perform
 
     def lose_interlock(effect, value):
         evidence = perform(effect, value)
         if (effect, value) == ('lift', 'transfer'):
-            setattr(devices, interlock, False)
+            setattr(devices, interlock, 0 if interlock == 'reserve_s' else False)
+            if interlock == 'reserve_s':
+                devices._persist()
         return evidence
 
     devices.perform = lose_interlock
@@ -357,5 +392,52 @@ def test_fault_after_first_lift_fences_transfer_and_keeps_the_confirmed_dwell(tm
         assert [step['id'] for step in result['steps']] == ['step-2']
         status = executor.status()
         assert status['recovery_required'] and not status['armed']
+        if interlock == 'reserve_s':
+            checkpoint = executor.status(request['job_id'])['job']['checkpoint']
+            assert checkpoint['reserve']['usable_s'] == 0
+            assert checkpoint['reserve']['required_s'] > 0
+    finally:
+        executor.close()
+    if interlock == 'reserve_s':
+        replacement = Executor(tmp_path, FakeDevices(setpoints=FAKE_TANK_SETPOINTS, state_path=state_path))
+        try:
+            status = replacement.status(request['job_id'])
+            assert status['device']['reserve']['usable_s'] == 0
+            assert status['recovery_required']
+            assert [step['id'] for step in status['job']['result']['steps']] == ['step-2']
+            with pytest.raises(ValueError, match='[Ss]afe hold|reserve'):
+                replacement.devices.observe_recovery_hold()
+        finally:
+            replacement.close()
+
+
+@pytest.mark.parametrize(('reserve_s', 'fresh'), [(65, True), (None, True), (float('nan'), True), (100, False)])
+def test_numeric_reserve_refuses_paired_dip_before_placement(tmp_path, reserve_s, fresh):
+    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
+    executor = Executor(tmp_path, devices)
+    try:
+        request = pair(arm(executor))
+        devices.agv.station = request['params']['steps'][0]['station']
+        devices.reserve_s, devices.reserve_fresh = reserve_s, fresh
+        with pytest.raises(ValueError, match='reserve'):
+            executor.submit(request)
+        assert devices.effects == []
+    finally:
+        executor.close()
+
+
+def test_numeric_reserve_admits_short_job_and_records_evidence(tmp_path):
+    devices = FakeDevices()
+    executor = Executor(tmp_path, devices)
+    try:
+        identity = arm(executor)
+        devices.reserve_s = 65
+        executor.submit(dict(identity, job_id='numeric-reserve-station', type='station_visit',
+                             version=1, params={'station': 1}))
+        job = terminal(executor, 'numeric-reserve-station')
+        assert job['outcome'] == 'succeeded'
+        assert job['checkpoint']['confirmed'][0]['evidence']['reserve']['usable_s'] == 65
+        assert job['checkpoint']['confirmed'][0]['evidence']['reserve']['required_s'] == 11
+        assert executor.status()['device']['reserve']['usable_s'] == 64
     finally:
         executor.close()

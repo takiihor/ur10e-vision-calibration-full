@@ -5,6 +5,11 @@
     "description": "Acknowledge the terminal manual station visit result"
   },
   {
+    "id": "agv.call.disposition",
+    "component": "AgvPage.vue",
+    "description": "Verified manual station visit disposition"
+  },
+  {
     "id": "agv.call.grid",
     "component": "AgvPage.vue",
     "description": "Station call grid"
@@ -28,6 +33,11 @@
     "id": "agv.call.reason",
     "component": "AgvPage.vue",
     "description": "Shared reason station calls are disabled"
+  },
+  {
+    "id": "agv.call.reconcile",
+    "component": "AgvPage.vue",
+    "description": "Reconcile the original station visit"
   },
   {
     "id": "agv.call.station",
@@ -108,6 +118,21 @@
     "id": "agv.link.transport",
     "component": "AgvPage.vue",
     "description": "Link transport"
+  },
+  {
+    "id": "agv.marker.disposition",
+    "component": "AgvPage.vue",
+    "description": "Verified executor marker disposition"
+  },
+  {
+    "id": "agv.marker.job",
+    "component": "AgvPage.vue",
+    "description": "Original executor job ID"
+  },
+  {
+    "id": "agv.marker.reconcile",
+    "component": "AgvPage.vue",
+    "description": "Reconcile the unreadable executor marker"
   },
   {
     "id": "agv.movement.arm",

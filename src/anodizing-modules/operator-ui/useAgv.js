@@ -205,9 +205,13 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
 
   function feedback(id) {
     const item = outcomes.get(id);
-    if (id === 'stop' && state.value.executor_stop && item?.started == null) {
-      return state.value.stop_unconfirmed ? { text: 'Stop unconfirmed', tone: 'failed' } :
-        { text: 'Stopped status confirmed', tone: 'done' };
+    if (id === 'stop' && state.value.executor_link && item?.started == null) {
+      const report = state.value.executor_stop;
+      if (!report && !state.value.stop_unconfirmed) return item?.direct ?? null;
+      const receipt = report?.received ? 'Stop received' : 'Stop receipt unconfirmed';
+      const halt = report?.halt_attempted ? 'Halt attempted' : 'Halt attempt unconfirmed';
+      const outcome = report?.confirmed ? 'Stopped status confirmed' : 'Stop unconfirmed';
+      return { text: [receipt, halt, outcome].join(' · '), tone: report?.confirmed ? 'done' : 'failed' };
     }
     if (!item) return null;
     if (item.result) return resultText(item.name, item.result, item.viaEsc, item.requested);
@@ -226,7 +230,8 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     if (!priority) busy.value = true;
     const generation = state.value.connection_id;
     if (state.value.executor_link && (body.armed === true || body.command === 'call_station')) {
-      body = { ...body, executor_boot: state.value.executor_boot, stop_generation: state.value.stop_generation };
+      body = { ...body, executor_boot: state.value.executor_boot, executor_session: state.value.executor_session,
+        stop_generation: state.value.stop_generation };
     }
     const timeout = priority ? 4000 : 8000;
     const pending = reactive({ name: body.command, generation, started: performance.now(), timeout, viaEsc });
@@ -242,11 +247,8 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
         return;
       }
       setServiceError('');
-      if (body.command === 'stop' && next.executor_stop) {
-        const confirmed = next.executor_stop.confirmed;
-        outcomes.set(id, { direct: { text: confirmed ? 'Stopped status confirmed' : 'Stop unconfirmed',
-          tone: confirmed ? 'done' : 'failed' } });
-      } else if ((body.command === 'call_station' && next.executor_link) || body.action === 'acknowledge_station') {
+      if ((next.executor_link && ['stop', 'call_station'].includes(body.command)) ||
+          ['acknowledge_station', 'reconcile_station', 'repair_executor_marker'].includes(body.action)) {
         outcomes.delete(id);
       } else if (body.command) {
         const name = next.urgent_command ?? body.command;

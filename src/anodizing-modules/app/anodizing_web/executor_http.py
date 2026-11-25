@@ -1,9 +1,10 @@
 """Separate HTTP surfaces for authenticated job control and cached IPC display."""
 import fcntl
 import hmac
-from http.client import HTTPConnection
+from http.client import HTTPConnection, HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import math
 import os
 from pathlib import Path
 from threading import Event, Lock, Thread
@@ -281,6 +282,106 @@ def display_listener(port, read):
     return Loopback(port, Display)
 
 
+def _reply_fields(value, **fields):
+    if not isinstance(value, dict) or any(key not in value or type(value[key]) not in types
+                                          for key, types in fields.items()):
+        raise ValueError('Malformed executor response.')
+
+
+def _reply_float(raw):
+    result = float(raw)
+    if not math.isfinite(result):
+        raise ValueError('Executor response contains a non-finite number.')
+    return result
+
+
+def _reply_int(raw):
+    result = int(raw)
+    if abs(result) >= 2**53:
+        raise ValueError('Executor response integer is outside the interoperable range.')
+    return result
+
+
+def _validate_stop(value):
+    _reply_fields(value, received=(bool,), halt_attempted=(bool,), confirmed=(bool,),
+                  boot=(str,), generation=(int,), stop_id=(str,))
+
+
+def _validate_job(job):
+    empty = type(None)
+    _reply_fields(job, job_id=(str,), state=(str,), outcome=(str, empty),
+                  result=(dict,), checkpoint=(dict, empty), error=(str, empty),
+                  reconciliation=(dict, empty), observation=(dict, empty), acknowledged=(bool,))
+    if job['state'] not in ('waiting', 'accepted', 'running', 'done', 'failed', 'interrupted', 'stopped'):
+        raise ValueError('Malformed executor job state.')
+    if job['outcome'] not in (None, 'succeeded', 'held', 'unknown', 'stopped', 'failed'):
+        raise ValueError('Malformed executor job outcome.')
+    result = job['result']
+    hold = result.get('hold')
+    if hold is not None:
+        _reply_fields(hold, location=(str,))
+    steps = result.get('steps', [])
+    if not isinstance(steps, list):
+        raise ValueError('Malformed executor steps.')
+    for record in steps:
+        _reply_fields(record, id=(str,), tank=(str,), dwell_s=(int, float), inspection=(bool,),
+                      placed_s=(int, float), lift_s=(int, float), air_s=(int, float, empty), limits=(dict,), plc=(dict,))
+        _reply_fields(record['limits'], air=(int, float, empty))
+        _reply_fields(record['plc'], cycle=(int,))
+    for evidence in (job.get('reconciliation'), job.get('observation'), result.get('reconciliation')):
+        if evidence is not None:
+            _reply_fields(evidence, hold=(dict,))
+            _reply_fields(evidence['hold'], location=(str,))
+
+
+def _validate_reply(operation, value):
+    empty = type(None)
+    _reply_fields(value)
+    if operation == 'health':
+        _reply_fields(value, protocol=(int,), job_types=(dict,), simulated=(bool,), motion_enabled=(bool,),
+                      boot=(str,), heartbeat_s=(int, float), lease_s=(int, float))
+        if not all(type(version) is int for version in value['job_types'].values()):
+            raise ValueError('Malformed executor job versions.')
+    elif operation == 'heartbeat':
+        _reply_fields(value, lease_valid=(bool,), boot=(str,))
+    elif operation == 'stop':
+        _validate_stop(value)
+    elif operation in ('submit', 'reconcile'):
+        _validate_job(value)
+    elif operation == 'acknowledge':
+        if value.get('acknowledged') is not True:
+            raise ValueError('Malformed executor acknowledgement.')
+    elif operation in READS | CONTROLS:
+        _reply_fields(value, device=(dict,), boot=(str,), lease_valid=(bool,), armed=(bool,),
+                      session=(str, empty), stop_generation=(int,), stop=(dict, empty),
+                      recovery_required=(bool,), recovery_ids=(list,), quality_alarm=(dict, empty),
+                      job=(dict, empty))
+        device = value['device']
+        _reply_fields(device, connected=(bool,), status=(dict, empty), status_age_s=(int, float, empty),
+                      settings=(dict, empty), results=(dict,), log=(list,), connection_id=(int,), stale=(bool,))
+        if device['connected']:
+            _reply_fields(device['settings'], mode=(str,))
+        if not all(isinstance(ident, str) for ident in value['recovery_ids']):
+            raise ValueError('Malformed executor recovery IDs.')
+        if value['quality_alarm'] is not None:
+            _reply_fields(value['quality_alarm'], job_id=(str,), reason=(str,))
+        if value['job'] is not None:
+            _validate_job(value['job'])
+        if value['stop'] is not None:
+            _validate_stop(value['stop'])
+
+
+def _validate_reply_identity(operation, request, reply):
+    if operation in ('stop', 'heartbeat'):
+        key = 'stop_id' if operation == 'stop' else 'boot'
+        if key in request and reply[key] != request[key]:
+            raise ValueError('Executor response identity does not match the request.')
+    elif operation in ('status', 'submit', 'reconcile'):
+        job = reply['job'] if operation == 'status' else reply
+        if job is not None and 'job_id' in request and job['job_id'] != request['job_id']:
+            raise ValueError('Executor job identity does not match the request.')
+
+
 class Client:
     def __init__(self, port, token):
         if type(port) is not int or not 1 <= port <= 65535:
@@ -302,12 +403,21 @@ class Client:
         try:
             conn.request(method, path, payload, headers)
             reply = conn.getresponse()
-            value = json.load(reply)
             if reply.status >= 500:
                 raise OSError('IPC executor unavailable.')
+            try:
+                value = json.load(reply, parse_int=_reply_int, parse_float=_reply_float, parse_constant=_reply_float)
+                _reply_fields(value)
+                if reply.status == 200:
+                    _validate_reply(operation, value)
+                    _validate_reply_identity(operation, body or {}, value)
+            except (ValueError, RecursionError) as exc:
+                raise OSError('Invalid IPC executor response.') from exc
             if reply.status != 200:
                 raise ValueError(value.get('error', 'IPC executor refused the request.'))
             return value
+        except HTTPException as exc:
+            raise OSError('Interrupted IPC executor response.') from exc
         finally:
             conn.close()
 
@@ -319,7 +429,7 @@ def serve(args):
     with (root / '.executor.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         wire = None if args.fake_executor else WireLog(root / 'agv-wire.jsonl')
-        executor = Executor(root, FakeDevices() if wire is None else WiredDevices(root, wire),
+        executor = Executor(root, FakeDevices.configured(root) if wire is None else WiredDevices(root, wire),
                             build=args.executor_build)
         try:
             with control_listener(args.port, executor, token) as control, display_listener(

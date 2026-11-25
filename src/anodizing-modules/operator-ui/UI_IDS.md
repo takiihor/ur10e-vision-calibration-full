@@ -7,16 +7,18 @@ Use the ID when requesting a UI change, for example “make `agv.stop` bigger”
 Select one item in a repeated control by its key, for example `[data-ui="agv.call.station"][data-ui-key="2"]`.
 Some keys identify records or choices from the current data. Native HTML select choices use the parent select’s ID and the option value.
 
-352 registered IDs.
+357 registered IDs.
 
 | ID | Description | Source |
 | --- | --- | --- |
 | `agv.call.acknowledge` | Acknowledge the terminal manual station visit result | [AgvPage.vue](AgvPage.vue) |
+| `agv.call.disposition` | Verified manual station visit disposition | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.grid` | Station call grid | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.number` | Manual station number | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.panel` | Station and parking calls | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.parking` | Call the configured parking station | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.reason` | Shared reason station calls are disabled | [AgvPage.vue](AgvPage.vue) |
+| `agv.call.reconcile` | Reconcile the original station visit | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.station` | Station call button keyed by station number | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.submit` | Call station | [AgvPage.vue](AgvPage.vue) |
 | `agv.controls.panel` | Connection and commands | [AgvPage.vue](AgvPage.vue) |
@@ -33,6 +35,9 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `agv.link.simulator.stations` | Simulator learned-station count | [AgvPage.vue](AgvPage.vue) |
 | `agv.link.sound` | Link sound | [AgvPage.vue](AgvPage.vue) |
 | `agv.link.transport` | Link transport | [AgvPage.vue](AgvPage.vue) |
+| `agv.marker.disposition` | Verified executor marker disposition | [AgvPage.vue](AgvPage.vue) |
+| `agv.marker.job` | Original executor job ID | [AgvPage.vue](AgvPage.vue) |
+| `agv.marker.reconcile` | Reconcile the unreadable executor marker | [AgvPage.vue](AgvPage.vue) |
 | `agv.movement.arm` | Arm or disarm manual AGV commands | [AgvPage.vue](AgvPage.vue) |
 | `agv.movement.command` | Movement command | [AgvPage.vue](AgvPage.vue) |
 | `agv.movement.extra` | Additional AGV movement commands | [AgvPage.vue](AgvPage.vue) |

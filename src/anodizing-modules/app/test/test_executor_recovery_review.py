@@ -40,7 +40,7 @@ def test_delayed_reviewed_arm_cannot_clear_a_newer_fence(tmp_path, expiry):
 
 def test_receipt_during_dip_cannot_confirm_halt_or_clear_uncertainty(tmp_path):
     entered, release = Event(), Event()
-    devices = FakeDevices()
+    devices = FakeDevices(setpoints={'tank-a': 30})
     devices.agv.station = 1
     perform = devices.perform
 
@@ -130,6 +130,7 @@ def test_reconcile_keeps_other_unreadable_records_fenced(tmp_path):
         id='unknown-visit', module='executor', state='interrupted', execution_uncertain=True)))
     (jobs / 'unreadable-visit.json').write_text('{')
     devices = FakeDevices()
+    devices.restore(has_history=False)
     executor = Executor(tmp_path, devices)
     try:
         request = authorize(executor)

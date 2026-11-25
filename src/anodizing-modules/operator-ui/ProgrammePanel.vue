@@ -5,6 +5,8 @@ import { request } from './api';
 const emit = defineEmits(['changed']);
 const recipe = ref(null);
 const run = ref(null);
+const approval = ref(null);
+const block = ref(null);
 const limits = ref({});
 const edited = ref({});
 const review = ref({ terminal_handling: '', timing_evidence: '' });
@@ -37,6 +39,9 @@ async function refresh() {
     review.value = { terminal_handling: '', timing_evidence: '' };
     ready.value = false;
   }
+  if (JSON.stringify(next.approval) !== JSON.stringify(approval.value)) ready.value = false;
+  approval.value = next.approval;
+  block.value = next.block;
   run.value = next.run;
 }
 
@@ -121,31 +126,38 @@ onUnmounted(() => {
           @click="act('finalize', { revision: recipe.id, review })">Finalize reviewed limits</button>
       </template>
     </div>
+    <p v-if="block" role="status">{{ block }}</p>
     <div v-if="!active" class="programme-actions">
       <label>Basket ID <input data-ui="programme.basket.id" v-model="basket" aria-label="Basket ID" maxlength="80"></label>
-      <label><input data-ui="programme.basket.ready" v-model="ready" type="checkbox"> Review the effective revision and confirm basket at input</label>
-      <button data-ui="programme.run.start" type="button" data-action="start" :disabled="busy || !ready || !basket.trim() || hasEdits"
-        @click="act('start', { revision: recipe.id, basket: basket.trim() }); ready = false">Run simulated programme</button>
+      <label><input data-ui="programme.basket.ready" v-model="ready" type="checkbox" :disabled="!approval"> Review the effective revision and confirm basket at input</label>
+      <button data-ui="programme.run.start" type="button" data-action="start" :disabled="busy || !approval || !ready || !basket.trim() || hasEdits"
+        @click="act('start', { revision: recipe.id, basket: basket.trim(), approval }); ready = false">Run simulated programme</button>
     </div>
     <div v-if="run" aria-live="polite">
       <p><strong>{{ run.basket }}</strong> · {{ run.state }} · {{ run.cursor }}/{{ run.recipe.steps.length }} steps</p>
       <p v-if="run.stop_pending" role="alert">Stop unconfirmed. Further dispatch is blocked.</p>
       <p v-if="run.reason">{{ run.reason }}</p>
-      <p v-if="run.final_hold">Last confirmed hold {{ run.final_hold }}</p>
+      <p v-if="run.recovery_observation">
+        Verified recovery hold {{ run.recovery_observation.hold.location }} · job {{ run.recovery_observation.job_id }}
+      </p>
+      <p v-else-if="run.final_hold">Last confirmed hold {{ run.final_hold }}</p>
+      <p v-if="run.recovery_observation && run.jobs.length">
+        Last recorded job outcome {{ run.jobs.at(-1).job.outcome }}
+      </p>
       <p v-if="run.checkpoint?.intent">
         Last recorded intent {{ run.checkpoint.intent.effect }}
-        {{ run.checkpoint.intent.value?.tank ?? run.checkpoint.intent.value }}
+        {{ run.checkpoint.intent.value?.tank ?? run.checkpoint.intent.value?.basket ?? run.checkpoint.intent.value }}
       </p>
       <p v-if="run.checkpoint?.confirmed?.length">
         Last recorded effect {{ run.checkpoint.confirmed.at(-1).effect }}
-        {{ run.checkpoint.confirmed.at(-1).value?.tank ?? run.checkpoint.confirmed.at(-1).value }}
+        {{ run.checkpoint.confirmed.at(-1).value?.tank ?? run.checkpoint.confirmed.at(-1).value?.basket ?? run.checkpoint.confirmed.at(-1).value }}
       </p>
       <div class="programme-actions">
         <button data-ui="programme.run.stop" v-if="active" type="button"
           data-action="stop" @click="act('stop')">Stop programme</button>
         <button data-ui="programme.run.resume" v-if="run.state === 'held'" type="button"
-          :disabled="busy || run.stop_pending || Boolean(run.pending && (!run.pending_missing || run.pending_attempted !== false))"
-          @click="act('resume', { job_id: run.id })">Resume reviewed simulation</button>
+          :disabled="busy || !approval || run.stop_pending || Boolean(run.pending && (!run.pending_missing || run.pending_attempted !== false))"
+          @click="act('resume', { job_id: run.id, approval })">Resume reviewed simulation</button>
         <template v-if="run.ack_missing || ['inspection', 'recovery required'].includes(run.state)">
           <label>Basket disposition <input data-ui="programme.inspection.note" v-model="disposition" maxlength="500"></label>
           <button data-ui="programme.inspection.record" type="button" :disabled="busy || !disposition.trim() || Boolean(run.pending && !run.pending_missing)"

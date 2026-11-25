@@ -12,7 +12,8 @@ test('reviews and saves a draft revision before starting the basket', async () =
   const step = { id: 'step-1', tank: 'tank-1', role: 'etch', setpoint: 30,
     limits: { min: 25, overstay: 5, air: 15 } };
   const recipe = { id: 'revision-1', state: 'DRAFT', steps: [step] };
-  let state = { recipe, run: null };
+  const approval = { boot: 'ipc', session: 'katana', stop_generation: 0 };
+  let state = { recipe, run: null, approval };
   request.mockImplementation(async (_, body) => {
     if (body?.action === 'save') {
       state = { ...state, recipe: { ...recipe, id: 'revision-2',
@@ -38,7 +39,7 @@ test('reviews and saves a draft revision before starting the basket', async () =
     await wrapper.get('[data-action="start"]').trigger('click');
     await flushPromises();
     expect(request).toHaveBeenCalledWith('/api/programme', { action: 'start', revision: 'revision-2',
-      basket: 'demo-basket' });
+      basket: 'demo-basket', approval });
     expect(wrapper.text()).toContain('demo-basket');
   } finally {
     wrapper.unmount();

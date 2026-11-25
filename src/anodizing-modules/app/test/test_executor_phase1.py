@@ -97,7 +97,7 @@ def test_wifi_loss_finishes_admitted_leg_and_fences_next(tmp_path):
         executor.close()
 
 
-@pytest.mark.parametrize('fault,message', [('battery', 'reserve'), ('pose', 'pose'), ('fresh', 'feedback')])
+@pytest.mark.parametrize('fault,message', [('reserve_s', 'reserve'), ('pose', 'pose'), ('fresh', 'feedback')])
 def test_local_interlocks_refuse_before_any_effect(tmp_path, fault, message):
     devices = FakeDevices()
     executor = Executor(tmp_path, devices)
@@ -119,7 +119,9 @@ def test_executor_restart_fences_unknown_effect(tmp_path):
         'fingerprint': 'saved', 'execution_uncertain': True,
         'checkpoint': {'intent': {'effect': 'station', 'value': 2}, 'confirmed': []},
     }))
-    executor = Executor(tmp_path, FakeDevices())
+    devices = FakeDevices()
+    devices.restore(has_history=False)
+    executor = Executor(tmp_path, devices)
     try:
         job = executor.status('station-interrupted')['job']
         assert job['outcome'] == 'unknown'
@@ -164,6 +166,9 @@ def test_display_has_only_cached_reads(tmp_path):
         executor.close()
 
 
+FAKE_TANK_SETPOINTS = {f'tank-{index}': 30 for index in range(12)}
+
+
 def recipe():
     roles = ['ultrasonic', 'rinse', 'etch', 'rinse', 'desmut', 'rinse',
              'anodize', 'rinse', 'rinse', 'rinse', 'rinse', 'seal']
@@ -184,7 +189,7 @@ class Link:
 
 
 def test_full_programme_and_record_recovery(tmp_path):
-    devices = FakeDevices()
+    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     executor = Executor(tmp_path / 'executor', devices)
     root = tmp_path / 'controller'
     programme = Programme(root, Link(executor), recipe())
@@ -194,7 +199,7 @@ def test_full_programme_and_record_recovery(tmp_path):
         revision = programme.save(draft['id'], {first['id']: {'min': 29, 'overstay': 3, 'air': 9}})
         with pytest.raises(ValueError, match='Resolve'):
             programme.finalize(revision['id'])
-        run = programme.start(revision['id'], 'basket-001')
+        run = programme.start(revision['id'], 'basket-001', programme.review()['approval'])
         programme.save(revision['id'], {first['id']: {'min': 28, 'overstay': 3, 'air': 8}})
         assert run['recipe']['steps'][0]['limits']['min'] == 29
         complete = wait_for(lambda: (programme.tick(), programme.status()['run'])[1],
@@ -215,7 +220,7 @@ def test_unreachable_stop_survives_controller_restart(tmp_path):
     root, link = tmp_path / 'controller', Link(executor)
     try:
         programme = Programme(root, link, recipe())
-        run = programme.start(programme.status()['recipe']['id'], 'basket-002')
+        run = programme.start(programme.status()['recipe']['id'], 'basket-002', programme.review()['approval'])
         link.available = False
         assert programme.stop()['stop_pending']
         recovered = Programme(root, link, recipe())
@@ -294,7 +299,7 @@ def pair(lease):
 @pytest.mark.parametrize('boundary', ['dwell', 'lift'])
 def test_wifi_loss_during_dwell_or_transfer_finishes_pair(tmp_path, boundary):
     clock, entered, release = Clock(), Event(), Event()
-    devices = FakeDevices()
+    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     perform = devices.perform
 
     def slow(effect, value):
@@ -327,7 +332,7 @@ def test_wifi_loss_during_dwell_or_transfer_finishes_pair(tmp_path, boundary):
 
 @pytest.mark.parametrize('fault', ['alarm', 'setpoint', 'stale_done'])
 def test_plc_admission_and_cycle_refuse_unqualified_lift(tmp_path, fault):
-    devices = FakeDevices()
+    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     executor = Executor(tmp_path, devices)
     try:
         lease = session(executor)
@@ -353,13 +358,13 @@ def test_plc_admission_and_cycle_refuse_unqualified_lift(tmp_path, fault):
 
 
 def test_limit_breach_holds_basket_until_disposition(tmp_path):
-    devices = FakeDevices()
+    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     devices.plc.dwell_offset = 70
     executor = Executor(tmp_path / 'executor', devices)
     try:
         programme = Programme(tmp_path / 'controller', Link(executor), recipe())
         revision = programme.status()['recipe']['id']
-        run = programme.start(revision, 'inspect-001')
+        run = programme.start(revision, 'inspect-001', programme.review()['approval'])
         held = wait_for(lambda: (programme.tick(), programme.status()['run'])[1],
                         lambda record: record['state'] == 'inspection')
         assert held['steps'][0]['inspection']
@@ -368,7 +373,7 @@ def test_limit_breach_holds_basket_until_disposition(tmp_path):
         assert devices.effects[-1] == ('lift', 'park')
         assert not executor.status()['armed']
         with pytest.raises(ValueError, match='disposition'):
-            programme.start(revision, 'inspect-002')
+            programme.start(revision, 'inspect-002', programme.review()['approval'])
         assert programme.disposition(run['id'], 'Keep for inspection.')['state'] == 'stopped'
     finally:
         executor.close()
@@ -376,7 +381,7 @@ def test_limit_breach_holds_basket_until_disposition(tmp_path):
 
 def test_katana_restart_recovers_intent_before_advancing(tmp_path):
     clock, entered, release = Clock(), Event(), Event()
-    devices = FakeDevices()
+    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     perform = devices.perform
 
     def slow(effect, value):
@@ -390,7 +395,7 @@ def test_katana_restart_recovers_intent_before_advancing(tmp_path):
     try:
         root, link = tmp_path / 'controller', Link(executor)
         first = Programme(root, link, recipe())
-        first.start(first.status()['recipe']['id'], 'restart-basket')
+        first.start(first.status()['recipe']['id'], 'restart-basket', first.review()['approval'])
         first.tick()
         assert entered.wait(4)
         ident = first.status()['run']['pending']['job_id']
@@ -409,7 +414,7 @@ def test_katana_restart_recovers_intent_before_advancing(tmp_path):
         assert state['jobs'][0]['job']['job_id'] == ident
         assert state['pending'] is None
         assert devices.effects == [('station', 1)]
-        recovered.resume(state['id'])
+        recovered.resume(state['id'], recovered.review()['approval'])
         completed = wait_for(lambda: (recovered.tick(), recovered.status()['run'])[1],
                              lambda record: record['state'] == 'succeeded')
         assert len(completed['steps']) == 12
@@ -496,12 +501,13 @@ def test_ipc_process_loss_after_effect_recovers_without_replaying(tmp_path):
     import select
     import signal
 
+    device_state = tmp_path / '.fake-devices.json'
     read_end, write_end = os.pipe()
     pid = os.fork()
     if pid == 0:
         try:
             os.close(read_end)
-            devices = FakeDevices()
+            devices = FakeDevices(state_path=device_state)
             perform = devices.perform
 
             def lose_power(effect, value):
@@ -526,7 +532,7 @@ def test_ipc_process_loss_after_effect_recovers_without_replaying(tmp_path):
         _, code = os.waitpid(pid, 0)
     assert os.waitstatus_to_exitcode(code) == -signal.SIGKILL
     assert json.loads((tmp_path / 'fake-device-evidence').read_text()) == [['station', 2]]
-    new_devices = FakeDevices()
+    new_devices = FakeDevices(state_path=device_state)
     recovered = Executor(tmp_path, new_devices)
     try:
         job = recovered.status('station-visit-1')['job']
@@ -539,18 +545,23 @@ def test_ipc_process_loss_after_effect_recovers_without_replaying(tmp_path):
         with pytest.raises(ValueError, match='Reconcile'):
             recovered.submit(visit(replay, 'station-visit-2'))
         assert new_devices.effects == []
+        reconciled = recovered.reconcile(dict(replay, job_id='station-visit-1',
+                                              disposition='Verified retained station after IPC crash.'))
+        assert reconciled['reconciliation']['hold']['station'] == 2
+        assert reconciled['reconciliation']['boot'] == recovered.boot
+        assert not recovered.status()['recovery_required']
     finally:
         recovered.close()
 
 
 def test_recovery_disposition_keeps_uncertain_basket_out_of_dispatch(tmp_path):
-    devices = FakeDevices()
+    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     devices.plc.stale_done = True
     executor = Executor(tmp_path / 'executor', devices)
     try:
         programme = Programme(tmp_path / 'controller', Link(executor), recipe())
         revision = programme.status()['recipe']['id']
-        run = programme.start(revision, 'recover-001')
+        run = programme.start(revision, 'recover-001', programme.review()['approval'])
         held = wait_for(lambda: (programme.tick(), programme.status()['run'])[1],
                         lambda record: record['state'] == 'recovery required')
         assert held['cursor'] == 0

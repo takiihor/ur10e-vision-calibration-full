@@ -104,7 +104,8 @@ class Server(ThreadingHTTPServer):
             self.scene = OperatorScene(self.root, simulate=simulate_scene)
             self.line = Line.configured(self.root, line_mode)
             self.records = operator_records.Recorder(self.root, lambda: operator_state.server_state(self),
-                                                      agv_context=self.agv.recording_context, scene_simulation=simulate_scene)
+                                                      agv_context=lambda: (self.executor_link or self.agv).recording_context(),
+                                                      scene_simulation=simulate_scene)
             self.line_tests = LineTest(self.root, self.line, self.owner, allow_line_api_test_writes, self.records.event)
             if self.line_tests.enabled:
                 self.line.tests = self.line_tests
@@ -125,7 +126,8 @@ class Server(ThreadingHTTPServer):
                     self.programme = Programme(self.root / 'programme', self.executor_link.request,
                                                programme_steps, pulse=self.executor_link.pulse)
                 else:
-                    self.programme_executor = Executor(self.root / 'simulation-executor', FakeDevices())
+                    simulation_root = self.root / 'simulation-executor'
+                    self.programme_executor = Executor(simulation_root, FakeDevices.configured(simulation_root))
                     self.programme = Programme(self.root / 'programme', self.programme_executor.dispatch, programme_steps)
                 self.programme.start_service()
         except BaseException:
@@ -274,7 +276,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.operator_asset(path)
         if path == '/api/programme':
             programme = getattr(self.server, 'programme', None)
-            return self.reply(200, programme.status() if programme else {'recipe': None, 'run': None})
+            return self.reply(200, dict(programme.status(), **programme.review())
+                              if programme else {'recipe': None, 'run': None})
         if path == '/api/state':
             return self.reply(200, operator_state.server_state(self.server))
         if path == '/api/tests/line':
@@ -672,8 +675,12 @@ class Handler(BaseHTTPRequestHandler):
                             link = self.server.executor_link.status()
                             if link['manual_visit'] or link['stop_unconfirmed']:
                                 raise ValueError('Resolve the manual station visit or pending Stop first.')
-                        result = (programme.start(body.get('revision'), body.get('basket')) if action == 'start'
-                                  else programme.resume(body.get('job_id')))
+                            recovery = link.get('executor_recovery_evidence')
+                            if link.get('recovery_required') or recovery and not recovery['acknowledged']:
+                                raise ValueError('Resolve the pending executor recovery evidence first.')
+                        approval = body.get('approval')
+                        result = (programme.start(body.get('revision'), body.get('basket'), approval)
+                                  if action == 'start' else programme.resume(body.get('job_id'), approval))
                 elif action == 'disposition':
                     result = programme.disposition(body.get('job_id'), body.get('note'))
                 else:
@@ -713,13 +720,24 @@ class Handler(BaseHTTPRequestHandler):
                     link = self.server.executor_link
                     programme = self.server.programme if self.server.programme_uses_executor else None
                     if programme and (body.get('command') == 'call_station' or
-                                      body.get('action') in ('arm', 'connect', 'disconnect')):
+                                      body.get('action') in ('arm', 'connect', 'disconnect', 'repair_executor_marker')):
                         from .programme import TERMINAL
                         with self.server.executor_dispatch_lock:
                             current = programme.status()['run']
-                            if current and (current['state'] not in TERMINAL or current['pending'] or
-                                            current['ack_pending'] or current['stop_pending']):
+                            commissioning_connect = (body.get('action') == 'connect' and current
+                                and current['state'] in ('held', 'stopped', 'recovery required')
+                                and not (current['pending'] or current['ack_pending'])
+                                and link.status().get('executor_health', {}).get('simulated') is False)
+                            if current and not commissioning_connect and (
+                                current['state'] not in TERMINAL or current['pending'] or
+                                current['ack_pending'] or current['stop_pending']
+                            ):
                                 raise ValueError('The programme owns the executor. Use the programme controls or Stop.')
+                            if body.get('action') == 'repair_executor_marker':
+                                if current and current['state'] in ('recovery required', 'inspection'):
+                                    raise ValueError('Record the outstanding programme disposition first.')
+                                return self.reply(200, link.submit(
+                                    body, programme_job=programme.retained_job(body.get('job_id'))))
                             return self.reply(200, link.submit(body))
                     return self.reply(200, link.submit(body))
                 if (body.get('action') == 'connect' and body.get('mode', 'simulator') == 'simulator'

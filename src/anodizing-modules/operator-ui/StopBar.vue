@@ -51,6 +51,9 @@ watch([() => feedback.value?.text, () => feedback.value?.tone], ([text, tone]) =
         </Message>
       </div>
     </div>
+    <p v-if="agv.state.executor_stop_history?.confirmed" class="safety-note">
+      Previous Stop confirmed · generation {{ agv.state.executor_stop_history.generation }}
+    </p>
     <p class="safety-note"><strong>Not an emergency stop. Use the AGV’s e-stop.</strong>
       {{ lineEscape && lineActive ? 'Esc requests line clear.' : 'Esc sends AGV Stop.' }}
       <span v-if="targets.length">For robot motion use the robot’s physical e-stop.</span></p>

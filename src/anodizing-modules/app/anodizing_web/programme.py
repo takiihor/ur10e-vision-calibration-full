@@ -6,7 +6,7 @@ from threading import Event, Lock, RLock, Thread
 import time
 from uuid import uuid4
 
-from .executor import HEARTBEAT_S, PAIRED_ROLES, PROTOCOL, ROLES, finite
+from .executor import PAIRED_ROLES, PROTOCOL, ROLES, finite, heartbeat_interval
 from .jobs import atomic_json
 
 
@@ -100,6 +100,15 @@ class Programme:
                         baskets=[{key: run[key] for key in ('id', 'basket', 'state')}
                                  for run in self.data['runs'].values()])
 
+    def retained_job(self, job_id):
+        if not isinstance(job_id, str):
+            return False
+        with self.lock:
+            return any(r.get('recovery_job') == job_id or r.get('ack_pending') == job_id
+                       or (r.get('pending') or {}).get('job_id') == job_id
+                       or any(entry['job']['job_id'] == job_id for entry in r['jobs'])
+                       for r in self.data['runs'].values())
+
     def save(self, ident, changes):
         with self.lock:
             if ident != self.data['recipe'] or not isinstance(changes, dict):
@@ -150,10 +159,43 @@ class Programme:
             self._save()
             return effective(self.data['revisions'][ident])
 
-    def start(self, ident, basket):
+    @staticmethod
+    def compatible(meta):
+        return (meta.get('protocol') == PROTOCOL and meta.get('simulated') is True
+                and meta.get('motion_enabled') is True and
+                all(meta.get('job_types', {}).get(kind) == 1 for kind in ('station_visit', 'dip')))
+
+    def review(self):
+        try:
+            meta = self.request('health')
+            if not self.compatible(meta):
+                raise ValueError('The configured simulation executor is incompatible.')
+            identity = self.shared_pulse() if self.shared_pulse else {'session': self.session, 'boot': meta['boot']}
+            status = self.request('status')
+            if status['boot'] != meta['boot'] or identity['boot'] != status['boot']:
+                raise ValueError('The executor boot changed. Refresh before reviewing the simulation.')
+            if self.shared_pulse and (not status['lease_valid'] or status['session'] != identity['session']):
+                raise ValueError('The controller lease is unavailable.')
+            if (status.get('stop') or {}).get('confirmed') is False:
+                raise ValueError('Stop is unconfirmed. Verify a safe halt first.')
+            approval = dict(boot=status['boot'], session=identity['session'],
+                            stop_generation=status['stop_generation'])
+            return dict(approval=approval, block=None)
+        except (OSError, ValueError) as exc:
+            return dict(approval=None, block=str(exc))
+
+    def _check_approval(self, approval):
+        reviewed = self.review()
+        if reviewed['block']:
+            raise ValueError(reviewed['block'])
+        if (not isinstance(approval, dict) or type(approval.get('stop_generation')) is not int
+                or reviewed['approval'] != approval):
+            raise ValueError('Review the current executor boot, controller session and Stop generation.')
+
+    def start(self, ident, basket, approval):
         if not isinstance(basket, str) or not basket.strip() or len(basket) > 80:
             raise ValueError('Identify the basket before starting.')
-        reviewed = self.request('status')
+        self._check_approval(approval)
         with self.lock:
             if ident != self.data['recipe']:
                 raise ValueError('Review the current recipe revision before starting.')
@@ -166,8 +208,8 @@ class Programme:
             revision = effective(self.data['revisions'][ident])
             run = dict(id=uuid4().hex, basket=basket.strip(), recipe=revision, state='running', cursor=0,
                        jobs=[], steps=[], pending=None, pending_missing=False, ack_pending=None, stop_pending=False,
-                       step_kind='station_visit', setup=True, reason=None, boot=reviewed['boot'],
-                       approval=reviewed['stop_generation'],
+                       step_kind='station_visit', setup=True, reason=None, boot=approval['boot'], approval_session=approval['session'],
+                       approval=approval['stop_generation'],
                        final_hold=None, created_utc=time.time())
             self.data['run'] = run['id']
             self.data['runs'][run['id']] = run
@@ -180,9 +222,8 @@ class Programme:
             if self.identity is not None and now < self.next_pulse:
                 return self.identity
             meta = self.request('health')
-            if meta['protocol'] != PROTOCOL or not meta.get('simulated') or not meta['motion_enabled'] or any(
-                meta['job_types'].get(job_type) != 1 for job_type in ('station_visit', 'dip')
-            ):
+            interval = heartbeat_interval(meta.get('heartbeat_s'), meta.get('lease_s'))
+            if not self.compatible(meta):
                 raise ValueError('The configured simulation executor is incompatible.')
             if self.shared_pulse:
                 identity = self.shared_pulse()
@@ -190,11 +231,13 @@ class Programme:
                 identity = dict(session=self.session, boot=meta['boot'], protocol=PROTOCOL)
                 self.sequence += 1
                 heartbeat = self.request('heartbeat', dict(identity, sequence=self.sequence))
+                if heartbeat.get('boot') != identity['boot']:
+                    raise OSError('The executor boot changed while establishing the lease.')
                 if not heartbeat['lease_valid']:
                     raise ValueError('The controller lease is unavailable.')
             if identity['boot'] != meta['boot']:
                 raise ValueError('The executor boot changed while establishing the lease.')
-            self.identity, self.next_pulse = identity, now + HEARTBEAT_S
+            self.identity, self.next_pulse = identity, now + interval
             return identity
 
     def _stopping(self, run):
@@ -250,17 +293,18 @@ class Programme:
         report = self._deliver_stop(ident, stop_id, pending['job_id'] if pending else None)
         return self._record_stop(ident, stop_id, report)
 
-    def resume(self, ident):
-        reviewed = self.request('status')
+    def resume(self, ident, approval):
+        self._check_approval(approval)
         with self.lock:
             run = self.run
             if not run or run['id'] != ident or run['state'] != 'held' or self._stopping(run):
                 raise ValueError('Review a held basket before resuming.')
-            if run['boot'] != reviewed['boot']:
+            if run['boot'] != approval['boot']:
                 raise ValueError('Wait for recovery review after the executor reboot.')
             if run['pending'] and not (run.get('pending_missing') and run.get('pending_attempted') is False):
                 raise ValueError('Wait for the outstanding job evidence before resuming.')
-            run.update(state='running', setup=True, reason=None, approval=reviewed['stop_generation'])
+            run.update(state='running', setup=True, reason=None,
+                       approval=approval['stop_generation'], approval_session=approval['session'])
             if run['pending']:
                 run['pending']['stop_generation'] = run['approval']
             self._save()
@@ -297,7 +341,10 @@ class Programme:
                             observed_only = True
                         missing = self.request('status', {'job_id': job_id})['job'] is None
                     if job_id:
-                        intent = dict(job_id=job_id, disposition=note, missing=missing)
+                        status = self.request('status')
+                        intent = dict(job_id=job_id, disposition=note, missing=missing, observation_id=uuid4().hex)
+                        if '.executor-active.json' in status.get('recovery_ids', []):
+                            intent['repair_active_marker'] = True
                         if observed_only and not missing:
                             intent['observed_only'] = True
                         run['disposition_intent'] = intent
@@ -311,15 +358,27 @@ class Programme:
                         run['disposition_intent'] = None
                         self._save()
                     raise
+                key = 'observation' if intent.get('observed_only') else 'reconciliation'
+                evidence = job.get(key) if isinstance(job, dict) else None
+                hold = evidence.get('hold') if isinstance(evidence, dict) else None
+                if (not isinstance(hold, dict) or hold.get('location') not in ('input', 'park', 'output')
+                        or hold.get('stopped') is not True or hold.get('equipment_on') is not False
+                        or hold.get('gripper') != 'released' or 'basket' not in hold
+                        or type(hold.get('station')) is not int
+                        or job.get('job_id') != intent['job_id'] or evidence.get('boot') != identity['boot']
+                        or evidence.get('observation_id') != intent.get('observation_id')
+                        or evidence.get('disposition') != note
+                        or not finite(evidence.get('observed_utc')) or evidence['observed_utc'] <= 0
+                        or not finite(evidence.get('observed_mono_s')) or evidence['observed_mono_s'] < 0
+                        or (intent.get('repair_active_marker') and evidence.get('repaired_active_marker') is not True)
+                        or (intent['missing'] and job.get('outcome') != 'unknown')):
+                    raise OSError('Awaiting valid executor recovery evidence for the original job.')
                 if intent['missing']:
-                    if job.get('job_id') != intent['job_id'] or job['outcome'] != 'unknown':
-                        raise ValueError('The executor has not returned a durable missing-result disposition.')
                     self._merge(job)
             with self.lock:
                 if intent:
-                    hold = (job.get('result', {}).get('reconciliation') or job.get('reconciliation') or {}).get('hold')
-                    if hold:
-                        run['final_hold'] = hold['location']
+                    run['recovery_observation'] = dict(evidence, job_id=intent['job_id'])
+                    run['final_hold'] = hold['location']
                     if run.get('ack_missing'):
                         run.update(ack_missing=False, reason=None)
                 if run['state'] != 'succeeded':
@@ -366,10 +425,12 @@ class Programme:
         kind = run['step_kind']
         if kind == 'station_visit':
             params = {'station': step['station']}
+            if run['cursor'] == 0:
+                params.update(run_id=run['id'], basket=run['basket'])
         else:
             pair = step['role'] in PAIRED_ROLES
             grouped = steps[run['cursor']:run['cursor']+2] if pair else [step]
-            params = dict(steps=grouped, source=run['final_hold'] or 'input',
+            params = dict(steps=grouped, source='input' if run['cursor'] == 0 else run['final_hold'],
                           hold='output' if grouped[-1]['terminal'] else 'park',
                           expected_basket='released', run_id=run['id'], basket=run['basket'],
                           recipe_revision=run['recipe']['id'])
@@ -494,6 +555,10 @@ class Programme:
                         self._save()
                         return
                 if run['setup'] and run['state'] == 'running' and not self._stopping(run):
+                    if run.get('approval_session') != identity['session']:
+                        raise ValueError('The controller session changed. Review the hold before resuming.')
+                    if run['approval'] != status['stop_generation']:
+                        raise ValueError('Stop or lease expiry changed the reviewed generation.')
                     if not status['device']['connected']:
                         self.request('connect', identity)
                     self.request('arm', dict(identity, stop_generation=run['approval']))
