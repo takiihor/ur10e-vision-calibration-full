@@ -35,9 +35,10 @@ IPC service instance.
 
 ## Verify
 
-Use the test runner below to verify the current source. The import manifests
-`CONTENTS.sha256`, `SOURCE_MANIFEST.sha256` and
-`src/anodizing-modules/SHA256SUMS` describe the original package.
+Run `sha256sum -c CONTENTS.sha256` at the repository root to verify the
+current package. `SOURCE_MANIFEST.sha256` and
+`src/anodizing-modules/SHA256SUMS` are historical inventories with withheld
+entries omitted. Use the test runner below to verify the current source.
 The current vendor mapping can be verified offline with the original baseline
 archives. See [vendor provenance](provenance/README.md).
 

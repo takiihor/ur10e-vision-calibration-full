@@ -25,7 +25,7 @@ except ImportError:
 HEADER = b'\xa5\x5a'
 DEFAULT_PREFIX = b'\x00\x01\x04'
 REPLY_TIMEOUT = 1.5
-STATUS_REPLY_EXPECTED = .95  # Observed query replies took .83–.88 s.
+STATUS_REPLY_EXPECTED = .95
 WRITE_TIMEOUT = .5
 STALE_AFTER = 5
 TIMED_REPORT_LISTEN_S = 3.1  # Vendor timed reports are 1–3 seconds apart.
@@ -34,7 +34,7 @@ RECIPE_STALE_S = 3
 RECIPE_POLL_S = .9
 MOTION_POLL_S = .5
 UNIDENTIFIED_INTERVAL = 11.22
-REPORT_GAP = (.100, .150)  # Observed post-report transmit window.
+REPORT_GAP = (.100, .150)
 ACK_WINDOW = .75
 FALLBACK_INTERVAL = 1.5
 LATE_ACK_GRACE = .3

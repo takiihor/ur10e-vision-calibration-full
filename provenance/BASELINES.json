@@ -134,8 +134,7 @@
       ],
       "deleted": [
         {
-          "path": "docs/measurements/2026-10-28-80mm.json",
-          "sha256": "eae0b204acb3c944e3d244104f7123fdab59718563ef9297fe1bac3eae4dfa25"
+          "path": "docs/measurements/2026-10-28-80mm.json"
         }
       ],
       "unchanged": [
@@ -187,12 +186,17 @@
         }
       ],
       "baseline_files": 95,
-      "bundle_files": 97,
+      "bundle_files": 94,
       "changed": [
         {
           "baseline_sha256": "4355192a24674eebef01d2b1ef09f76cc2926c4ceb6edd7a8e2a56ab90c153ba",
-          "bundle_sha256": "0e531682413f387928e7d5eaaeb24428368b17d3d0b0e38fd90db6e15d9f749c",
+          "bundle_sha256": "9386266c26491b6b4b149fc10781a99725d322589193ed2b76e4afaed6d17bdb",
           "path": "README.md"
+        },
+        {
+          "baseline_sha256": "dbb37e79e08c0edea761061a949a13190844691c4182855042f0f5ac90e374ae",
+          "bundle_sha256": "7eae9a74dd2342c7aebe08c6e5242ba31dc173f2ad59da697df0a0642505e03a",
+          "path": "docs/COLLISION_REVIEW.md"
         },
         {
           "baseline_sha256": "5b662a3d7beb522f03da16194fc91e00bfe7de86c9e7f629d18f1f583ec07742",
@@ -285,16 +289,22 @@
           "path": "tests/test_vision_core.py"
         }
       ],
-      "deleted": [],
+      "deleted": [
+        {
+          "path": "docs/bench-review-2026-11-02.md"
+        },
+        {
+          "path": "docs/browser-preview.png"
+        },
+        {
+          "path": "docs/tool-envelope.png"
+        }
+      ],
       "unchanged": [
         ".github/workflows/tests.yml",
         ".gitignore",
         "TODO.md",
-        "docs/COLLISION_REVIEW.md",
-        "docs/bench-review-2026-11-02.md",
-        "docs/browser-preview.png",
         "docs/robot-tool-preview.svg",
-        "docs/tool-envelope.png",
         "examples/target.json",
         "examples/vision-aruco.json",
         "examples/vision-charuco.json",
@@ -433,12 +443,17 @@
         }
       ],
       "baseline_files": 61,
-      "bundle_files": 77,
+      "bundle_files": 74,
       "changed": [
         {
           "baseline_sha256": "b0f996f18a35e10b687bac81c76e7a2f64125ace2ed79690333d8287c9eb5cfc",
-          "bundle_sha256": "9a02d5425f97f3802b895e266111b1a827a86c5e694fc1c42059d5f5f6209157",
+          "bundle_sha256": "62eaabd32db53d4b83078f40324ab97b5aaa74df2c1bd3ab50efba039eb8ab2b",
           "path": "README.md"
+        },
+        {
+          "baseline_sha256": "dbb37e79e08c0edea761061a949a13190844691c4182855042f0f5ac90e374ae",
+          "bundle_sha256": "7eae9a74dd2342c7aebe08c6e5242ba31dc173f2ad59da697df0a0642505e03a",
+          "path": "docs/COLLISION_REVIEW.md"
         },
         {
           "baseline_sha256": "97cd23705e7b7e4054f5f815a2c9ce19a11dcdaefad50704d692c412bceb3de3",
@@ -546,17 +561,23 @@
           "path": "tests/test_ui.py"
         }
       ],
-      "deleted": [],
+      "deleted": [
+        {
+          "path": "docs/bench-review-2026-11-02.md"
+        },
+        {
+          "path": "docs/browser-preview.png"
+        },
+        {
+          "path": "docs/tool-envelope.png"
+        }
+      ],
       "unchanged": [
         ".github/workflows/ci.yml",
         ".gitignore",
         "REVIEW.md",
         "TODO.md",
-        "docs/COLLISION_REVIEW.md",
-        "docs/bench-review-2026-11-02.md",
-        "docs/browser-preview.png",
         "docs/robot-tool-preview.svg",
-        "docs/tool-envelope.png",
         "requirements.txt",
         "src/ur_handeye/__main__.py",
         "src/ur_handeye/collision_backend.py",

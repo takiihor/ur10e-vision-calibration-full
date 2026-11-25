@@ -52,4 +52,6 @@ python3 provenance/verify.py
 
 The script checks each archive hash, extracts it to a temporary directory, and
 recomputes every added/changed/deleted entry in `BASELINES.json` against the
-bundled vendor tree. It reads files only.
+bundled vendor tree. For withheld private evidence, deletion entries
+record the paths alone. The verified archive hash covers the original bytes.
+The verifier reads files only.

@@ -20,8 +20,6 @@ position relative to an ArUco marker or ChArUco board.
 
 ## Offline tool box draft
 
-![Illustrative draft tool box editor](docs/tool-envelope.png)
-
 In Marker Pick Teacher setup, choose **Open tool box draft**. The offline editor also works by opening the packaged `web/tool-envelope.html` file directly alongside its `.css` and `.js` files; no robot, camera or project is needed. The 390 × 80 × 100 mm example and centre (0, 0, 50) mm are illustrative, not measurements. The mounting orientation remains unverified. The tool excludes the separate camera and mount. The top-centre preset places the flange at the local negative-Z face centre. The dashed margin expands each box face.
 
 Import/export uses a portable JSON object with exactly `version: 1`, `type: "tool_bounding_box"`, `frame: "tool0"`, `dimensions_m` (three full extents along the box-local X, Y and Z axes), `pose_in_flange` with `xyz_m` and `rpy_rad` (roll, pitch, yaw; Rz(yaw) × Ry(pitch) × Rx(roll)), `clearance_m`, `assembly_coverage` (`unconfirmed`, `tool-only`, or `includes-camera-mount`), `status: "draft"`, and `purpose: "visualization_only"`. RPY is not a UR rotation vector. Input bounds are shown in the editor. Files contain no robot settings or project data.

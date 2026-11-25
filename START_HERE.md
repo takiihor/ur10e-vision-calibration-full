@@ -47,15 +47,8 @@ From this package's top directory:
 sha256sum -c CONTENTS.sha256
 ```
 
-For a source-only check:
-
-```bash
-cd src/anodizing-modules
-sha256sum -c ../../SOURCE_MANIFEST.sha256
-```
-
-`SOURCE_MANIFEST.sha256` describes this release. The source-level `SHA256SUMS`
-is regenerated from the same revised files; both must match the extracted source.
+`SOURCE_MANIFEST.sha256` and the source-level `SHA256SUMS` are historical
+inventories with withheld entries omitted.
 
 Verify the offline vendor provenance separately:
 

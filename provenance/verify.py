@@ -70,7 +70,7 @@ def main():
                         or bundle_files[item['path']] != item['bundle_sha256']):
                     fail(f'{name}: changed file hash differs: {item["path"]}')
             for item in vendor['deleted']:
-                if baseline_files[item['path']] != item['sha256']:
+                if 'sha256' in item and baseline_files[item['path']] != item['sha256']:
                     fail(f'{name}: deleted file hash differs: {item["path"]}')
             print(f'{name}: {archive.name} verified; '
                   f'{len(added)} added, {len(changed)} changed, {len(deleted)} deleted')

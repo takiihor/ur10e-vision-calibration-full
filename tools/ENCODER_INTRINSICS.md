@@ -135,10 +135,9 @@ geometry tolerance is `max(0.5 px, 3% of lattice spacing)`; this is an indexing
 check and permits defocused centre uncertainty. It does not establish subpixel
 measurement precision or make blurred frames suitable for calibration.
 
-The committed untouched Mono8 crops and independent manual cell labels in
-`tools/tests/fixtures/` guard real-frame detection/indexing. The three old
-diagnostic frames must be used for detection only: they are a single defocused
-view. Sharp new operator captures require separate evidence. Severe glare,
+The offline tests generate synthetic Mono8 inputs to exercise detection and
+indexing. Recorded camera crops and labels are held privately. Capture and
+evaluate sharp operator views separately for physical evidence. Severe glare,
 extreme blur/perspective or wider gaps can still reject views. Full-field growth
 is intended for offline analysis and can take seconds per native frame; the
 capture preview also uses this path and may update slowly. Software evidence

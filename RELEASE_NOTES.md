@@ -27,8 +27,8 @@
   views and residual diagnostics. The fitter checks the capture serial when
   available and rejects byte-identical images shared by the training and holdout sets.
 - [Synthetic Basler intrinsics example](review/results/basler-encoder-intrinsics/README.md)
-  use restricted `k1` and `k2` with 0.340 px RMS over five holdout views. They are
-  review artifacts for the recorded optical settings and require metric validation.
+  illustrates the calibration output format with simulated values. See the private
+  calibration record for measured results.
 
 Verification is software-only. The bundled tests use fake hardware, loopback HTTP
 and offline fixtures. The IPC, robot and AGV, physical stop timing and metric
@@ -46,8 +46,8 @@ software review artifact, not a hardware qualification.
 - All bundled Python suites now pass from the package root. A single runner is at
   `src/anodizing-modules/tools/test-all.bash`.
 - Site-specific values were removed from the product code and browser pages:
-  robot address, collision-scene UUID, ±363° bounds, payload hash, camera serial,
-  `tank01-new` project, and the named teaching board. Optional values can be
+  robot address, collision-scene ID, controller joint bounds, payload fingerprint,
+  camera serial, teaching project and board name. Optional values can be
   supplied by an operator-owned `site-profile.json`.
 - Teaching and robot-control defaults are discovered from files under the data
   directory and can be overridden by the profile.

@@ -6,6 +6,7 @@ release `44f2f0aa` and the focused 36-test run. Private evidence is retained sep
 They are **not** the manifest or test result for the current review-fix revision:
 
 - `MANIFEST.sha256` and `CHANGED_FILES.json` describe the older 397-file source.
+  Withheld entries are omitted from the manifest.
 
-Use the package-level `SOURCE_MANIFEST.sha256`, `CONTENTS.sha256`,
-`provenance/`, and `RELEASE_NOTES.md` for the current revision.
+Use the package-level `CONTENTS.sha256`, `provenance/`, and
+`RELEASE_NOTES.md` for the current revision.

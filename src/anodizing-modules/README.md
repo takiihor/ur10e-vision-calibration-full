@@ -10,8 +10,9 @@ Review and unpack the source bundle into a new directory. Do not replace the exi
 export MODULE_BUNDLE=/path/to/anodizing-modules
 export ANODIZING_PYTHON=$MODULE_BUNDLE/.venv/bin/python
 export ANODIZING_DATA_DIR=$MODULE_BUNDLE/data
+cd "$MODULE_BUNDLE/../.."
+sha256sum -c CONTENTS.sha256
 cd "$MODULE_BUNDLE"
-sha256sum -c /path/to/SOURCE_MANIFEST.sha256
 ./tools/probe.bash
 ```
 

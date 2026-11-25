@@ -143,10 +143,10 @@ and return paths pass in the example model. The example scene remains unconfirme
 Node tests exercise the editor scripts with a DOM double. A headless Firefox review
 exercised the local calibration file and the teacher HTTP editor with an inert service.
 The review covered frame labels, scene and joint edits, view controls, import/export, invalid input,
-confirmation reset, saved paths and stage selection. The screenshot below is from
-that browser review. No attended hardware trial occurred.
+confirmation reset, saved paths and stage selection. No attended hardware trial
+occurred. The schematic shows the nominal model.
 
-![Firefox preview with an example cell box](browser-preview.png)
+![Generated nominal UR10e geometry](robot-tool-preview.svg)
 
 Before a live trial, verify the robot-specific arm model, all assembly coverage,
 mounting transforms, cell geometry, payload, uncertainty and motion mode.
