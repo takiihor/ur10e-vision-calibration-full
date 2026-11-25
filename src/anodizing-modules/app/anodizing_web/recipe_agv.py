@@ -265,8 +265,6 @@ class StationVisit:
                     for report, received in updates:
                         self._check_hold(report, received)
                     self._check_hold(status, stamp)
-                    if validate_travel is not None:
-                        validate_travel()
                 except ValueError:
                     unsafe = True
                     raise
@@ -278,8 +276,6 @@ class StationVisit:
 
             def retry_check(status, stamp, updates):
                 now = time.monotonic()
-                if validate_travel is not None:
-                    validate_travel()
                 if self.cancelled.is_set() or cancelled.is_set() or now-self.pose_at >= POSE_FRESH_S:
                     raise ValueError('Robot travel-pose check expired or was stopped. Start a new run.')
                 if now >= self.travel_deadline or now-self.sent >= ACK_S:
@@ -290,7 +286,8 @@ class StationVisit:
 
             # A transport write can partially reach the AGV before raising.
             try:
-                self.sent = self.connection.recipe_call(target, validate, retry_check=retry_check)
+                self.sent = self.connection.recipe_call(target, validate, retry_check=retry_check,
+                                                        interlocks=validate_travel)
             except OSError:
                 self._stop()
                 raise ValueError('AGV station call write failed. Check the radio before a new run.')

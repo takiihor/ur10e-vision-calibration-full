@@ -50,7 +50,8 @@ def test_manual_travel_requires_fresh_clear_plant(tmp_path, location, equipment)
         request = visit(identity)
         with pytest.raises(ValueError):
             executor.submit(request)
-        assert executor.status(request['job_id'])['job'] is None
+        job = executor.status(request['job_id'])['job']
+        assert job['state'] == 'refused' and job['error']
         assert devices.effects == []
     finally:
         executor.close()
@@ -198,6 +199,7 @@ def test_legacy_confirmed_checkpoint_recovers_only_measured_rows(tmp_path, fixtu
     directory.mkdir()
     record_path = directory / f'{ident}.json'
     record_path.write_bytes(path.read_bytes())
+    (tmp_path / '.executor-active.json').write_text(json.dumps({'job_id': ident}))
     executor = Executor(tmp_path, FakeDevices())
     try:
         job = executor.status(ident)['job']
@@ -228,7 +230,7 @@ def test_inspection_disposition_verifies_unload_before_next_input(tmp_path):
         plant(executor, request)
         executor.submit(request)
         job = terminal(executor, request['job_id'])
-        assert job['outcome'] == 'held'
+        assert job['outcome'] == 'succeeded'
         disposition = {key: request[key] for key in ('boot', 'protocol', 'session', 'job_id')}
         disposition.update(basket=params['basket'], run_id=params['run_id'], release_basket=True,
                            observation_id='release-r3', disposition='Unload inspected basket from park.')
@@ -291,7 +293,7 @@ def test_late_first_anodize_read_uses_placement_timer(tmp_path):
         assert row['plc']['done_s'] - row['placed_s'] == 30
         assert row['dwell_s'] == 39
         assert row['inspection']
-        assert result['outcome'] == 'held'
+        assert result['outcome'] == 'succeeded'
     finally:
         executor.close()
 
@@ -382,9 +384,12 @@ def test_corrupt_ledger_fences_until_verified_bytes_restored(tmp_path, ledger):
     restarted = Executor(tmp_path, FakeDevices(state_path=state_path))
     try:
         identity = lease(restarted)
-        assert ledger in restarted.status()['recovery_ids']
-        with pytest.raises(ValueError, match='Reconcile'):
+        status = restarted.status()
+        assert ledger in status['recovery_ids']
+        assert 'call a technician' in status['evidence_faults'][ledger]
+        with pytest.raises(ValueError, match='technician'):
             restarted.control('arm', dict(identity, stop_generation=0))
+        assert path.read_text() == '{corrupt'
     finally:
         restarted.close()
     path.write_bytes(retained)
@@ -399,7 +404,7 @@ def test_corrupt_ledger_fences_until_verified_bytes_restored(tmp_path, ledger):
         recovered.close()
 
 
-def test_older_visit_cannot_repair_latest_missing_marker(tmp_path):
+def test_missing_latest_job_and_corrupt_marker_require_technician(tmp_path):
     state_path = tmp_path / '.fake-devices.json'
     executor = Executor(tmp_path, FakeDevices(state_path=state_path))
     try:
@@ -412,19 +417,22 @@ def test_older_visit_cannot_repair_latest_missing_marker(tmp_path):
         executor.close()
     marker = tmp_path / '.executor-active.json'
     marker.write_text('{broken')
-    (tmp_path / '.jobs' / 'later-visit.json').unlink()
+    missing = tmp_path / '.jobs' / 'later-visit.json'
+    missing.unlink()
     restarted = Executor(tmp_path, FakeDevices(state_path=state_path))
     try:
         identity = lease(restarted)
-        with pytest.raises(ValueError, match='latest|marker'):
-            restarted.reconcile(dict(identity, job_id='station-visit-1', observed_only=True,
-                                     repair_active_marker=True, disposition='Observed stopped station.'))
+        status = restarted.status()
+        assert status['recovery_required']
+        assert set(status['evidence_faults']) == {marker.name, '.jobs/later-visit.json'}
+        for ident in ('station-visit-1', 'later-visit'):
+            with pytest.raises(ValueError, match='technician'):
+                restarted.reconcile(dict(identity, job_id=ident, observed_only=ident != 'later-visit',
+                                         missing=ident == 'later-visit', repair_active_marker=True,
+                                         disposition='Observed stopped station.'))
         assert marker.read_text() == '{broken'
-        assert restarted.status()['recovery_required']
-        result = restarted.reconcile(dict(identity, job_id='later-visit', missing=True,
-                                         repair_active_marker=True, disposition='Observed stopped station.'))
-        assert result['outcome'] == 'unknown'
-        assert json.loads(marker.read_text())['job_id'] == 'later-visit'
+        assert not missing.exists()
+        assert restarted.devices.effects == []
     finally:
         restarted.close()
 
@@ -441,7 +449,8 @@ def test_http_admission_refusal_distinguishes_absent_acceptance(tmp_path):
             with pytest.raises(ValueError, match='PLC tank setpoint') as refused:
                 client('submit', request)
             assert getattr(refused.value, 'job_id', None) == request['job_id']
-            assert client('status', {'job_id': request['job_id']})['job'] is None
+            job = client('status', {'job_id': request['job_id']})['job']
+            assert job['state'] == 'refused' and job['error'] == str(refused.value)
             plant(executor, request)
             devices.plc.setpoints.update(FAKE_TANK_SETPOINTS)
             with pytest.raises(ValueError, match='PLC tank setpoint'):

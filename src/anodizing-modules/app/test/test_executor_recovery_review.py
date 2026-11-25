@@ -130,13 +130,17 @@ def test_reconcile_keeps_other_unreadable_records_fenced(tmp_path):
     (jobs / 'unknown-visit.json').write_text(json.dumps(dict(
         id='unknown-visit', module='executor', state='interrupted', execution_uncertain=True)))
     (jobs / 'unreadable-visit.json').write_text('{')
+    retained = (jobs / 'unknown-visit.json').read_bytes()
     devices = FakeDevices()
     devices.restore(has_history=False)
     executor = Executor(tmp_path, devices)
     try:
         request = authorize(executor)
-        executor.reconcile(dict(request, job_id='unknown-visit', disposition='Verified at input.'))
+        with pytest.raises(ValueError, match='unreadable-visit.json.*call a technician'):
+            executor.reconcile(dict(request, job_id='unknown-visit', disposition='Verified at input.'))
         assert executor.status()['recovery_required']
+        assert (jobs / 'unreadable-visit.json').read_text() == '{'
+        assert (jobs / 'unknown-visit.json').read_bytes() == retained
     finally:
         executor.close()
 

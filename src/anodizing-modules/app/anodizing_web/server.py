@@ -9,7 +9,6 @@ import tempfile
 import json
 import secrets
 from shutil import copyfileobj
-from contextlib import nullcontext
 from email.utils import formatdate
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
@@ -43,15 +42,16 @@ class OperatorActions:
         self.inflight = set()
 
     def execute(self, route, body, run, replay, *, required=False, stop=False, retry=False):
-        with nullcontext() if stop else self.dispatch:
-            return self._execute(route, body, run, replay, required, stop, retry)
+        if stop:
+            # Stop uses its dedicated retry journal. An ordinary writer may be stalled.
+            self.cursor = secrets.token_hex(16)
+            return run()
+        with self.dispatch:
+            return self._execute(route, body, run, replay, required, retry)
 
-    def _execute(self, route, body, run, replay, required, stop, retry):
+    def _execute(self, route, body, run, replay, required, retry):
         request_id = body.get('request_id')
         if request_id is None and not required:
-            if stop:
-                with self.lock:
-                    self.cursor = secrets.token_hex(16)
             return run()
         if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', request_id):
             raise ValueError('Review the current controls and supply an operator request ID.')
@@ -66,10 +66,9 @@ class OperatorActions:
             if request_id in self.inflight:
                 raise ValueError('This operator action is already in progress. Check status.')
             if entry is None:
-                if not stop:
-                    if body.get('review_cursor') != self.cursor:
-                        raise ValueError('The reviewed controls changed. Refresh before sending this action.')
-                    atomic_json(path, dict(signature=signature), sync_directory=True)
+                if body.get('review_cursor') != self.cursor:
+                    raise ValueError('The reviewed controls changed. Refresh before sending this action.')
+                atomic_json(path, dict(signature=signature), sync_directory=True)
                 self.cursor = secrets.token_hex(16)
             self.inflight.add(request_id)
         try:
@@ -77,7 +76,7 @@ class OperatorActions:
                 result = replay(entry.get('result'))
                 if result is not None:
                     return result
-                if not retry and not stop:
+                if not retry:
                     raise ValueError('Review the outcome of the original operator action before trying again.')
             result = run()
             stored = result
@@ -338,6 +337,19 @@ class Handler(BaseHTTPRequestHandler):
             return self.operator_asset(path)
         if path == '/api/programme':
             programme = getattr(self.server, 'programme', None)
+            query = urlsplit(self.path).query
+            if query:
+                try:
+                    selection = parse_qs(query, strict_parsing=True)
+                    if len(selection) != 1 or next(iter(selection)) not in ('run_id', 'job_id'):
+                        raise ValueError
+                    ids = next(iter(selection.values()))
+                    run = programme.retained_run(ids[0]) if programme and len(ids) == 1 else None
+                    if run is None:
+                        raise ValueError
+                except ValueError:
+                    return self.reply(404, {'error': 'The selected basket record is unavailable.'})
+                return self.reply(200, {'run': run})
             cursor = self.server.operator_actions.cursor if programme else None
             return self.reply(200, dict(programme.status(), **programme.review(), review_cursor=cursor)
                               if programme else {'recipe': None, 'run': None})
@@ -712,7 +724,7 @@ class Handler(BaseHTTPRequestHandler):
             state['operator_action'] = original_action
         programme = self.server.programme if self.server.programme_uses_executor else None
         if programme and programme.control_owned():
-            state['programme_motion_block'] = 'The programme owns the executor. Resolve the basket or use Stop.'
+            state['programme_motion_block'] = programme.history_fault or 'The programme owns the executor. Resolve the basket or use Stop.'
         return dict(state, review_cursor=cursor)
 
     def _programme_action(self, body):
@@ -723,7 +735,7 @@ class Handler(BaseHTTPRequestHandler):
         if action == 'finalize':
             return programme.finalize(body.get('revision'), body.get('review'))
         if action == 'stop':
-            return programme.stop()
+            return programme.stop(request_id=request_id)
         if action == 'disposition':
             return programme.disposition(body.get('job_id'), body.get('note'), request_id=request_id,
                                          allow_unaccounted=body.get('allow_unaccounted', False))
@@ -748,7 +760,7 @@ class Handler(BaseHTTPRequestHandler):
         arm = action == 'arm' and body.get('armed') is not False
         if programme and (command == 'call_station' or arm or action in ('disconnect', 'repair_executor_marker')):
             if programme.control_owned():
-                raise ValueError('The programme owns the executor. Resolve the basket or use Stop.')
+                raise ValueError(programme.history_fault or 'The programme owns the executor. Resolve the basket or use Stop.')
             if action == 'repair_executor_marker':
                 return link.submit(body, programme_intent=programme.latest_executor_intent())
         return link.submit(body)

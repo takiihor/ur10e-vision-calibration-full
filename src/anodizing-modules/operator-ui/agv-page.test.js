@@ -359,3 +359,12 @@ it('shows a recovered station visit outcome and requires acknowledgement before 
   await flushPromises();
   expect(requests.at(-1)).toMatchObject({ action: 'acknowledge_station', job_id: 'persisted' });
 });
+
+it('shows the named technician fence and suppresses operator repair of damaged files', async () => {
+  const message = 'IPC evidence is missing in .jobs/missing-visit.json. Please call a technician.';
+  await open(() => ({ executor_link: true, recovery_ids: ['missing-visit'], recovery_required: true,
+    evidence_faults: { '.jobs/missing-visit.json': message }, motion_block: message }));
+  expect(app.find('[role="alert"]').exists()).toBe(true);
+  expect(app.text()).toContain(message);
+  expect(app.find('[data-ui="agv.marker.reconcile"]').exists()).toBe(false);
+});

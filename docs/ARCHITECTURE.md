@@ -140,12 +140,12 @@ for a terminal transfer exemption. Finalize separately after the process
 owner resolves all applicable bounds and cycle rules. Editing a final revision
 creates a new draft. Snapshot the reviewed revision into a run and its jobs.
 
-Record actual dwell, air time, PLC cycle evidence and equipment state for
+Record measured dwell, air time, PLC cycle evidence and equipment state for
 each basket and tank. Count each rinse exposure once, including time in a
-hold after link loss. A limit breach raises an alarm, flags inspection and
-holds further dispatch at a verified boundary. The job can complete only the
-approved safe action while Stop stays immediately available. Record the
-operator's disposition. Scrap decisions remain with the operator.
+hold after link loss. On understay, overstay or excess air time, record the
+measured value, raise the alarm and flag the basket for inspection. Continue
+the reviewed programme when the next job meets its independent safety checks.
+The operator retains the scrap decision. Stop remains available throughout.
 
 ## Phase acceptance and next phase
 
@@ -271,7 +271,8 @@ blocks the load before station travel.
 Start at the reviewed input, inspect the effective draft revision, and
 start the simulated run. The run's revision and result history are durable
 in the orchestrator data directory. Record an explicit disposition for
-inspection or uncertain execution, including a missing executor result.
+uncertain execution. A quality flag stays with the basket through completion.
+The operator can reopen an earlier basket by its run ID in the record selector.
 Stop changes dispatch permission independently of the basket outcome.
 The urgent area distinguishes receipt, halt attempt and confirmed halt.
 An outstanding Stop survives reload. Once a successful Arm clears the
@@ -322,25 +323,21 @@ battery budget or brownout response.
 Katana records the new observation with the job ID, executor boot and
 observation times. The original job outcome remains in the basket history.
 
-If `.executor-active.json` is unreadable, keep the executor inhibited.
-Identify the outstanding job from the controller's durable programme or
-manual intent and verify the simulated devices independently. The AGV
-page offers executor recovery for an unreadable marker or a reported job
-fence. Use the original job ID from the current manual intent, the
-durable manual history or the retained programme record. When a programme
-owns the outstanding intent, use its disposition. If the original ID is
-missing, restore the controller journal or known backup before release.
-Pass the actual `job_id` and `repair_active_marker: true` with the
-disposition to the authenticated reconciliation operation. Set `missing: true` if
-the result is missing, or `observed_only: true` if verifying a terminal
-hold between jobs or a previously recorded terminal job. The executor
-preserves the original marker bytes in a sibling `.unreadable` file and
-atomically replaces the marker after saving the evidence. For an orphan
-job, Katana records the current event in `executor-recovery.json` and
-archives acknowledged evidence in `executor-recovery-history/`. An
-unresolved job or job file keeps its independent fence. If the
-job ID cannot be established, preserve the files and leave dispatch
-inhibited for maintenance review.
+A missing, unreadable or contradictory journal, job or inventory file
+inhibits motion and names the affected file on the status screen. Call a
+technician. Preserve the files, their verified backups and the original
+identities. An operator disposition cannot replace damaged history.
+The executor retains a by-ID admission refusal and its reason separately
+from accepted jobs. Katana can close a refused first job and retains an
+occupied hold for verified unload. A lost HTTP reply leaves the original
+job ID available for lookup.
+
+Katana compares the programme journal to its independent history digest
+and the operator receipts that reference basket runs. Updating the digest
+before and after atomic journal replacement preserves either complete
+version across power loss. Checkpointed immersion, qualified PLC completion
+and observed departure from the tank establish the dwell row. Katana checks
+the result against those observations before saving or acknowledging it.
 
 For programme recovery, compare both the basket label and the run ID
 with the observed hold. A replacement simulator's initial empty input
@@ -349,9 +346,10 @@ evidence identifies an absent or different basket, the operator can
 record the original basket as unaccounted for. Its record then carries
 no final hold. The simulator leaves a different basket in place.
 Closing a verified occupied input or park hold records the disposition
-and verifies the empty input before loading a new basket. A terminal
-success followed by a lost IPC job file retains the earlier result
-alongside its subsequent by-ID reconciliation.
+and verifies the empty input before loading a new basket. If the original basket is
+observed at park during unaccounted confirmation, the run stays open for
+a separate verified unload. A terminal success followed by a missing IPC
+job file keeps the earlier result and raises the technician fence.
 
 At each station leg the IPC checks the current local travel interlocks.
 A basket in a tank, tank equipment still on, or unknown feedback blocks

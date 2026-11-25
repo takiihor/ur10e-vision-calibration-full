@@ -357,7 +357,7 @@ def test_plc_admission_and_cycle_refuse_unqualified_lift(tmp_path, fault):
         executor.close()
 
 
-def test_limit_breach_holds_basket_until_disposition(tmp_path):
+def test_limit_breach_records_measured_dwell_and_finishes_programme(tmp_path):
     devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     devices.plc.dwell_offset = 70
     executor = Executor(tmp_path / 'executor', devices)
@@ -365,16 +365,15 @@ def test_limit_breach_holds_basket_until_disposition(tmp_path):
         programme = Programme(tmp_path / 'controller', Link(executor), recipe())
         revision = programme.status()['recipe']['id']
         run = programme.start(revision, 'inspect-001', programme.review()['approval'])
-        held = wait_for(lambda: (programme.tick(), programme.status()['run'])[1],
-                        lambda record: record['state'] == 'inspection')
-        assert held['steps'][0]['inspection']
-        assert held['steps'][0]['plc']['elapsed_s'] == 100 and held['steps'][0]['dwell_s'] >= 100
-        assert held['final_hold'] == 'park'
-        assert devices.effects[-1] == ('lift', 'park')
-        assert not executor.status()['armed']
-        with pytest.raises(ValueError, match='disposition'):
-            programme.start(revision, 'inspect-002', programme.review()['approval'])
-        assert programme.disposition(run['id'], 'Keep for inspection.')['state'] == 'stopped'
+        completed = wait_for(lambda: (programme.tick(), programme.status()['run'])[1],
+                             lambda record: record['state'] == 'succeeded' and not record['ack_pending'])
+        assert completed['id'] == run['id'] and completed['inspection']
+        assert completed['steps'][0]['inspection']
+        assert completed['steps'][0]['plc']['elapsed_s'] == 100 and completed['steps'][0]['dwell_s'] >= 100
+        assert any(entry['job']['result'].get('alarm') for entry in completed['jobs'])
+        assert completed['final_hold'] == 'output'
+        assert devices.effects[-1] == ('lift', 'output')
+        assert programme.start(revision, 'inspect-002', programme.review()['approval'])['id'] != run['id']
     finally:
         executor.close()
 

@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 from . import agv
-from .executor import AdmissionRefused, MAX_BODY, Executor, FakeDevices, Stopped, finite
+from .executor import AdmissionRefused, MAX_BODY, Executor, FakeDevices, Stopped, finite, validate_measured_rows
 from .recipe_agv import POSE_FRESH_S, StationVisit, stopped
 
 CONTROLS = {'connect', 'disconnect', 'status_read', 'arm', 'disarm', 'submit', 'heartbeat',
@@ -109,12 +109,18 @@ class WiredDevices:
     def stop(self):
         self.cancel.set()
         self.disarm()
-        return self.link.recipe_stop() if self.simulated else False
+        return self.link.recipe_stop(external=True) if self.simulated else False
 
     def stop_evidence(self, requested_at):
         with self.link.lock:
             report = self.link.status or {}
             stamp = self.link.status_at
+            if self.simulated and not any(
+                result and result.get('requested_command') == 'stop' and result.get('confirmed_stopped')
+                and result.get('sent_mono_s', 0) >= requested_at
+                for result in (self.link.results.get('stop'), self.link.results.get('pause'))
+            ):
+                return False
             return bool(self.link.transport is not None and stamp is not None and
                         requested_at < stamp and 0 <= monotonic() - stamp < agv.RECIPE_STALE_S and
                         stopped(report) and report.get('fault_code') == 0 and report.get('obstacle_stop') is False)
@@ -245,7 +251,8 @@ async function refresh() {
     const age = device.status_age_s;
     const link = !device.connected ? 'Disconnected' : age == null ? 'Waiting for status' :
       (age < 3 ? (state.armed ? 'Armed' : 'Disarmed') : 'Status stale') + ' \u00b7 ' + age.toFixed(1) + ' s ago';
-    text('link', link + (state.recovery_required ? ' \u00b7 Recovery required' : ''));
+    const faults = Object.values(state.evidence_faults || {});
+    text('link', faults.length ? [link, ...faults].join(' \u00b7 ') : link + (state.recovery_required ? ' \u00b7 Recovery required' : ''));
     text('station', s.current_station);
     text('target', s.target_station);
     text('battery', s.battery_percent == null ? null : s.battery_percent + '%');
@@ -279,6 +286,7 @@ def display_listener(port, read):
                 job = state.get('job')
                 return self.send(200, dict(boot=state['boot'], armed=state['armed'],
                                            recovery_required=state['recovery_required'],
+                                           evidence_faults=state.get('evidence_faults', {}),
                                            quality_alarm=state.get('quality_alarm'),
                                            job={k: job[k] for k in ('job_id', 'state', 'outcome')} if job else None,
                                            device={key: device.get(key) for key in allowed}))
@@ -320,7 +328,7 @@ def _validate_job(job):
     _reply_fields(job, job_id=(str,), state=(str,), outcome=(str, empty),
                   result=(dict,), checkpoint=(dict, empty), error=(str, empty),
                   reconciliation=(dict, empty), observation=(dict, empty), acknowledged=(bool,))
-    if job['state'] not in ('waiting', 'accepted', 'running', 'done', 'failed', 'interrupted', 'stopped'):
+    if job['state'] not in ('waiting', 'accepted', 'running', 'done', 'failed', 'interrupted', 'stopped', 'refused'):
         raise ValueError('Malformed executor job state.')
     if job['outcome'] not in (None, 'succeeded', 'held', 'unknown', 'stopped', 'failed'):
         raise ValueError('Malformed executor job outcome.')
@@ -328,14 +336,8 @@ def _validate_job(job):
     hold = result.get('hold')
     if hold is not None:
         _reply_fields(hold, location=(str,))
-    steps = result.get('steps', [])
-    if not isinstance(steps, list):
-        raise ValueError('Malformed executor steps.')
-    for record in steps:
-        _reply_fields(record, id=(str,), tank=(str,), dwell_s=(int, float), inspection=(bool,),
-                      placed_s=(int, float), lift_s=(int, float), air_s=(int, float, empty), limits=(dict,), plc=(dict,))
-        _reply_fields(record['limits'], air=(int, float, empty))
-        _reply_fields(record['plc'], cycle=(int,))
+    if job['state'] not in ('waiting', 'accepted', 'running'):
+        validate_measured_rows(result, job['checkpoint'])
     for evidence in (job.get('reconciliation'), job.get('observation'), result.get('reconciliation')):
         if evidence is not None:
             _reply_fields(evidence, hold=(dict,))
@@ -376,8 +378,24 @@ def _validate_reply(operation, value):
                       settings=(dict, empty), results=(dict,), log=(list,), connection_id=(int,), stale=(bool,))
         if device['connected']:
             _reply_fields(device['settings'], mode=(str,))
+        for name in ('log', 'events'):
+            entries = device.get(name, [])
+            if not isinstance(entries, list):
+                raise ValueError('Malformed executor event stream.')
+            for entry in entries:
+                _reply_fields(entry, id=(int,))
+                if entry['id'] < 1:
+                    raise ValueError('Malformed executor event ID.')
+                for key in ('timestamp', 'direction', 'hex', 'field', 'reason'):
+                    if key in entry:
+                        _reply_fields(entry, **{key: (str,)})
+                if 'decode' in entry:
+                    _reply_fields(entry, decode=(dict,))
         if not all(isinstance(ident, str) for ident in value['recovery_ids']):
             raise ValueError('Malformed executor recovery IDs.')
+        if 'evidence_faults' in value and (not isinstance(value['evidence_faults'], dict)
+                or not all(isinstance(reason, str) for reason in value['evidence_faults'].values())):
+            raise ValueError('Malformed executor evidence faults.')
         for key in ('active_job_id', 'latest_job_id'):
             if key in value:
                 _reply_fields(value, **{key: (str, empty)})

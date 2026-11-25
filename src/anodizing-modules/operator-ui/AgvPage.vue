@@ -44,7 +44,8 @@ watch(() => agv.state.executor_recovery_evidence, evidence => {
 }, { immediate: true });
 const manualNeedsReview = computed(() => manualVisit.value?.missing ||
   (manualVisit.value?.result?.outcome === 'unknown' && !manualVisit.value.result.reconciliation));
-const orphanRecovery = computed(() => !manualVisit.value &&
+const evidenceFaults = computed(() => Object.values(agv.state.evidence_faults ?? {}));
+const orphanRecovery = computed(() => !evidenceFaults.value.length && !manualVisit.value &&
   (agv.state.recovery_ids?.length || agv.state.executor_recovery_evidence?.acknowledged === false));
 const visitOutcome = computed(() => manualVisit.value?.result?.outcome);
 const visitSummary = computed(() => {
@@ -195,18 +196,19 @@ function connect() {
         <p v-else>Query status to check for a learned route.</p>
         <p v-if="!standard && callReason" id="agv-station-call-reason" data-ui="agv.call.reason">{{ callReason }}</p>
         <p v-if="agv.state.quality_alarm" role="status">{{ agv.state.quality_alarm.reason }}</p>
+        <p v-for="fault in evidenceFaults" :key="fault" role="alert">{{ fault }}</p>
         <div v-if="manualVisit">
           <p role="status">{{ visitSummary }}{{ manualVisit.missing ? ' · IPC result missing' : '' }}{{ manualVisit.result?.error ? ' · ' + manualVisit.result.error : '' }}</p>
           <p v-if="manualVisit.prior_result">Previous saved outcome: {{ manualVisit.prior_result.outcome }}</p>
           <p v-if="manualVisit.result?.reconciliation">Reconciled: {{ manualVisit.result.reconciliation.disposition }}</p>
-          <template v-if="manualNeedsReview">
+          <template v-if="manualNeedsReview && !evidenceFaults.length">
             <label>Verified station disposition <input data-ui="agv.call.disposition" v-model="manualNote" maxlength="500"></label>
             <OperatorButton data-ui="agv.call.reconcile" id="reconcile-station" label="Reconcile original station visit"
               :why="agv.busy || !manualNote.trim() ? 'Enter the verified station disposition.' : ''"
               :outcome="agv.feedback('reconcile-station')"
               @press="agv.post({ action: 'reconcile_station', job_id: manualVisit.id, note: manualNote }, 'reconcile-station')" />
           </template>
-          <OperatorButton v-if="visitOutcome && !manualNeedsReview" data-ui="agv.call.acknowledge"
+          <OperatorButton v-if="visitOutcome && !manualNeedsReview && !evidenceFaults.length" data-ui="agv.call.acknowledge"
             id="acknowledge-station" label="Acknowledge result" :why="agv.busy ? 'Wait for the current request.' : ''"
             :outcome="agv.feedback('acknowledge-station')"
             @press="agv.post({ action: 'acknowledge_station', job_id: manualVisit.id }, 'acknowledge-station')" />
@@ -224,8 +226,9 @@ function connect() {
           Recovery evidence acknowledged for {{ agv.state.executor_recovery_evidence.job_id }}
         </p>
         <div v-if="!manualVisit && agv.state.manual_visit_history">
-          Last acknowledged station visit {{ agv.state.manual_visit_history.id }}
-          · {{ agv.state.manual_visit_history.result?.outcome }}
+          {{ agv.state.manual_visit_history.admission_refused ? 'Station visit refused' : 'Last acknowledged station visit' }}
+          {{ agv.state.manual_visit_history.id }}
+          · {{ agv.state.manual_visit_history.result?.error || agv.state.manual_visit_history.result?.outcome }}
         </div>
         <div v-if="!standard" data-ui="agv.call.grid" class="station-grid">
           <OperatorButton data-ui="agv.call.station" :data-ui-key="station" v-for="station in stations" :id="'station-' + station" :key="station"

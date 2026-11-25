@@ -47,3 +47,77 @@ test('reviews and saves a draft revision before starting the basket', async () =
     wrapper.unmount();
   }
 });
+
+const recipe = { id: 'rev', state: 'DRAFT', steps: [] };
+const current = { id: 'new-run', basket: 'B', state: 'succeeded', cursor: 0, recipe, steps: [], jobs: [] };
+
+test('labels foreign hold with the basket and run that were actually observed', async () => {
+  request.mockResolvedValue({ recipe, run: { ...current, basket_unaccounted: true,
+    recovery_observation: { job_id: 'job-foreign', hold: { location: 'output', basket: 'foreign-basket', run_id: 'foreign-run' } } } });
+  const wrapper = mount(ProgrammePanel);
+  try {
+    await flushPromises();
+    expect(wrapper.text()).toMatch(/unknown/i);
+    expect(wrapper.text()).toContain('foreign-basket');
+    expect(wrapper.text()).toContain('foreign-run');
+    expect(wrapper.text()).not.toContain('Verified recovery hold output');
+  } finally { wrapper.unmount(); }
+});
+
+test('selecting an earlier basket reads its record and keeps operator controls on the current run', async () => {
+  const old = { ...current, id: 'old-run', basket: 'A', state: 'inspection', steps: [
+    { id: 'original-dip', tank: 'old-tank', dwell_s: 33, air_s: null, plc: { cycle: 2 } },
+  ] };
+  request.mockImplementation(async path => ({ recipe, run: path.includes('?') ? old : current, baskets: [old, current] }));
+  const wrapper = mount(ProgrammePanel);
+  try {
+    await flushPromises();
+    await wrapper.get('select[aria-label="Basket record"]').setValue(old.id);
+    await flushPromises();
+    expect(request).toHaveBeenCalledWith('/api/programme?run_id=old-run');
+    expect(wrapper.text()).toContain('original-dip');
+    expect(wrapper.text()).toContain('33 s');
+    expect(wrapper.find('[data-ui="programme.inspection.record"]').exists()).toBe(false);
+  } finally { wrapper.unmount(); }
+});
+
+
+test('after the original basket is found, the next confirmation requests its ordinary unload', async () => {
+  let stillMissing = true;
+  const bodies = [];
+  request.mockImplementation(async (path, body) => {
+    if (body) {
+      bodies.push(body);
+      if (stillMissing) {
+        stillMissing = false;
+        throw new Error('Original basket found. Confirm its unload.');
+      }
+    }
+    return { recipe, run: { ...current, state: 'recovery required', basket_unaccounted: stillMissing } };
+  });
+  const wrapper = mount(ProgrammePanel);
+  try {
+    await flushPromises();
+    await wrapper.get('[data-ui="programme.inspection.note"]').setValue('Checked at park');
+    await wrapper.get('[data-ui="programme.inspection.unaccounted"]').setValue(true);
+    await wrapper.get('[data-ui="programme.inspection.record"]').trigger('click');
+    await new Promise(resolve => setTimeout(resolve, 700));
+    await flushPromises();
+    expect(wrapper.find('[data-ui="programme.inspection.unaccounted"]').exists()).toBe(false);
+    await wrapper.get('[data-ui="programme.inspection.record"]').trigger('click');
+    await flushPromises();
+    expect(bodies.map(body => body.allow_unaccounted)).toEqual([true, false]);
+  } finally { wrapper.unmount(); }
+});
+
+
+test('a recovered legacy record also checks the observed identities before labelling a hold verified', async () => {
+  request.mockResolvedValue({ recipe, run: { ...current, recovery_observation: {
+    job_id: 'old-result', hold: { basket: 'B', run_id: 'different-run', location: 'park' } } } });
+  const wrapper = mount(ProgrammePanel);
+  try {
+    await flushPromises();
+    expect(wrapper.text()).toContain('different-run');
+    expect(wrapper.text()).not.toContain('Verified recovery hold park');
+  } finally { wrapper.unmount(); }
+});

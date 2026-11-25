@@ -296,7 +296,7 @@ def test_lease_watcher_retries_a_failed_disarm_before_rearming(tmp_path):
 
 
 @pytest.mark.parametrize('damage', ['marker', 'job'])
-def test_orphan_recovery_requires_durable_controller_identity(tmp_path, damage):
+def test_damaged_executor_record_fences_even_with_durable_controller_identity(tmp_path, damage):
     root = tmp_path / 'katana'
     state_path = tmp_path / 'ipc' / '.fake-devices.json'
     with remote(tmp_path, state_path=state_path) as (client, executor, devices), operator(root, client) as call:
@@ -318,15 +318,13 @@ def test_orphan_recovery_requires_durable_controller_identity(tmp_path, damage):
         if damage == 'marker':
             assert marker.read_bytes() == b'{truncated'
         assert executor.recovery
-        restored = call('agv', dict(recovery, job_id=job_id))
-        evidence = restored['executor_recovery_evidence']
-        assert evidence['job_id'] == job_id
-        key = 'observation' if damage == 'marker' else 'reconciliation'
-        assert evidence['outcome'] == ('succeeded' if damage == 'marker' else 'unknown')
-        assert evidence[key]['hold']['station'] == 6
-        assert executor.status(job_id)['job']['acknowledged']
-        assert (root / 'executor-recovery-history' / f"{evidence['event_id']}.json").is_file()
-        assert not executor.recovery
+        with pytest.raises(HTTPError, match='400') as denied:
+            call('agv', dict(recovery, job_id=job_id))
+        expected_file = '.executor-active.json' if damage == 'marker' else f'.jobs/{job_id}.json'
+        message = denied.value.read().decode()
+        assert expected_file in message and 'call a technician' in message.lower()
+        assert executor.recovery and not (root / 'executor-recovery.json').exists()
+        assert (root / 'executor-manual-history' / f'{job_id}.json').exists()
         assert not devices.effects
 
 
@@ -352,9 +350,7 @@ def test_mismatched_stop_receipt_leaves_original_intent_pending(tmp_path):
             assert cleared['executor_stop']['confirmed']
 
 
-def test_orphan_ack_retry_reobserves_original_hold_on_new_boot(tmp_path):
-    import json
-
+def test_damaged_marker_stays_fenced_across_boot_and_accepts_verified_restoration(tmp_path):
     root = tmp_path / 'katana'
     state_path = tmp_path / 'ipc' / '.fake-devices.json'
     with remote(tmp_path, state_path=state_path) as (client, _, _), operator(root, client) as call:
@@ -363,28 +359,19 @@ def test_orphan_ack_retry_reobserves_original_hold_on_new_boot(tmp_path):
         wait_for(lambda: call('agv'), lambda state: (state['manual_visit']['result'] or {}).get('outcome') == 'succeeded')
         call('agv', dict(action='acknowledge_station', job_id=job_id))
 
-    (tmp_path / 'ipc' / '.executor-active.json').write_bytes(b'{')
-    recovery = dict(action='repair_executor_marker', job_id=job_id, note='Verified stationary hold')
-    with remote(tmp_path, state_path=state_path) as (client, executor, _):
-        def interrupt_ack(operation, body=None):
-            if operation == 'acknowledge':
-                raise OSError('Lost transport before acknowledgement')
-            return client(operation, body)
-
-        with operator(root, interrupt_ack) as call:
-            wait_for(lambda: call('agv'), lambda state: state.get('executor_session'))
+    marker = tmp_path / 'ipc' / '.executor-active.json'
+    original = marker.read_bytes()
+    marker.write_bytes(b'{')
+    for _ in range(2):
+        with remote(tmp_path, state_path=state_path) as (client, executor, devices), operator(root, client) as call:
+            state = wait_for(lambda: call('agv'), lambda s: s.get('executor_session'))
+            assert '.executor-active.json' in state['motion_block']
             with pytest.raises(HTTPError, match='400'):
-                call('agv', recovery)
-            assert not executor.recovery
-            saved = json.loads((root / 'executor-recovery.json').read_text())
-            assert not saved['acknowledged']
-
-    with remote(tmp_path, state_path=state_path) as (client, executor, devices), operator(root, client) as call:
-        wait_for(lambda: call('agv'), lambda state: state.get('executor_session'))
-        retrieved = call('agv', recovery)['executor_recovery_evidence']
-        assert retrieved['acknowledged']
-        assert retrieved['outcome'] == 'succeeded'
-        assert retrieved['event_id'] == saved['event_id'] == retrieved['observation']['observation_id']
-        assert retrieved['observation']['boot'] == executor.boot != saved['observation']['boot']
-        assert retrieved['observation']['hold']['station'] == 8
-        assert not devices.effects
+                call('agv', dict(action='repair_executor_marker', job_id=job_id, note='Stationary hold'))
+            assert marker.read_bytes() == b'{' and not devices.effects
+            assert executor.recovery and not (root / 'executor-recovery.json').exists()
+    marker.write_bytes(original)
+    with remote(tmp_path, state_path=state_path) as (client, executor, devices):
+        restored = executor.status(job_id)
+        assert not restored['evidence_faults'] and restored['job']['acknowledged']
+        assert restored['job']['result']['hold']['station'] == 8 and not devices.effects

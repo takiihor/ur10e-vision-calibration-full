@@ -5,6 +5,10 @@ import { request } from './api';
 const emit = defineEmits(['changed']);
 const recipe = ref(null);
 const run = ref(null);
+const baskets = ref([]);
+const selectedId = ref('');
+const historical = ref(null);
+const record = computed(() => selectedId.value ? historical.value : run.value);
 const approval = ref(null);
 const reviewCursor = ref(null);
 const block = ref(null);
@@ -31,6 +35,11 @@ const active = computed(() => run.value && (
   || ['running', 'held', 'recovery required', 'inspection'].includes(run.value.state)
 ));
 
+function unknownHold(basketRun) {
+  const hold = basketRun.recovery_observation?.hold;
+  return basketRun.basket_unaccounted || (hold && (hold.basket !== basketRun.basket || hold.run_id !== basketRun.id));
+}
+
 async function refresh() {
   const next = await request('/api/programme');
   if (!alive) return;
@@ -50,8 +59,25 @@ async function refresh() {
     disposition.value = next.run?.disposition_intent?.disposition ?? '';
     unaccounted.value = Boolean(next.run?.disposition_intent?.allow_unaccounted);
   }
+  if (!next.run?.basket_unaccounted) unaccounted.value = false;
+  baskets.value = next.baskets ?? [];
   block.value = next.block;
   run.value = next.run;
+}
+
+async function selectRecord(id) {
+  selectedId.value = id;
+  historical.value = null;
+  if (!id) return;
+  try {
+    const response = await request('/api/programme?run_id=' + encodeURIComponent(id));
+    if (alive && selectedId.value === id) {
+      if (response.run?.id !== id) throw new Error('The selected basket record is unavailable.');
+      historical.value = response.run;
+    }
+  } catch (failure) {
+    if (alive && selectedId.value === id) error.value = failure.message;
+  }
 }
 
 function change(step, field, raw) {
@@ -144,9 +170,17 @@ onUnmounted(() => {
     </div>
     <div v-if="run" aria-live="polite">
       <p><strong>{{ run.basket }}</strong> · {{ run.state }} · {{ run.cursor }}/{{ run.recipe.steps.length }} steps</p>
+      <p v-if="run.inspection" role="alert">Basket flagged for inspection.</p>
       <p v-if="run.stop_pending" role="alert">Stop unconfirmed. Further dispatch is blocked.</p>
       <p v-if="run.reason">{{ run.reason }}</p>
-      <p v-if="run.recovery_observation">
+      <p v-if="unknownHold(run)">
+        {{ run.basket }} · Last hold unknown.
+        <template v-if="run.recovery_observation?.hold">
+          Observed {{ run.recovery_observation.hold.basket }} · run {{ run.recovery_observation.hold.run_id }}
+          at {{ run.recovery_observation.hold.location }}.
+        </template>
+      </p>
+      <p v-else-if="run.recovery_observation">
         Verified recovery hold {{ run.recovery_observation.hold.location }} · job {{ run.recovery_observation.job_id }}
       </p>
       <p v-else-if="run.final_hold">Last confirmed hold {{ run.final_hold }}</p>
@@ -171,15 +205,36 @@ onUnmounted(() => {
           <label>Basket disposition <input data-ui="programme.inspection.note" v-model="disposition" maxlength="500"></label>
           <label v-if="run.basket_unaccounted"><input data-ui="programme.inspection.unaccounted" type="checkbox" v-model="unaccounted"> Record the original basket as unaccounted for</label>
           <button data-ui="programme.inspection.record" type="button" :disabled="busy || !disposition.trim() || Boolean(run.pending && !run.pending_missing && !run.invalid_result)"
-            @click="act('disposition', { job_id: run.id, note: disposition, allow_unaccounted: unaccounted })">Record disposition</button>
+            @click="act('disposition', { job_id: run.id, note: disposition, allow_unaccounted: Boolean(run.basket_unaccounted && unaccounted) })">Record disposition</button>
         </template>
       </div>
-      <details data-ui="programme.record.panel" v-if="run.steps.length" data-action="basket-record">
-        <summary data-ui="programme.record.summary">Basket record · revision {{ run.recipe.id }}</summary>
+      <label v-if="baskets.length > 1">Basket record
+        <select data-ui="programme.record.select" :value="selectedId" aria-label="Basket record" @change="selectRecord($event.target.value)">
+          <option value="">Current · {{ run.basket }} · {{ run.id }}</option>
+          <option v-for="item in baskets.filter(item => item.id !== run.id)" :key="item.id" :value="item.id">
+            {{ item.basket }} · {{ item.id }} · {{ item.state }}
+          </option>
+        </select>
+      </label>
+      <details data-ui="programme.record.panel" v-if="record && (selectedId || record.steps.length)" data-action="basket-record">
+        <summary data-ui="programme.record.summary">Basket record · {{ record.basket }} · revision {{ record.recipe.id }}</summary>
+        <p v-if="selectedId">{{ record.state }} · {{ record.cursor }}/{{ record.recipe.steps.length }} steps
+          <template v-if="record.reason"> · {{ record.reason }}</template>
+          <template v-if="record.inspection"> · Inspect</template>
+        </p>
+        <p v-if="selectedId && record.disposition">{{ record.disposition }}</p>
+        <p v-if="selectedId && unknownHold(record)">Last hold unknown.
+          <template v-if="record.recovery_observation?.hold">
+            Observed {{ record.recovery_observation.hold.basket }} · run {{ record.recovery_observation.hold.run_id }}
+            at {{ record.recovery_observation.hold.location }}.
+          </template>
+        </p>
+        <p v-else-if="selectedId && record.final_hold">Last confirmed hold {{ record.final_hold }}</p>
         <ul>
-          <li data-ui="programme.record.step" :data-ui-key="step.id" v-for="step in run.steps" :key="step.id">
+          <li data-ui="programme.record.step" :data-ui-key="step.id" v-for="step in record.steps" :key="step.id">
             {{ step.id }} · {{ step.tank }} · dwell {{ step.dwell_s }} s · air {{ step.air_s ?? 'unknown' }}
             <template v-if="step.air_s != null"> s</template> · PLC cycle {{ step.plc.cycle }}
+            <template v-if="step.open_air_alarm_s != null"> · air alarm at {{ step.open_air_alarm_s }} s</template>
             <strong v-if="step.inspection"> · Inspect</strong>
           </li>
         </ul>

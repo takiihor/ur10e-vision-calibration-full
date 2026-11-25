@@ -419,6 +419,7 @@ class Resend:
     sent_at: float
     recipe_check: object = None
     tries: int = 1
+    interlocks: object = None
 
     @property
     def interval(self):
@@ -1050,7 +1051,11 @@ class Connection:
 
     def _write(self, name, raw, value, attempt, background=False, *, tx_id=None, requested_halt=None):
         if self.wired_port:
-            allowed = READS | {'call_station', 'stop', 'pause'} if self.wired_station_jobs and self.recipe_active else READS
+            allowed = READS
+            if self.wired_station_jobs:
+                allowed = allowed | {'stop', 'pause'}
+                if self.recipe_active:
+                    allowed = allowed | {'call_station'}
             if name not in allowed or raw != command_frame(name, value, self._tx_prefix()).encode():
                 raise ValueError(STATUS_ONLY)
         if name not in READS and name not in URGENT and name != 'set_speed':
@@ -1081,7 +1086,7 @@ class Connection:
         return sent_at, self._record('TX', raw, detail, tx_id=tx_id, **halt)
 
     def _send(self, name, value, *, background=False, prewrite=None, recipe_check=None,
-              status_hold_s=None, requested_halt=None, mode_unverified=False):
+              status_hold_s=None, requested_halt=None, mode_unverified=False, interlocks=None):
         frame = command_frame(name, value, self._tx_prefix())
         if name in URGENT:
             self._cancel_resend()
@@ -1108,7 +1113,7 @@ class Connection:
             result['status_hold_s'] = status_hold_s
         if name in URGENT:
             result.update(wire_command=name, mode_unverified=mode_unverified,
-                          requested_command=requested_halt or name,
+                          requested_command=requested_halt or name, sent_mono_s=sent_at,
                           ambiguous_ack=any(self._ack_outstanding(candidate)
                                             for _, _, candidate, _ in self.awaiting_ack.values()))
         if name != 'set_speed':
@@ -1126,7 +1131,7 @@ class Connection:
         self.pending[name] = Confirmation(expected_status(name, value), before, sent_at,
                                           earlier_query=name in URGENT and self.unanswered_query,
                                           pre_halt_query=name in URGENT and self.query_at is not None)
-        self.resend = Resend(name, raw, sent_at, recipe_check)
+        self.resend = Resend(name, raw, sent_at, recipe_check, interlocks=interlocks)
         if recipe_check is None and self.settings is not None and self.retry_worker is None:
             self._start_worker()
         return sent_at
@@ -1143,12 +1148,12 @@ class Connection:
     def _halt_command(self, *, recipe=False):
         return self._wire_halt(self._fresh_mode()) or ('pause' if recipe else 'stop')
 
-    def _send_urgent(self, name, *, recipe=False, connection_id=None):
+    def _send_urgent(self, name, *, recipe=False, external=False, connection_id=None):
         with self.lock:
             if connection_id is not None:
                 self._check_connection(connection_id)
             transport = self.transport
-            if recipe:
+            if recipe and not external:
                 if not self.recipe_active:
                     return False
                 if transport is not self.recipe_transport:
@@ -1320,6 +1325,8 @@ class Connection:
             wire_name, raw, result['value'], attempt, tx_id=result['tx_id'],
             requested_halt=result.get('requested_command'))
         retry.tries = result['tries'] = attempt
+        if name in URGENT:
+            result['sent_mono_s'] = retry.sent_at
         result['last_sent_at'] = entry['timestamp']
         self.awaiting_ack[result['tx_id']] = (name, retry.sent_at, result, retry.sent_at + REPLY_TIMEOUT)
         return True
@@ -1589,11 +1596,26 @@ class Connection:
             self._recipe_check_link()
             try:
                 self._receive()
+            except OSError as exc:
+                self._transport_error(exc)
+                raise ValueError(self.error) from exc
+            retry = self.resend
+            do_retry = (self._due(retry) and retry.recipe_check is not None
+                        and (self._send_slot(retry=True) or retry.tries == retry.limit))
+        if do_retry and retry.interlocks:
+            try:
+                retry.interlocks()
+            except ValueError:
+                with self.lock:
+                    if self.resend is retry:
+                        self._cancel_resend()
+                raise
+        with self.lock:
+            self._recipe_check_link()
+            try:
                 now = monotonic()
                 ack = self.results.get('call_station', {}).get('recipe_ack_elapsed_s')
-                retry = self.resend
-                if (self._due(retry) and retry.recipe_check is not None
-                        and (self._send_slot(retry=True) or retry.tries == retry.limit)):
+                if do_retry and self.resend is retry:
                     if self.reading is not None:
                         self._finish_read('not checked')
                     if self._retry(retry):
@@ -1615,7 +1637,7 @@ class Connection:
             return (self.status, self.status_at, updates,
                     self.results.get('call_station', {}).get('recipe_ack_elapsed_s'))
 
-    def recipe_call(self, station, validate, *, retry_check=None):
+    def recipe_call(self, station, validate, *, retry_check=None, interlocks=None):
         with self.lock:
             self._recipe_check_link()
             try:
@@ -1630,6 +1652,8 @@ class Connection:
             transport = self.transport
         if not self._wait_send_slot(transport, monotonic() + .125):
             return None
+        if interlocks:
+            interlocks()
         with self.lock:
             self._recipe_check_link()
             if not self._send_slot():
@@ -1642,10 +1666,11 @@ class Connection:
                     raise ValueError('An earlier AGV command is awaiting acknowledgement. Check the AGV and try again.')
             # Leave the transport open on a failed write so the urgent abort can
             # attempt Stop even if some or all of the call reached the AGV.
-            sent = self._send('call_station', station, prewrite=prewrite, recipe_check=retry_check or validate)
+            sent = self._send('call_station', station, prewrite=prewrite, recipe_check=retry_check or validate,
+                              interlocks=interlocks)
             self.recipe_call_at = sent
             self.recipe_ack_window = sent + REPLY_TIMEOUT
             return sent
 
-    def recipe_stop(self):
-        return self._send_urgent('stop', recipe=True)
+    def recipe_stop(self, *, external=False):
+        return self._send_urgent('stop', recipe=True, external=external)

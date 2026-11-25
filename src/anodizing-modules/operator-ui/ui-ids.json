@@ -1235,6 +1235,11 @@
     "component": "ProgrammePanel.vue"
   },
   {
+    "id": "programme.record.select",
+    "component": "ProgrammePanel.vue",
+    "description": "Choose a retained basket record"
+  },
+  {
     "id": "programme.record.step",
     "description": "Recorded basket dwell and transfer",
     "component": "ProgrammePanel.vue"

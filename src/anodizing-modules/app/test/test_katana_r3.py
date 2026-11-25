@@ -101,18 +101,27 @@ def test_unacknowledged_success_is_retained_if_the_ipc_result_disappears(tmp_pat
         arm(call)
         job = visit(call, call('agv'), 3, 'visit')['manual_visit']['id']
         wait_for(lambda: call('agv')['manual_visit']['result'], lambda r: r and r['outcome'] == 'succeeded')
-    (tmp_path / 'ipc' / '.jobs' / f'{job}.json').unlink()
-    with remote(tmp_path, state_path=plant) as (client, _, _), operator(katana, client) as call:
+    path = tmp_path / 'ipc' / '.jobs' / f'{job}.json'
+    original = path.read_bytes()
+    path.unlink()
+    with remote(tmp_path, state_path=plant) as (client, _, devices), operator(katana, client) as call:
         wait_for(lambda: call('agv').get('executor_session'))
         with pytest.raises(HTTPError):
             call('agv', {'action': 'acknowledge_station', 'job_id': job})
         visit_record = call('agv')['manual_visit']
         assert visit_record['missing']
         assert visit_record['result']['outcome'] == 'succeeded'
-        recovered = call('agv', dict(action='reconcile_station', job_id=job, note='Verified original hold.'))
-        assert recovered['manual_visit']['result']['reconciliation']
-        assert recovered['manual_visit']['prior_result']['outcome'] == 'succeeded'
+        with pytest.raises(HTTPError) as fenced:
+            call('agv', dict(action='reconcile_station', job_id=job, note='Verified original hold.'))
+        assert 'call a technician' in fenced.value.read().decode().lower()
+        assert not path.exists() and devices.effects == []
+
+    path.write_bytes(original)
+    with remote(tmp_path, state_path=plant) as (client, executor, devices), operator(katana, client) as call:
+        wait_for(lambda: call('agv').get('executor_session'))
         ack_visit(call, job)
+        assert executor.status(job)['job']['acknowledged']
+        assert devices.effects == []
 
 
 def test_definitive_refusal_preserves_setpoint_detail_without_creating_recovery_intent(tmp_path):
@@ -124,7 +133,8 @@ def test_definitive_refusal_preserves_setpoint_detail_without_creating_recovery_
         assert result['state'] == 'failed'
         assert 'setpoint' in result['reason'].lower()
         assert result['pending'] is None
-        assert executor.status(result['refusal']['job_id'])['job'] is None
+        refused = executor.status(result['refusal']['job_id'])['job']
+        assert refused['state'] == 'refused' and refused['error'] == result['reason']
         assert not any(effect == 'place' for effect, _ in executor.devices.effects)
         assert result['failed_hold']
         assert programme.disposition(result['id'], 'Release the basket at input.')['state'] == 'stopped'
@@ -221,7 +231,7 @@ def test_normal_request_cannot_pass_delayed_admission_and_stop_still_has_priorit
             assert len(expected_failures) == 2
 
 
-def test_disposition_acknowledges_recreated_terminal_job_and_releases_next_basket(tmp_path):
+def test_technician_restores_original_terminal_job_before_basket_disposition(tmp_path):
     plant = tmp_path / 'ipc' / '.fake-devices.json'
     fixture = [dict(id='seal', tank='seal-tank', role='seal', station=1, setpoint=30)]
     with remote(tmp_path, state_path=plant) as (client, executor, devices):
@@ -232,8 +242,18 @@ def test_disposition_acknowledges_recreated_terminal_job_and_releases_next_baske
         settled = advance(programme, lambda r: r['state'] == 'recovery required' and not r['ack_pending'])
         ident = settled['recovery_job']
         assert len(settled['steps']) == 1
-    (tmp_path / 'ipc' / '.jobs' / f'{ident}.json').unlink()
+    path = tmp_path / 'ipc' / '.jobs' / f'{ident}.json'
+    original = path.read_bytes()
+    path.unlink()
 
+    with remote(tmp_path, state_path=plant) as (client, executor, devices):
+        programme = Programme(tmp_path / 'katana' / 'programme', client, fixture)
+        with pytest.raises(ValueError, match='call a technician'):
+            programme.disposition(settled['id'], 'Verified park and unloaded the original basket.')
+        assert programme.status()['run']['steps'] == settled['steps']
+        assert not path.exists() and devices.effects == []
+
+    path.write_bytes(original)
     with remote(tmp_path, state_path=plant) as (client, executor, devices):
         programme = Programme(tmp_path / 'katana' / 'programme', client, fixture)
         released = programme.disposition(settled['id'], 'Verified park and unloaded the original basket.')
@@ -245,7 +265,7 @@ def test_disposition_acknowledges_recreated_terminal_job_and_releases_next_baske
         assert advance(programme, lambda r: r['state'] == 'succeeded')['final_hold'] == 'output'
 
 
-def test_lost_first_orphan_reply_keeps_intent_and_refuses_older_valid_id(tmp_path):
+def test_corrupt_marker_denies_release_for_both_retained_job_ids(tmp_path):
     katana = tmp_path / 'katana'
     plant = tmp_path / 'ipc' / '.fake-devices.json'
     with remote(tmp_path, state_path=plant) as (client, _, _), operator(katana, client) as call:
@@ -254,37 +274,30 @@ def test_lost_first_orphan_reply_keeps_intent_and_refuses_older_valid_id(tmp_pat
         ack_visit(call, old)
         latest = visit(call, call('agv'), 3, 'latest')['manual_visit']['id']
         ack_visit(call, latest)
-    (tmp_path / 'ipc' / '.executor-active.json').write_text('{')
-    note = 'Verified the stopped station.'
-    with remote(tmp_path, state_path=plant) as (client, executor, _):
-        def lost(operation, body=None):
-            result = client(operation, body)
-            if operation == 'reconcile':
-                raise OSError('lost return after IPC committed')
-            return result
+    marker = tmp_path / 'ipc' / '.executor-active.json'
+    original = marker.read_bytes()
+    marker.write_text('{')
 
-        with operator(katana, lost) as call:
-            wait_for(lambda: call('agv'), lambda s: s.get('executor_session') and s.get('recovery_required'))
-            with pytest.raises(HTTPError, match='400'):
-                call('agv', dict(action='repair_executor_marker', job_id=old, note=note))
-            assert not (katana / 'executor-recovery.json').exists()
-            with pytest.raises(HTTPError, match='400'):
-                call('agv', dict(action='repair_executor_marker', job_id=latest, note=note))
-            state = wait_for(lambda: call('agv'), lambda s: not s['recovery_required'])
-            pending = state['executor_recovery_evidence']
-            assert pending['disposition'] == note and not pending['acknowledged']
-            assert executor.status(latest)['job']['observation']['observation_id'] == pending['event_id']
-            with pytest.raises(HTTPError, match='400'):
-                call('agv', dict(action='arm', armed=True, executor_boot=state['executor_boot'],
-                                 executor_session=state['executor_session'], stop_generation=state['stop_generation']))
+    with remote(tmp_path, state_path=plant) as (client, executor, devices), operator(katana, client) as call:
+        state = wait_for(lambda: call('agv'), lambda s: s.get('executor_session') and s.get('recovery_required'))
+        with pytest.raises(HTTPError, match='400') as stale:
+            call('agv', dict(action='repair_executor_marker', job_id=old, note='Verified stopped station.'))
+        assert 'latest unresolved controller job' in stale.value.read().decode().lower()
+        with pytest.raises(HTTPError, match='400') as fenced:
+            call('agv', dict(action='repair_executor_marker', job_id=latest, note='Verified stopped station.'))
+        assert 'call a technician' in fenced.value.read().decode().lower()
+        with pytest.raises(HTTPError, match='400'):
+            call('agv', dict(action='arm', armed=True, executor_boot=state['executor_boot'],
+                             executor_session=state['executor_session'], stop_generation=state['stop_generation']))
+        assert marker.read_text() == '{' and devices.effects == []
+        assert not (katana / 'executor-recovery.json').exists()
 
-    with remote(tmp_path, state_path=plant) as (client, executor, _), operator(katana, client) as call:
-        state = wait_for(lambda: call('agv'), lambda s: s.get('executor_session'))
-        assert not state['executor_recovery_evidence']['acknowledged']
-        fixed = call('agv', dict(action='repair_executor_marker', job_id=latest, note=note))
-        assert fixed['executor_recovery_evidence']['acknowledged']
-        assert fixed['executor_recovery_evidence']['event_id'] == pending['event_id']
-        assert executor.status(latest)['job']['observation']['boot'] == executor.boot
+    marker.write_bytes(original)
+    with remote(tmp_path, state_path=plant) as (client, executor, devices), operator(katana, client) as call:
+        wait_for(lambda: call('agv'), lambda s: s.get('executor_session') and not s['recovery_required'])
+        assert executor.status(old)['job']['acknowledged']
+        assert executor.status(latest)['job']['acknowledged']
+        assert devices.effects == []
 
 
 def test_acknowledged_legacy_recovery_merges_previously_missing_confirmed_row(tmp_path):
@@ -312,10 +325,13 @@ def test_acknowledged_legacy_recovery_merges_previously_missing_confirmed_row(tm
         run['steps'] = []
         run['cursor'] = 0
         run['jobs'][-1]['job']['result'].pop('steps')
-        (root / 'programme.json').write_text(json.dumps(journal))
+        legacy_root = tmp_path / 'legacy-katana'
+        legacy_root.mkdir()
+        journal.pop('history_witness')
+        (legacy_root / 'programme.json').write_text(json.dumps(journal))
         devices.hold_available = True
         executor.deadline = None
-        programme = Programme(root, executor.dispatch, steps('seal'))
+        programme = Programme(legacy_root, executor.dispatch, steps('seal'))
         recovered = programme.disposition(held['id'], 'Verified the selected basket at output.')
         assert recovered['steps'] == held['steps']
         assert recovered['cursor'] == 1

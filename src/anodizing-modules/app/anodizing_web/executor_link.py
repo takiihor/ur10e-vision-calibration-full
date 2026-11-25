@@ -32,6 +32,10 @@ class ExecutorLink:
         self.recovery_history_directory = local.owner.root / 'executor-recovery-history'
         self.recovery_evidence = self._load(self.recovery_path)
         self.stop_intent = self._load(self.stop_path)
+        self.stop_latch = {}
+        if self.stop_intent and not self.stop_intent['report']['confirmed']:
+            self.stop_latch['pending'] = self.stop_intent
+        self.remote_event_ids = {}
         self.manual = self._load(self.manual_path)
         if self.manual_history_directory.is_symlink():
             raise ValueError('Manual visit history requires a regular directory.')
@@ -56,8 +60,7 @@ class ExecutorLink:
             return json.loads(path.read_text())
 
     def _pending_stop(self):
-        intent = self.stop_intent
-        return intent if intent and not intent['report']['confirmed'] else None
+        return self.stop_latch.get('pending')
 
     def _deliver_stop(self, intent):
         try:
@@ -65,45 +68,51 @@ class ExecutorLink:
             if report.get('stop_id') != intent['id'] or not report.get('received'):
                 raise ValueError('The Stop receipt does not match the pending request.')
         except (OSError, ValueError):
-            return dict(NO_STOP_RECEIPT)
+            report = dict(NO_STOP_RECEIPT)
         with self.stop_lock:
-            current = self.stop_intent
-            if current and current['id'] == intent['id'] and not current['report']['confirmed']:
-                if report != current['report']:
-                    updated = dict(current, report=report)
+            current = self._pending_stop()
+            if current and current['id'] == intent['id']:
+                previous = current['report']
+                if previous['received'] and (not report['received'] or
+                        (previous.get('boot') == report.get('boot') and previous['halt_attempted']
+                         and not report['halt_attempted'])):
+                    report = previous
+                updated = dict(current, report=report)
+                if updated != self.stop_intent:
                     atomic_json(self.stop_path, updated, sync_directory=True)
                     self.stop_intent = updated
+                if report['confirmed']:
+                    del self.stop_latch['pending']
+                else:
+                    self.stop_latch['pending'] = updated
         return report
 
     def stop(self, context=None):
         context = context or {}
         key = context.get('stop_id')
-        delivery = None
+        previous = self.stop_intent
+        if key and previous and previous.get('request') == key and previous['report']['confirmed']:
+            return previous['report']
+        # Concurrent Stops share one retry identity until durable physical confirmation.
+        job = self.cached.get('executor_job') or self.manual or {}
+        proposal = dict(id=uuid4().hex, request=key, boot=self.cached.get('executor_boot'),
+                        run_id=context.get('run_id'), job_id=context.get('job_id') or job.get('job_id') or job.get('id'),
+                        report=dict(NO_STOP_RECEIPT))
+        intent = self.stop_latch.setdefault('pending', proposal)
+        delivery = Future()
+
+        def send():
+            try:
+                delivery.set_result(self._deliver_stop(intent))
+            except Exception as exc:
+                delivery.set_exception(exc)
+
+        Thread(target=send, daemon=True, name='katana-executor-stop').start()
         with self.stop_lock:
-            intent = self.stop_intent
-            if key is not None and intent and intent.get('request') == key:
-                if intent['report']['confirmed']:
-                    return intent['report']
-            elif not self._pending_stop():
-                state = self.status()
-                job = state.get('executor_job') or state.get('manual_visit') or {}
-                intent = dict(id=uuid4().hex, request=key, boot=state.get('executor_boot'),
-                              run_id=context.get('run_id'),
-                              job_id=context.get('job_id') or job.get('job_id') or job.get('id'),
-                              report=dict(NO_STOP_RECEIPT))
-                # Latch now. Send while syncing the intent, then sync the reply in order.
-                self.stop_intent = intent
-                delivery = Future()
-
-                def send():
-                    try:
-                        delivery.set_result(self._deliver_stop(intent))
-                    except Exception as exc:
-                        delivery.set_exception(exc)
-
-                Thread(target=send, daemon=True, name='katana-executor-stop').start()
+            if self._pending_stop() is intent and self.stop_intent != intent:
                 atomic_json(self.stop_path, intent, sync_directory=True)
-        return delivery.result() if delivery is not None else self._deliver_stop(intent)
+                self.stop_intent = intent
+        return delivery.result()
 
     def pulse(self):
         with self.lock:
@@ -173,6 +182,7 @@ class ExecutorLink:
             if key != self.device_identity:
                 self.connection_id += 1
                 self.device_identity = key
+            self._record_remote_events(key, device)
             self.sequence += 1
             device.update(connection_id=self.connection_id, sequence=self.sequence,
                           armed=status['armed'], stop_generation=status['stop_generation'],
@@ -180,6 +190,7 @@ class ExecutorLink:
                           executor_session=status.get('session') if self.identity else None,
                           executor_job=status['job'], recovery_required=status['recovery_required'],
                           quality_alarm=status.get('quality_alarm'),
+                          evidence_faults=status.get('evidence_faults', {}),
                           recovery_ids=status.get('recovery_ids', []), executor_stop=status.get('stop'),
                           motion_block=self._motion_reason(status))
             self.cached.update(device, wired_port='IPC executor', executor_reachable=True,
@@ -187,7 +198,28 @@ class ExecutorLink:
             self.observed = self.sampled = monotonic()
         return self.status()
 
+    def _record_remote_events(self, key, device):
+        for stream in ('log', 'events'):
+            cursor = (*key, stream)
+            last = self.remote_event_ids.get(cursor, 0)
+            for entry in device.get(stream, []):
+                if not isinstance(entry, dict) or type(entry.get('id')) is not int or entry['id'] <= last:
+                    continue
+                ident = entry['id']
+                context = dict(connection_id=self.connection_id, executor_boot=key[0],
+                               executor_connection_id=key[1], transport='wired')
+                if ident > last + 1:
+                    self.local.record_event('agv', 'gap', **context, stream=stream,
+                                            first_missing=last+1, last_missing=ident-1)
+                name = 'frame' if stream == 'log' else entry.get('field', 'status')
+                fields = {k: entry[k] for k in ('id', 'timestamp', 'direction', 'hex', 'decode', 'field',
+                                                'before', 'after', 'reason') if k in entry}
+                self.local.record_event('agv', name, **fields, **context)
+                self.remote_event_ids[cursor] = last = ident
+
     def _motion_reason(self, status):
+        if status.get('evidence_faults'):
+            return ' '.join(status['evidence_faults'].values())
         if self.identity is None or not status['lease_valid']:
             return 'The executor control lease is unavailable.'
         if status['recovery_required']:
@@ -235,6 +267,23 @@ class ExecutorLink:
         if result.get('job_id') != intent['id']:
             raise ValueError('The returned executor job does not match the manual station visit.')
         previous = self.manual['result']
+        if result['state'] == 'refused':
+            if previous is not None or result.get('outcome') != 'failed' or not result.get('error'):
+                raise ValueError('The refusal contradicts the retained station visit.')
+            self._archive_manual(dict(intent, result=result, admission_refused=True, acknowledged=False))
+            return
+        if result['outcome'] in ('succeeded', 'held'):
+            terminal = result.get('result') or {}
+            hold = terminal.get('hold') or {}
+            effects = (result.get('checkpoint') or {}).get('confirmed') or []
+            arrival = effects[-1] if effects and isinstance(effects[-1], dict) else {}
+            observed = arrival.get('evidence') or {}
+            if (result['state'] != 'done' or terminal.get('outcome') != result['outcome'] or terminal.get('steps')
+                    or hold.get('station') != intent['station'] or hold.get('stopped') is not True
+                    or arrival.get('effect') != 'station' or arrival.get('value') != intent['station']
+                    or not isinstance(observed, dict) or observed.get('station') != intent['station']
+                    or observed.get('stopped') is not True):
+                raise ValueError('The terminal station evidence does not confirm the requested visit.')
         reconciled = result.get('reconciliation') and (not previous or not previous.get('reconciliation'))
         if previous and previous['state'] not in PENDING_STATES and not reconciled:
             if not self.manual.get('missing') or result != previous:
@@ -335,9 +384,8 @@ class ExecutorLink:
                            version=1, params={'station': station})
             try:
                 result = self.request('submit', payload)
-            except AdmissionRefused:
-                atomic_json(self.manual_path, None, sync_directory=True)
-                self.manual = None
+            except AdmissionRefused as exc:
+                self._record_manual(intent, dict(job_id=intent['id'], state='refused', outcome='failed', error=str(exc)))
                 raise
             self._record_manual(intent, result)
             return self.status()
@@ -364,6 +412,8 @@ class ExecutorLink:
                 raise ValueError('Supply the latest unresolved controller job ID before reconciliation.')
             identity = self.pulse()
             status = self.request('status', {'job_id': job_id})
+            if status.get('evidence_faults'):
+                raise ValueError(' '.join(status['evidence_faults'].values()))
             result = status['job']
             missing = result is None
             recovery_ids = status.get('recovery_ids', [])
@@ -454,23 +504,32 @@ class ExecutorLink:
             result = intent['result']
             if result['outcome'] == 'unknown' and not result.get('reconciliation'):
                 raise ValueError('Reconcile the uncertain executor job first.')
-            if self.request('status', {'job_id': job_id})['job'] is None:
+            status = self.request('status', {'job_id': job_id})
+            if status.get('evidence_faults'):
+                raise ValueError(' '.join(status['evidence_faults'].values()))
+            observed = status['job']
+            if observed is None:
                 self._manual_missing(intent)
                 raise ValueError('The IPC result is missing. Reconcile the original station visit.')
+            if any(observed.get(key) != result.get(key) for key in (
+                    'job_id', 'state', 'outcome', 'checkpoint', 'result', 'error', 'reconciliation')):
+                raise ValueError('The executor reply conflicts with the retained station evidence.')
             try:
                 self._acknowledge(job_id)
             except ValueError:
                 if self.request('status', {'job_id': job_id})['job'] is None:
                     self._manual_missing(intent)
                 raise
-            history = dict(intent, acknowledged=True)
-            if self.manual_history_directory.is_symlink():
-                raise ValueError('Manual visit history requires a regular directory.')
-            self.manual_history_directory.mkdir(exist_ok=True)
-            atomic_json(self.manual_history_directory / f'{job_id}.json', history, sync_directory=True)
-            atomic_json(self.manual_path, None, sync_directory=True)
-            self.manual_history, self.manual = history, None
+            self._archive_manual(dict(intent, acknowledged=True))
         return self.status()
+
+    def _archive_manual(self, history):
+        if self.manual_history_directory.is_symlink():
+            raise ValueError('Manual visit history requires a regular directory.')
+        self.manual_history_directory.mkdir(exist_ok=True)
+        atomic_json(self.manual_history_directory / (history['id'] + '.json'), history, sync_directory=True)
+        atomic_json(self.manual_path, None, sync_directory=True)
+        self.manual_history, self.manual = history, None
 
     @staticmethod
     def _reviewed(body, identity):

@@ -114,9 +114,9 @@ def test_quality_breach_latches_at_immersion_or_dwell_but_finishes_safe_hold(tmp
             request['params']['previous_lift'] = {'lift_s': 0, 'air_limit': 6}
         executor.submit(request)
         job = terminal(executor, request['job_id'])
-        assert job['outcome'] == 'held'
+        assert job['outcome'] == 'succeeded'
         assert job['result']['hold']['location'] == 'park'
-        assert not executor.status()['armed']
+        assert executor.status()['armed']
         if breach in ('paired air', 'cross-job air'):
             assert during_dwell and during_dwell[0]['reason'] == 'Quality limit exceeded'
         with running(display_listener(0, executor.status)) as display:
@@ -153,7 +153,7 @@ def test_anodize_distinguishes_a_delayed_plc_transition_from_a_late_poll(tmp_pat
         assert record['plc']['done_s'] - record['placed_s'] == 34
         assert record['plc']['sample_s'] - record['plc']['done_s'] == 9
         assert record['dwell_s'] == 43
-        assert job['outcome'] == 'held'
+        assert job['outcome'] == 'succeeded'
     finally:
         executor.close()
 
@@ -308,7 +308,7 @@ def test_elapsed_hold_and_station_travel_are_recorded_at_next_dip(tmp_path):
         ))
         executor.submit(next_dip)
         job = terminal(executor, 'next-dip')
-        assert job['outcome'] == 'held'
+        assert job['outcome'] == 'succeeded'
         assert job['result']['steps'][0]['incoming_air_s'] == 7
         assert job['result']['hold']['location'] == 'park'
     finally:

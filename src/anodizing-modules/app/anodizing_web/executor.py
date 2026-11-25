@@ -1,5 +1,6 @@
 """Versioned IPC job service and device boundaries."""
 from copy import deepcopy
+from itertools import count
 import json
 import math
 import os
@@ -30,6 +31,67 @@ def stop_report(attempted, confirmed):
 
 def finite(value):
     return type(value) in (int, float) and math.isfinite(value)
+
+
+def validate_measured_rows(result, checkpoint):
+    """Validate both copies of measured rows without filling absent evidence."""
+    if not isinstance(result, dict) or (checkpoint is not None and not isinstance(checkpoint, dict)):
+        raise ValueError('Malformed executor result or checkpoint.')
+    rows = result.get('steps', [])
+    saved = (checkpoint or {}).get('steps')
+    for collection in (rows,) if saved is None else (rows, saved):
+        if not isinstance(collection, list):
+            raise ValueError('Malformed executor measured rows.')
+        for row in collection:
+            if (not isinstance(row, dict) or type(row.get('inspection')) is not bool
+                    or not all(isinstance(row.get(key), str) and row[key] for key in ('id', 'tank'))
+                    or not all(finite(row.get(key)) for key in ('placed_s', 'lift_s', 'dwell_s'))
+                    or not isinstance(row.get('limits'), dict) or 'air' not in row['limits']
+                    or 'air_s' not in row
+                    or any(row.get(key) is not None and (not finite(row[key]) or row[key] < 0)
+                           for key in ('air_s', 'incoming_air_s'))):
+                raise ValueError('Malformed executor measured row.')
+            placed, lifted, dwell = (row[key] for key in ('placed_s', 'lift_s', 'dwell_s'))
+            plc = row.get('plc')
+            if (not isinstance(plc, dict) or type(plc.get('cycle')) is not int or plc['cycle'] < 1
+                    or plc.get('done') is not True or plc.get('basket_present') is not True
+                    or plc.get('equipment_on') is not False
+                    or not all(finite(plc.get(key)) for key in ('done_s', 'sample_s', 'elapsed_s'))
+                    or not 0 <= placed <= plc['done_s'] <= plc['sample_s'] <= lifted
+                    or plc['elapsed_s'] < 0 or dwell < 0
+                    or not math.isclose(dwell, lifted - placed, rel_tol=0, abs_tol=.001)):
+                raise ValueError('Contradictory PLC completion or measured dwell evidence.')
+    if saved is None:
+        if rows:
+            raise ValueError('Measured rows are missing their checkpoint copy.')
+        return
+    if saved:
+        effects = checkpoint.get('confirmed')
+        if not isinstance(effects, list):
+            raise ValueError('Measured rows are missing their confirmed effects.')
+        measurements = {
+            name: [entry.get('evidence') for entry in effects
+                   if isinstance(entry, dict) and entry.get('effect') == name]
+            for name in ('place', 'dwell', 'lift')
+        }
+        if any(len(items) < len(saved) for items in measurements.values()):
+            raise ValueError('Measured rows are missing a placement, PLC sample or lift.')
+        for row, placement, plc, lift in zip(saved, measurements['place'], measurements['dwell'],
+                                            measurements['lift']):
+            if (not isinstance(placement, dict) or not isinstance(lift, dict)
+                    or placement.get('start_s') != row['placed_s'] or placement.get('done') is not False
+                    or placement.get('basket_present') is not True or placement.get('cycle') != row['plc']['cycle']
+                    or plc != row['plc'] or lift.get('lift_s') != row['lift_s']
+                    or lift.get('location') not in ('input', 'park', 'transfer', 'output')):
+                raise ValueError('Measured rows disagree with the confirmed placement, PLC sample or lift.')
+    if rows == saved:
+        return
+    # Earlier builds updated only the result when the parked exposure was measured.
+    if (result.get('open_air') and rows and len(rows) == len(saved) and rows[:-1] == saved[:-1]
+            and saved[-1]['air_s'] is None and (not saved[-1]['inspection'] or rows[-1]['inspection'])
+            and dict(rows[-1], air_s=None, inspection=saved[-1]['inspection']) == saved[-1]):
+        return
+    raise ValueError('Result and checkpoint disagree on measured rows.')
 
 
 def heartbeat_interval(interval, expiry):
@@ -421,12 +483,25 @@ class Stopped(Exception):
     pass
 
 
+class _ExecutorJobs(JobOwner):
+    def __init__(self, root, verify):
+        super().__init__(root, recover_saved_jobs=False)
+        self.verify = verify
+        self.saved = deepcopy(self.jobs)
+
+    def _save(self, job):
+        ident = job['id']
+        self.verify(ident, self.saved.get(ident))
+        super()._save(job)
+        self.saved[ident] = deepcopy(job)
+
+
 class Executor:
     def __init__(self, root, devices, *, clock=time.monotonic, build='development'):
         self.lease_s = float(os.environ.get('ANODIZING_LEASE_S', LEASE_S))
         self.heartbeat_s = heartbeat_interval(float(os.environ.get('ANODIZING_HEARTBEAT_S', HEARTBEAT_S)),
                                               self.lease_s)
-        self.owner = JobOwner(root)
+        self.owner = _ExecutorJobs(root, self._verify_job_write)
         self.devices, self.clock, self.build = devices, clock, build
         self.boot = uuid4().hex
         self.guard = RLock()
@@ -435,7 +510,11 @@ class Executor:
         self.retired = set()
         self.last_sequence = -1
         self.deadline = None
-        self.generation = 0
+        self.control_generation = self.stop_generation = 0
+        self.generations = count(1)
+        self.stop_lock = RLock()
+        self.stop_tickets = {}
+        self.unloading = False
         self.armed = self.arming = self.disarm_pending = False
         self.stop_result = None
         self.stop_at = None
@@ -449,6 +528,9 @@ class Executor:
         self.refused_path = Path(root) / '.executor-refused.json'
         self.durable_id = None
         self.durable_count = None
+        self.committing_id = None
+        self.marker_inventory = None
+        self.acceptance_inventory = None
         self.damaged = {path.stem for path in self.owner.directory.glob('*.json')
                         if path.stem not in self.owner.jobs}
         if self.active_path.is_symlink() or self.active_path.exists():
@@ -456,31 +538,40 @@ class Executor:
                 if self.active_path.is_symlink():
                     raise ValueError('Active record must be a regular file.')
                 marker = json.loads(self.active_path.read_text())
-                self.durable_id = marker['job_id']
-                self.durable_count = marker.get('accepted_count')
-                if (not ID.fullmatch(self.durable_id) or (self.durable_count is not None
-                        and (type(self.durable_count) is not int or self.durable_count < 1))):
+                durable_id = marker['job_id']
+                durable_count = marker.get('accepted_count')
+                committing_id = marker.get('committing_id')
+                if ((durable_id is None or not ID.fullmatch(durable_id))
+                        and not (durable_id is None and durable_count == 0 and committing_id)):
                     raise ValueError('Invalid active job ID.')
+                if (durable_count is not None and (type(durable_count) is not int or durable_count < 0)
+                        or committing_id is not None and (not ID.fullmatch(committing_id)
+                                                         or committing_id == durable_id)):
+                    raise ValueError('Invalid active job transition.')
+                self.durable_id, self.durable_count, self.committing_id = durable_id, durable_count, committing_id
+                self.marker_inventory = marker
             except (OSError, ValueError, KeyError, TypeError):
-                self.durable_id = None
-                self.durable_count = None
                 self.damaged.add(self.active_path.name)
         self.accepted = self._accepted_ids()
-        self.refused = {}
-        if self.refused_path.exists() or self.refused_path.is_symlink():
+        self.refused_proof_path = Path(root) / '.executor-refused-proof.json'
+        self.refusal_inventory = self.refusal_proof = None
+        self.refused = self._read_refusals()
+        self.damaged.update(set(self.accepted) - self.owner.jobs.keys() - {self.committing_id})
+        for ident, job in self.owner.jobs.items():
             try:
-                if self.refused_path.is_symlink():
-                    raise ValueError('Refusal inventory must be a regular file.')
-                refused = json.loads(self.refused_path.read_text())
-                if not isinstance(refused, dict) or not all(
-                        ID.fullmatch(ident) and isinstance(reason, str) for ident, reason in refused.items()):
-                    raise ValueError('Refusal inventory is malformed.')
-                if refused.keys() & set(self.accepted):
-                    raise ValueError('Refusal and acceptance inventories disagree.')
-                self.refused = refused
-            except (OSError, ValueError, TypeError):
-                self.damaged.add(self.refused_path.name)
-        if isinstance(devices, FakeDevices):
+                self._validate_saved_job(job)
+            except (AttributeError, TypeError, ValueError):
+                self.damaged.add(ident)
+        if self.committing_id in self.refused:
+            self.damaged.add(self.active_path.name)
+        if not self.damaged and self.committing_id:
+            try:
+                self._finish_interrupted_admission()
+            except (OSError, ValueError) as exc:
+                self.owner.storage_error = str(exc)
+        if self.durable_id and self.durable_id not in self.owner.jobs:
+            self.damaged.add(self.durable_id)
+        if isinstance(devices, FakeDevices) and not self.damaged:
             devices.restore(bool(self.owner.jobs or self.damaged or self.accepted))
         self.uncertain = {ident for ident, job in self.owner.jobs.items() if job.get('execution_uncertain')}
         self.uncertain.update(set(self.accepted) - self.owner.jobs.keys())
@@ -488,7 +579,17 @@ class Executor:
             self.uncertain.add(self.durable_id)
         self.open_air = None
         self.quality_alarm = None
-        for ident, job in self.owner.jobs.items():
+        for ident, job in self.owner.jobs.items() if not self.damaged and not self.owner.storage_error else ():
+            if job['state'] in ('running', 'waiting'):
+                job.update(state='interrupted', pending=None,
+                           error='Service restarted. Review the saved artifacts.',
+                           execution_uncertain=True)
+                self.uncertain.add(ident)
+                self.owner.execution_uncertain = True
+                try:
+                    self.owner._save(job)
+                except OSError as exc:
+                    self.owner.storage_error = str(exc)
             legacy_rows = self._legacy_rows(job)
             if legacy_rows:
                 job['checkpoint']['steps'] = legacy_rows
@@ -503,20 +604,131 @@ class Executor:
             if reason and not job.get('reconciliation'):
                 self.quality_alarm = dict(job_id=ident, reason=reason)
             if (result.get('open_air') and not result.get('open_air_disposition')
+                    and not result.get('open_air_closed_unknown')
                     and not job.get('reconciliation') and not job.get('recovery_observation')
                     and result['steps'][-1]['air_s'] is None):
                 row = result['steps'][-1]
                 row['inspection'] = True
                 result.setdefault('open_air_alarm', dict(job_id=ident, step_id=row['id'], open_air=True,
                     reason='Open air exposure elapsed time is unknown after executor restart'))
-                if self.quality_alarm is None:
-                    self.quality_alarm = result['open_air_alarm']
+                self.quality_alarm = result['open_air_alarm']
+                if (isinstance(devices, FakeDevices) and devices.state_known
+                        and devices.robot.location in ('park', 'transfer')
+                        and devices.robot.basket == result['open_air']['basket']
+                        and devices.run_id == result['open_air']['run_id']):
+                    self.open_air = dict(result['open_air'], clock_unknown=True)
                 try:
                     self.owner._save(job)
                 except OSError as exc:
                     self.owner.storage_error = str(exc)
         self.watch = Thread(target=self._watch, daemon=True, name='executor-lease')
         self.watch.start()
+
+    @staticmethod
+    def _validate_saved_job(job):
+        if job.get('module') != 'executor' or job.get('state') not in (
+                'waiting', 'running', 'done', 'failed', 'interrupted', 'stopped'):
+            raise ValueError('Invalid saved executor job.')
+        result = job.get('result')
+        checkpoint = job.get('checkpoint')
+        if job['state'] == 'done' and (not isinstance(result, dict) or result.get('outcome') not in (
+                'succeeded', 'held', 'unknown', 'stopped', 'failed')):
+            raise ValueError('Invalid saved terminal executor result.')
+        if result is None and isinstance(checkpoint, dict):
+            result = {'steps': checkpoint.get('steps', [])}
+        validate_measured_rows(result if result is not None else {}, checkpoint)
+        if result and result.get('open_air'):
+            exposure = result['open_air']
+            if (not isinstance(exposure, dict) or exposure.get('job_id') != job['id']
+                    or not result.get('steps') or exposure.get('lift_s') != result['steps'][-1]['lift_s']
+                    or exposure.get('air_limit') != result['steps'][-1]['limits']['air']
+                    or not all(isinstance(exposure.get(key), str) for key in ('basket', 'run_id'))):
+                raise ValueError('Invalid saved open-air evidence.')
+
+    def _write_marker(self, ident, count, *, committing_id=None):
+        marker = dict(job_id=ident, accepted_count=count)
+        if committing_id:
+            marker['committing_id'] = committing_id
+        atomic_json(self.active_path, marker, sync_directory=True)
+        self.marker_inventory = marker
+        self.durable_id, self.durable_count, self.committing_id = ident, count, committing_id
+
+    def _finish_interrupted_admission(self):
+        ident = self.committing_id
+        if ident not in self.accepted:
+            accepted = [*self.accepted, ident]
+            atomic_json(self.accepted_path, accepted, sync_directory=True)
+            self.accepted = self.acceptance_inventory = accepted
+        job = dict(self.owner.jobs.get(ident, {}), id=ident, module='executor', state='done',
+                   fingerprint=None, cancelled_before_acceptance=True, execution_uncertain=False,
+                   pending=None, result=dict(outcome='stopped'))
+        self.owner._save(job)
+        self.owner.jobs[ident] = job
+        self._write_marker(ident, len(self.accepted))
+
+    def _read_refusals(self):
+        raw = proof = None
+        try:
+            if self.refused_path.is_symlink():
+                raise ValueError()
+            if self.refused_path.exists():
+                raw = json.loads(self.refused_path.read_text())
+                self._refusal_map(raw)
+        except (OSError, ValueError, TypeError):
+            self.damaged.add(self.refused_path.name)
+            return {}
+        try:
+            if self.refused_proof_path.is_symlink():
+                raise ValueError()
+            if self.refused_proof_path.exists():
+                proof = json.loads(self.refused_proof_path.read_text())
+                if not isinstance(proof, dict) or not {'current'} <= set(proof) <= {'previous', 'current'}:
+                    raise ValueError()
+                current = proof['current']
+                if not isinstance(current, dict) or current.get('version') != 1:
+                    raise ValueError()
+                self._refusal_map(current)
+                if 'previous' in proof:
+                    previous = self._refusal_map(proof['previous'])
+                    if not previous.items() <= current['refusals'].items():
+                        raise ValueError()
+            elif isinstance(raw, dict) and isinstance(raw.get('version'), int):
+                raise ValueError()
+        except (OSError, ValueError, TypeError):
+            self.damaged.add(self.refused_proof_path.name)
+            return {}
+        if proof and raw not in (proof['current'], proof.get('previous', proof['current'])):
+            self.damaged.add(self.refused_path.name)
+            return {}
+        self.refusal_inventory = raw
+        self.refusal_proof = proof
+        return self._refusal_map(proof['current'] if proof else raw or {})
+
+    def _refusal_map(self, raw):
+        if isinstance(raw, dict) and type(raw.get('version')) is int:
+            if set(raw) != {'version', 'refusals'} or raw['version'] != 1:
+                raise ValueError()
+            raw = raw['refusals']
+        if (not isinstance(raw, dict) or not all(ID.fullmatch(ident) and isinstance(reason, str)
+                and reason.strip() for ident, reason in raw.items()) or raw.keys() & set(self.accepted)):
+            raise ValueError()
+        return raw
+
+    def _save_refusal(self, ident, reason):
+        old = self.refusal_inventory
+        if old is None:
+            old = {}
+            atomic_json(self.refused_path, old, sync_directory=True)
+        elif self.refusal_proof and old != self.refusal_proof['current']:
+            old = self.refusal_proof['current']
+            atomic_json(self.refused_path, old, sync_directory=True)
+        refused = dict(self.refused, **{ident: reason})
+        current = dict(version=1, refusals=refused)
+        atomic_json(self.refused_proof_path, dict(previous=old, current=current), sync_directory=True)
+        atomic_json(self.refused_path, current, sync_directory=True)
+        proof = dict(current=current)
+        atomic_json(self.refused_proof_path, proof, sync_directory=True)
+        self.refusal_inventory, self.refusal_proof, self.refused = current, proof, refused
 
     def _accepted_ids(self):
         if self.accepted_path.exists() or self.accepted_path.is_symlink():
@@ -528,32 +740,37 @@ class Executor:
                         or not all(isinstance(ident, str) and ID.fullmatch(ident) for ident in ids)
                         or len(set(ids)) != len(ids)):
                     raise ValueError('Acceptance inventory is malformed.')
-                if self.durable_count is not None and (self.durable_count > len(ids)
-                        or ids[self.durable_count - 1] != self.durable_id):
-                    raise ValueError('Acceptance inventory conflicts with the retained active marker.')
-                if any(job['module'] == 'executor' and job.get('executor_payload')
-                       and ident not in ids for ident, job in self.owner.jobs.items()):
+                if any(job.get('executor_payload') and ident not in ids and ident != self.committing_id
+                       for ident, job in self.owner.jobs.items()):
                     raise ValueError('Acceptance inventory omits a retained job result.')
             except (OSError, ValueError, TypeError):
                 self.damaged.add(self.accepted_path.name)
                 return []
-            if self.durable_id != ids[-1] or self.durable_count not in (None, len(ids)):
+            if self.committing_id:
+                previous = ids[:-1] if ids[-1] == self.committing_id else ids
+                if (self.committing_id in previous or len(previous) != self.durable_count
+                        or (previous[-1] if previous else None) != self.durable_id):
+                    self.damaged.add(self.active_path.name)
+            elif self.durable_id != ids[-1] or self.durable_count not in (None, len(ids)):
                 self.damaged.add(self.active_path.name)
+            self.acceptance_inventory = ids
             return ids
         if self.durable_count is not None:
-            self.damaged.add(self.accepted_path.name)
+            if self.durable_count != 0 or not self.committing_id:
+                self.damaged.add(self.accepted_path.name)
             return []
         if self.durable_id:
             jobs = sorted(self.owner.jobs.values(), key=lambda job: job['created'] if finite(job.get('created')) else 0)
             ids = [job['id'] for job in jobs if job['module'] == 'executor'
                    and job['id'] != self.durable_id and not job.get('missing_result')]
-            ids.append(self.durable_id)
-            try:
-                atomic_json(self.accepted_path, ids, sync_directory=True)
-            except OSError as exc:
-                self.owner.storage_error = str(exc)
-            return ids
+            return [*ids, self.durable_id]
+        if any(job.get('executor_payload') for job in self.owner.jobs.values()):
+            self.damaged.add(self.active_path.name)
         return []
+
+    @property
+    def generation(self):
+        return max(self.control_generation, self.stop_generation)
 
     def health(self):
         return dict(protocol=PROTOCOL, build=self.build, boot=self.boot, job_types=self.devices.job_types,
@@ -568,7 +785,7 @@ class Executor:
         while not self.closing.wait(.1):
             try:
                 self._update_open_air()
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 self.owner.storage_error = str(exc)
             with self.guard:
                 self._expire()
@@ -581,13 +798,6 @@ class Executor:
                     self.admission.release()
             self._confirm_stop()
 
-    def _can_continue_air(self, params=None):
-        exposure = self.open_air
-        alarm = self.quality_alarm
-        if not exposure or not alarm or not alarm.get('open_air') or alarm['job_id'] != exposure['job_id']:
-            return False
-        return params is None or self._matches_air(exposure, params)
-
     @staticmethod
     def _matches_air(exposure, params):
         return (
@@ -598,11 +808,13 @@ class Executor:
     def _update_open_air(self, immersed_s=None):
         with self.owner.lock:
             exposure = self.open_air
-            if exposure is None or self.owner.active == exposure['job_id']:
+            if self.damaged or exposure is None or self.owner.active == exposure['job_id']:
                 return False
-            if immersed_s is None and self.devices.robot.location not in ('park', 'transfer'):
+            clock_unknown = exposure.get('clock_unknown', False)
+            if immersed_s is None and (clock_unknown or self.devices.robot.location not in ('park', 'transfer')):
                 return False
-            elapsed = (self.devices._clock() if immersed_s is None else immersed_s) - exposure['lift_s']
+            elapsed = (None if clock_unknown else
+                       (self.devices._clock() if immersed_s is None else immersed_s) - exposure['lift_s'])
             if immersed_s is None and elapsed <= exposure['air_limit']:
                 return False
             ident = exposure['job_id']
@@ -612,21 +824,24 @@ class Executor:
             result = job['result']
             row = result['steps'][-1]
             alarm = result.get('open_air_alarm')
-            exceeded = elapsed > exposure['air_limit']
+            exceeded = elapsed is not None and elapsed > exposure['air_limit']
             if exceeded and not alarm:
-                alarm = dict(job_id=ident, step_id=row['id'], open_air=True, reason='Air exposure limit exceeded')
+                alarm = dict(job_id=ident, step_id=row['id'], open_air=True, measured_air_s=elapsed,
+                             reason='Air exposure limit exceeded')
                 row['inspection'] = True
                 result['open_air_alarm'] = alarm
             elif immersed_s is None:
                 return exceeded
             if immersed_s is not None:
                 row['air_s'] = elapsed
+                if clock_unknown:
+                    result['open_air_closed_unknown'] = True
                 self.open_air = None
+            job['checkpoint']['steps'][-1] = deepcopy(row)
             self.owner._save(job)
         if alarm:
             with self.guard:
-                if self.quality_alarm is None:
-                    self.quality_alarm = alarm
+                self.quality_alarm = alarm
         return exceeded or bool(alarm)
 
     def _apply_disarm(self):
@@ -644,7 +859,7 @@ class Executor:
         if self.deadline is not None and self.clock() >= self.deadline:
             self.deadline = None
             self.loss.set()
-            self.generation += 1
+            self.control_generation = next(self.generations)
             self.armed = False
             self.disarm_pending = True
 
@@ -688,40 +903,90 @@ class Executor:
             result = dict(steps=checkpoint['steps'], alarm=checkpoint.get('alarm'))
         return dict(job_id=ident, state=job['state'], outcome=result.get('outcome', {
                     'interrupted': 'unknown', 'failed': 'unknown' if job.get('execution_uncertain') else 'failed',
-                    }.get(job['state'])), checkpoint=checkpoint, result=result,
+                    }.get(job['state'])), checkpoint=deepcopy(checkpoint), result=deepcopy(result),
                     error=job.get('error'), acknowledged=job.get('executor_ack', False),
                     reconciliation=job.get('reconciliation'), observation=job.get('recovery_observation'))
 
+    def _fence_evidence(self, ident):
+        with self.guard:
+            if ident not in self.damaged:
+                self.damaged.add(ident)
+                self.armed = False
+                self.control_generation = next(self.generations)
+                self.disarm_pending = True
+                self.loss.set()
+                if self.active is not None:
+                    self.active.requested.set()
+
+    def _evidence_faults(self):
+        faults = {}
+        for ident in sorted(self.damaged):
+            file = ident if ident.startswith('.') else f'.jobs/{ident}.json'
+            faults[file] = f'IPC evidence is missing, unreadable or inconsistent in {file}. Please call a technician.'
+        return faults
+
+    def _require_intact_evidence(self):
+        faults = self._evidence_faults()
+        if faults:
+            raise ValueError(' '.join(faults.values()))
+
+    @staticmethod
+    def _matches_file(path, expected):
+        try:
+            if path.is_symlink():
+                return False
+            if expected is None:
+                return not path.exists()
+            return path.is_file() and json.loads(path.read_text()) == expected
+        except (OSError, ValueError, RecursionError):
+            return False
+
+    def _verify_job_write(self, ident, previous):
+        self._scan_inventories()
+        if not self._matches_file(self.owner.directory / f'{ident}.json', previous):
+            self._fence_evidence(ident)
+        self._require_intact_evidence()
+
     def _stored_job(self, ident):
+        if ident is None or ident in self.damaged:
+            return None
         job = self.owner.jobs.get(ident)
-        if job is not None and ident != self.owner.active:
-            path = self.owner.directory / f'{ident}.json'
-            if path.is_symlink() or not path.is_file():
-                with self.guard:
-                    if ident not in self.uncertain:
-                        self.uncertain.add(ident)
-                        self.armed = False
-                        self.generation += 1
-                        self.disarm_pending = True
-                return None
+        if job is not None and not self._matches_file(self.owner.directory / f'{ident}.json',
+                                                      self.owner.saved.get(ident)):
+            self._fence_evidence(ident)
+            return None
         return job
+
+    def _scan_inventories(self):
+        for path, expected in (
+                (self.active_path, self.marker_inventory), (self.accepted_path, self.acceptance_inventory),
+                (self.refused_path, self.refusal_inventory), (self.refused_proof_path, self.refusal_proof)):
+            if path.name not in self.damaged and not self._matches_file(path, expected):
+                self._fence_evidence(path.name)
 
     def _scan_accepted(self):
         with self.owner.lock:
+            self._scan_inventories()
             for ident in self.accepted:
                 self._stored_job(ident)
 
     def status(self, job_id=None):
         ident = job_id or self.owner.active
         with self.owner.lock:
+            self._scan_accepted()
             job = self._public_job(ident) if self._stored_job(ident) is not None else None
-        with self.guard:
+            if job is None and ident in self.refused and not self.damaged:
+                job = dict(job_id=ident, state='refused', outcome='failed', result={}, checkpoint=None,
+                           error=self.refused[ident], reconciliation=None, observation=None, acknowledged=False)
+        now = self.clock()
+        with self.guard, self.stop_lock:
             # Read only. The lease watcher and control operations own expiry.
-            valid = self.deadline is not None and self.clock() < self.deadline
-            result = dict(boot=self.boot, lease_valid=valid, armed=self.armed and valid,
+            valid = self.deadline is not None and now < self.deadline
+            result = dict(boot=self.boot, lease_valid=valid, armed=self.armed and valid and not self._stop_pending(),
                           session=self.session, stop_generation=self.generation,
                           stop=deepcopy(self.stop_result), recovery_required=self.recovery,
-                          recovery_ids=sorted(self.uncertain | self.damaged), quality_alarm=self.quality_alarm,
+                          recovery_ids=sorted(self.uncertain | self.damaged), evidence_faults=self._evidence_faults(),
+                          quality_alarm=deepcopy(self.quality_alarm),
                           active_job_id=self.durable_id, latest_job_id=self.accepted[-1] if self.accepted else None)
         return dict(result, job=job, device=self.devices.status())
 
@@ -729,6 +994,7 @@ class Executor:
         with self.admission:
             if action == 'arm':
                 self._scan_accepted()
+                self._require_intact_evidence()
             with self.guard:
                 self._lease(envelope)
                 if (self.active or self.owner.active) and action != 'status_read':
@@ -744,26 +1010,27 @@ class Executor:
                 self._apply_disarm()
                 with self.guard:
                     self._lease(envelope)
-                    if self.disarm_pending:
-                        raise ValueError('Wait for the device disarm to complete.')
-                    if type(envelope.get('stop_generation')) is not int or envelope['stop_generation'] != self.generation:
-                        raise ValueError('Stop or lease expiry cancelled the reviewed Arm generation.')
-                    if self.recovery or (self.quality_alarm and not self._can_continue_air()):
-                        raise ValueError('Reconcile the interrupted job or quality hold before arming.')
-                    if self.stop_result and not self.stop_result['confirmed']:
-                        raise ValueError('Stop remains unconfirmed.')
-                    self.arming = True
-                    self.armed = False
+                    with self.stop_lock:
+                        if self.disarm_pending:
+                            raise ValueError('Wait for the device disarm to complete.')
+                        if type(envelope.get('stop_generation')) is not int or envelope['stop_generation'] != self.generation:
+                            raise ValueError('Stop or lease expiry cancelled the reviewed Arm generation.')
+                        if self.recovery:
+                            raise ValueError('Reconcile the interrupted job before arming.')
+                        if self._stop_pending() or (self.stop_result and not self.stop_result['confirmed']):
+                            raise ValueError('Stop remains unconfirmed.')
+                        self.arming = True
+                        self.armed = False
                 granted = False
                 try:
                     self.devices.arm()
                     with self.guard:
-                        self._expire()
-                        if envelope['stop_generation'] != self.generation:
-                            raise ValueError('Stop or lease expiry cancelled the reviewed Arm generation.')
                         self._lease(envelope)
-                        self.armed = granted = True
-                        self.stop_result = None
+                        with self.stop_lock:
+                            if self._stop_pending() or envelope['stop_generation'] != self.generation:
+                                raise ValueError('Stop or lease expiry cancelled the reviewed Arm generation.')
+                            self.armed = granted = True
+                            self.stop_result = None
                 finally:
                     try:
                         if not granted:
@@ -776,7 +1043,7 @@ class Executor:
             elif action in ('disarm', 'disconnect'):
                 with self.guard:
                     self.armed = False
-                    self.generation += 1
+                    self.control_generation = next(self.generations)
                     self.disarm_pending = True
                 self._apply_disarm()
                 if action == 'disconnect':
@@ -785,52 +1052,69 @@ class Executor:
                 raise ValueError('Unknown control operation.')
         return self.status()
 
+    def _stop_pending(self):
+        return any(not registered.is_set() for registered, _ in tuple(self.stop_tickets.values()))
+
     def _confirm_stop(self):
-        with self.guard:
+        with self.guard, self.stop_lock:
             report, requested = self.stop_result, self.stop_at
-            if (not report or report['confirmed'] or self.stop_workers or self.arming
-                    or self.active is not None or self.owner.active is not None):
+            if (not report or report['confirmed'] or self.stop_workers or self._stop_pending()
+                    or self.arming or self.unloading or self.active is not None or self.owner.active is not None):
                 return
         try:
             verified = self.devices.stop_evidence(requested)
         except (OSError, ValueError):
             return
-        with self.guard:
-            if verified and self.stop_result is report:
-                report['confirmed'] = True
+        with self.guard, self.stop_lock:
+            if (verified and self.stop_result is report and not self.stop_workers and not self._stop_pending()
+                    and not self.arming and not self.unloading and self.active is None and self.owner.active is None):
+                # Current feedback after the last halt covers each earlier receipt from this boot.
+                for _, pending_report in tuple(self.stop_tickets.values()):
+                    if pending_report['generation'] <= report['generation']:
+                        pending_report['confirmed'] = True
                 self.confirmed_stop_generation = report['generation']
 
-    def _attempt_stop(self, generation):
+    def _attempt_stop(self, registered, report):
         attempted = False
         try:
             attempted = self.devices.stop()
         except (OSError, ValueError):
             pass
         finally:
-            with self.guard:
-                if self.stop_result and self.stop_result['generation'] == generation:
-                    self.stop_result['halt_attempted'] = attempted
-                self.stop_workers.remove(generation)
+            registered.wait()
+            with self.stop_lock:
+                report['halt_attempted'] = attempted
+                self.stop_workers.remove(report['generation'])
             self._confirm_stop()
 
     def stop(self, envelope=None):
         ident = (envelope or {}).get('stop_id', uuid4().hex)
         if not isinstance(ident, str) or not ID.fullmatch(ident):
             raise ValueError('Choose a valid Stop ID.')
-        # Latch before storage or any status projection.
-        with self.guard:
-            if self.stop_result and self.stop_result['stop_id'] == ident:
-                return deepcopy(self.stop_result)
-            self.generation += 1
-            self.armed = False
-            if self.active is not None:
-                self.active.requested.set()
-            generation = self.generation
-            self.stop_at = time.monotonic()
-            self.stop_result = dict(stop_report(False, False), stop_id=ident, boot=self.boot, generation=generation)
-            self.stop_workers.add(generation)
-            Thread(target=self._attempt_stop, args=(generation,), daemon=True, name='executor-stop').start()
-            return deepcopy(self.stop_result)
+        generation = next(self.generations)
+        requested = time.monotonic()
+        report = dict(stop_report(False, False), stop_id=ident, boot=self.boot, generation=generation)
+        registered = Event()
+        ticket = registered, report
+        original = self.stop_tickets.setdefault(ident, ticket)
+        if original is not ticket:
+            original[0].wait()
+            return deepcopy(original[1])
+        # The ingress ticket fences authority and sends the halt before taking any shared operation lock.
+        self.armed = False
+        active = self.active
+        if active is not None:
+            active.requested.set()
+        self.stop_workers.add(generation)
+        Thread(target=self._attempt_stop, args=ticket, daemon=True, name='executor-stop').start()
+        with self.stop_lock:
+            if generation > self.stop_generation:
+                self.armed = False
+                self.stop_generation = generation
+                self.stop_at = requested
+                self.stop_result = report
+            registered.set()
+        return deepcopy(report)
 
     def submit(self, envelope):
         ident = envelope.get('job_id')
@@ -841,13 +1125,14 @@ class Executor:
         with self.admission:
             # Compare the immutable payload even when a reply is retried after disarm.
             self._identity(envelope)
+            self._scan_accepted()
+            self._require_intact_evidence()
             with self.owner.lock:
                 if self._stored_job(ident) is not None:
                     if self.owner.jobs[ident].get('missing_result'):
                         raise ValueError('This missing job was reconciled and cannot be replayed.')
                     self.owner.submit(ident, 'executor', payload, None)
                     return self._public_job(ident)
-            self._scan_accepted()
             if ident in self.accepted or ident == self.durable_id or ident in self.damaged:
                 raise ValueError('Restore or reconcile the missing accepted job record.')
             if ident in self.refused:
@@ -862,20 +1147,19 @@ class Executor:
                     raise ValueError('Basket input handoff is available in simulation only.')
                 with self.guard:
                     self._lease(envelope)
-                    if self.recovery:
-                        # Recovery can conceal an accepted ID whose record disappeared.
-                        raise ValueError('Reconcile the interrupted job before submitting.')
-                    if self.quality_alarm and not self._can_continue_air(params):
-                        raise ValueError('Disposition the quality hold before submitting.')
-                    if self.open_air is not None and not self._matches_air(self.open_air, params):
-                        raise ValueError('Resolve the retained basket exposure before starting unrelated travel.')
-                    if self.active is not None or self.owner.active is not None:
-                        raise ValueError('Executor busy.')
-                    if (not self.armed or type(envelope.get('stop_generation')) is not int or
-                            envelope['stop_generation'] != self.generation):
-                        raise ValueError('Arm explicitly and refresh the Stop generation before submitting.')
-                    loss = self.loss = Event()
-                    self.active = handle
+                    with self.stop_lock:
+                        if self.recovery:
+                            # Recovery can conceal an accepted ID whose record disappeared.
+                            raise ValueError('Reconcile the interrupted job before submitting.')
+                        if self.open_air is not None and not self._matches_air(self.open_air, params):
+                            raise ValueError('Resolve the retained basket exposure before starting unrelated travel.')
+                        if self.active is not None or self.owner.active is not None:
+                            raise ValueError('Executor busy.')
+                        if (self._stop_pending() or not self.armed or type(envelope.get('stop_generation')) is not int or
+                                envelope['stop_generation'] != self.generation):
+                            raise ValueError('Arm explicitly and refresh the Stop generation before submitting.')
+                        loss = self.loss = Event()
+                        self.active = handle
                 self.devices.check(job_type, params)
                 reserve = None
                 if isinstance(self.devices, FakeDevices):
@@ -887,34 +1171,52 @@ class Executor:
                         self.active = None
                     if self.recovery:
                         raise
-                refused = dict(self.refused, **{ident: str(exc)})
                 try:
-                    atomic_json(self.refused_path, refused, sync_directory=True)
+                    with self.owner.lock:
+                        self._scan_accepted()
+                        self._require_intact_evidence()
+                        self._save_refusal(ident, str(exc))
                 except OSError as storage_error:
                     self.owner.storage_error = str(storage_error)
                     raise
-                self.refused = refused
                 raise AdmissionRefused(ident, str(exc)) from exc
             except BaseException:
                 with self.guard:
                     if self.active is handle:
                         self.active = None
                 raise
+            ready = Event()
+            committed = False
+
+            def run(_):
+                ready.wait()
+                if not committed:
+                    return dict(outcome='stopped', reason='Admission did not commit.')
+                return self._run(handle, loss, payload, reserve)
+
             try:
-                # Neither an older duplicate nor a newer marker can hide accepted intent.
-                accepted = [*self.accepted, ident]
-                atomic_json(self.accepted_path, accepted, sync_directory=True)
-                self.accepted = accepted
-                atomic_json(self.active_path, {'job_id': ident, 'accepted_count': len(accepted)}, sync_directory=True)
-                self.durable_id = ident
-                self.owner.submit(ident, 'executor', payload, lambda _: self._run(handle, loss, payload, reserve))
-            except BaseException:
+                # The pending marker lets a restart distinguish a write in flight from deleted evidence.
+                with self.owner.lock:
+                    self._scan_accepted()
+                    self._require_intact_evidence()
+                    if self.acceptance_inventory is None and self.accepted:
+                        atomic_json(self.accepted_path, self.accepted, sync_directory=True)
+                        self.acceptance_inventory = self.accepted
+                    self._write_marker(self.durable_id, len(self.accepted), committing_id=ident)
+                    accepted = [*self.accepted, ident]
+                    atomic_json(self.accepted_path, accepted, sync_directory=True)
+                    self.accepted = self.acceptance_inventory = accepted
+                    self.owner.submit(ident, 'executor', payload, run)
+                    self._write_marker(ident, len(accepted))
+                    committed = True
+            except BaseException as exc:
                 with self.guard:
                     self.active = None
                     self.uncertain.add(ident)
-                    if self.durable_id != ident:
-                        self.damaged.add(self.active_path.name)
+                    self.owner.storage_error = str(exc)
                 raise
+            finally:
+                ready.set()
         return self._public_job(ident)
 
     @staticmethod
@@ -1136,7 +1438,7 @@ class Executor:
                                     lift_s=row['lift_s'], air_limit=row['limits']['air'])
             with self.guard:
                 self._expire()
-                outcome = 'held' if loss.is_set() or excursion else 'succeeded'
+                outcome = 'held' if loss.is_set() else 'succeeded'
             self._checkpoint(handle.job_id, checkpoint)
             if open_air is not None:
                 with self.owner.lock:
@@ -1162,9 +1464,9 @@ class Executor:
         finally:
             with self.guard:
                 self.active = None
-                if self.recovery or loss.is_set() or excursion:
+                if self.recovery or loss.is_set():
                     self.armed = False
-                    self.generation += 1
+                    self.control_generation = next(self.generations)
                     self.disarm_pending = True
 
     def _dip(self, params, effect, records, alarm):
@@ -1182,6 +1484,9 @@ class Executor:
                 prior = (dict(lift_s=records[-1]['lift_s'], air_limit=records[-1]['limits']['air'])
                          if records else self.open_air or params.get('previous_lift'))
                 if prior is None:
+                    return
+                if prior.get('clock_unknown'):
+                    inspection = self._update_open_air(immersed_s)
                     return
                 incoming_air_s = immersed_s - prior['lift_s']
                 if incoming_air_s < 0:
@@ -1206,6 +1511,8 @@ class Executor:
             destination = 'transfer' if rinsing else params['hold']
 
             def record_lift(lifted):
+                if lifted.get('location') not in ('input', 'park', 'transfer', 'output'):
+                    raise ValueError('The basket has not been verified out of the tank after the lift.')
                 row, excursion = self._completed_row(step, immersed_s, done, lifted, incoming_air_s, inspection)
                 records.append(row)
                 if excursion:
@@ -1221,6 +1528,8 @@ class Executor:
                                            basket=params['basket'], run_id=params['run_id']))
 
     def acknowledge(self, envelope):
+        self._scan_accepted()
+        self._require_intact_evidence()
         with self.guard:
             self._lease(envelope)
         ident = envelope.get('job_id')
@@ -1248,14 +1557,15 @@ class Executor:
 
     def reconcile(self, envelope):
         with self.admission:
+            stop_generation = self.stop_generation
+            self._scan_accepted()
+            self._require_intact_evidence()
             with self.guard:
                 self._lease(envelope)
                 ident, disposition = envelope.get('job_id'), envelope.get('disposition')
                 missing = envelope.get('missing') is True
                 observed_only = envelope.get('observed_only') is True
                 repair_requested = envelope.get('repair_active_marker') is True
-                marker = self.active_path.name
-                repair = repair_requested and marker in self.damaged
                 observation_id = envelope.get('observation_id')
                 expected = {key: envelope.get(key) for key in ('basket', 'run_id')}
                 has_basket = any(value is not None for value in expected.values())
@@ -1292,11 +1602,9 @@ class Executor:
                          and (not saved.get('unaccounted') or allow_unaccounted)
                          and (not saved.get('expected_basket') or saved['expected_basket'] == expected))
                 repaired = retry and saved.get('repaired_active_marker')
-                if repair_requested and not repair and not repaired:
-                    raise ValueError('There is no unreadable active marker to repair.')
-                if repair and (not self.accepted or ident != self.accepted[-1]):
-                    raise ValueError('The latest independently retained accepted job ID must match the damaged marker.')
-                if retry and not repair and saved.get('boot') == self.boot:
+                if repair_requested and not repaired:
+                    raise ValueError(f'Check {self.active_path.name} and call a technician for evidence repair.')
+                if retry and saved.get('boot') == self.boot:
                     return self._public_job(ident)
                 eligible = ((missing and job is None)
                             or retry
@@ -1308,7 +1616,7 @@ class Executor:
             with self.guard:
                 self._lease(envelope)
                 self.armed = False
-                self.generation += 1
+                self.control_generation = next(self.generations)
                 self.disarm_pending = True
             self._apply_disarm()
             with self.owner.lock:
@@ -1333,9 +1641,19 @@ class Executor:
                 unaccounted = has_basket and any(hold.get(key) != value for key, value in expected.items())
                 if unaccounted and not allow_unaccounted:
                     raise ValueError('The original basket and run are unaccounted for in the verified plant hold.')
+                if allow_unaccounted and not unaccounted:
+                    raise ValueError('The original basket is now identified. Confirm the ordinary verified unload.')
                 if release_basket and not unaccounted and not unload and hold['location'] in ('input', 'park'):
-                    unload = self.devices.unload_basket(hold, dict(observation_id=observation_id, job_id=ident,
-                                                                  disposition=disposition.strip()))
+                    with self.stop_lock:
+                        if self._stop_pending() or self.stop_generation != stop_generation:
+                            raise ValueError('Stop cancelled the unload. Verify the basket before trying again.')
+                        self.unloading = True
+                    try:
+                        unload = self.devices.unload_basket(hold, dict(observation_id=observation_id, job_id=ident,
+                                                                      disposition=disposition.strip()))
+                    finally:
+                        with self.stop_lock:
+                            self.unloading = False
                 resolution = dict(disposition=disposition.strip(), hold=hold, observed_utc=time.time(),
                                   observed_mono_s=self.clock(), boot=self.boot, observation_id=observation_id)
                 if has_basket:
@@ -1346,23 +1664,9 @@ class Executor:
                     resolution['release_basket'] = True
                 if unload:
                     resolution['unload'] = unload
-                if repair or repaired:
+                if repaired:
                     resolution['repaired_active_marker'] = True
-                if repair:
-                    if self.active_path.is_symlink() or (self.active_path.exists() and not self.active_path.is_file()):
-                        raise ValueError('Preserve the unreadable marker as a regular file before repair.')
-                    # Retain the original inode and bytes before replacing the active marker.
-                    if self.active_path.exists():
-                        quarantine = self.active_path.with_name(f'{marker}.{uuid4().hex}.unreadable')
-                        quarantine.hardlink_to(self.active_path)
                 if missing and job is None:
-                    if ident in self.damaged:
-                        # Retain the damaged file before replacing its API record.
-                        original = self.owner.directory / f'{ident}.json'
-                        quarantine = self.owner.directory / f'{ident}.unreadable'
-                        if not quarantine.exists() and not original.is_symlink():
-                            with quarantine.open('xb') as stream:
-                                stream.write(original.read_bytes())
                     job = dict(id=ident, module='executor', state='interrupted', fingerprint=None,
                                missing_result=True, result=dict(outcome='unknown', reconciliation=resolution))
                 exposure_resolved = (has_basket and (release_basket or unaccounted)
@@ -1372,14 +1676,8 @@ class Executor:
                     job['execution_uncertain'] = False
                 self.owner._save(job)
                 self.owner.jobs[ident] = job
-                if repair:
-                    atomic_json(self.active_path, {'job_id': ident, 'accepted_count': len(self.accepted)},
-                                sync_directory=True)
                 self.owner.execution_uncertain = any(j.get('execution_uncertain') for j in self.owner.jobs.values())
             with self.guard:
-                if repair:
-                    self.durable_id = ident
-                    self.damaged.discard(marker)
                 if not observed_only:
                     self.uncertain.discard(ident)
                     self.damaged.discard(ident)

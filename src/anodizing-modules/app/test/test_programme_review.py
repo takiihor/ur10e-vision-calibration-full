@@ -54,21 +54,21 @@ def test_stop_reaches_executor_while_basket_journal_is_busy(tmp_path):
         thread.join()
 
 
-def test_stop_preserves_inspection_until_explicit_disposition(tmp_path):
+def test_stop_preserves_inspection_flag_on_completed_basket(tmp_path):
     devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     devices.plc.dwell_offset = 61
     executor = Executor(tmp_path / 'ipc', devices)
     try:
         programme = Programme(tmp_path / 'katana', executor.dispatch, steps('ultrasonic'))
         started = start(programme)
-        inspected = advance(programme, lambda run: run['state'] == 'inspection')
+        inspected = advance(programme, lambda run: run['state'] == 'succeeded' and not run['ack_pending'])
         assert inspected['steps'][0]['inspection']
         stopped = programme.stop()
-        assert stopped['state'] == 'inspection'
+        assert stopped['state'] == 'succeeded'
         assert stopped['stop']['received']
         advance(programme, lambda run: run['stop']['confirmed'])
-        with pytest.raises(ValueError, match='disposition'):
-            programme.start(started['recipe']['id'], 'basket-two', programme.review()['approval'])
+        assert programme.retained_run(started['id'])['steps'] == inspected['steps']
+        assert start(programme)['id'] != started['id']
     finally:
         executor.close()
 
@@ -285,13 +285,14 @@ def test_reboot_between_jobs_requires_new_observation_at_last_confirmed_id(tmp_p
 @pytest.mark.parametrize('fault', ['wrong-job', 'old-boot', 'wrong-token', 'missing-time', 'wrong-key'])
 def test_disposition_waits_for_matching_recovery_evidence(tmp_path, fault):
     devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
-    devices.plc.dwell_offset = 10
     executor = Executor(tmp_path / 'ipc', devices)
     try:
-        programme = Programme(tmp_path / 'katana', executor.dispatch, steps('ultrasonic'))
-        recipe = programme.save(programme.status()['recipe']['id'], {'step-0': {'overstay': 3}})
-        started = programme.start(recipe['id'], 'basket-one', programme.review()['approval'])
-        advance(programme, lambda run: run['state'] == 'inspection' and not run['ack_pending'])
+        programme = Programme(tmp_path / 'katana', executor.dispatch, steps('seal'))
+        started = start(programme)
+        advance(programme, lambda run: run['final_hold'] == 'input' and not run['ack_pending'])
+        programme.stop()
+        advance(programme, lambda run: run['state'] == 'recovery required'
+                and run['stop']['confirmed'])
 
         def partial(operation, body=None):
             result = deepcopy(executor.dispatch(operation, body))
@@ -299,9 +300,9 @@ def test_disposition_waits_for_matching_recovery_evidence(tmp_path, fault):
                 if fault == 'wrong-job':
                     result['job_id'] = 'different-job'
                 elif fault == 'wrong-key':
-                    result['observation'] = result.pop('reconciliation')
+                    result['reconciliation'] = result.pop('observation')
                 else:
-                    evidence = result['reconciliation']
+                    evidence = result['observation']
                     if fault == 'old-boot':
                         evidence['boot'] = 'old-boot'
                     elif fault == 'wrong-token':
@@ -313,7 +314,7 @@ def test_disposition_waits_for_matching_recovery_evidence(tmp_path, fault):
         programme.request = partial
         with pytest.raises(OSError, match='recovery evidence'):
             programme.disposition(started['id'], 'Verified fake equipment and output hold.')
-        assert programme.status()['run']['state'] == 'inspection'
+        assert programme.status()['run']['state'] == 'recovery required'
         assert programme.status()['run']['disposition_intent']
         programme.request = executor.dispatch
         assert programme.disposition(started['id'], 'Verified fake equipment and output hold.')['state'] == 'stopped'
