@@ -2,6 +2,10 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const root=require('node:path').join(__dirname,'../src/ur_pick_place/web/');
 const html=fs.readFileSync(root+'teacher.html','utf8');
 assert.match(html,/<form id="setup" novalidate>/);
+for (const side of ['min', 'max']) {
+ const input = html.match(new RegExp('<input id="validation-workspace-' + side + '"[^>]*>'))[0];
+ assert.doesNotMatch(input, / value="[^"]+"/, 'The operator must enter the workspace bounds');
+}
 const ids=[...html.matchAll(/id="([^"]+)"/g)].map(x=>x[1]);
 let invalidField=null,configureError='';
 const elements=Object.fromEntries(ids.map(id=>[id,{id,value:'',textContent:'',checked:false,hidden:false,disabled:false,events:{},classList:{toggle(){}},addEventListener(k,fn){this.events[k]=fn;},append(){},setAttribute(k,v){this[k]=v;},focus(){this.focused=true;},querySelector(){return invalidField;},querySelectorAll(){return [];},closest(){return elements['setup-advanced'];},reportValidity(){return false;}}]));
@@ -112,7 +116,10 @@ const tick=()=>new Promise(resolve=>setImmediate(resolve));
  assert.equal(elements.teach.disabled,false);
  elements.teach.events.click();await tick();await tick();
  assert.equal(elements.locate.disabled,false);
- assert.equal(elements['teach-observation-return'].disabled,false);
+ assert.equal(elements['validation-settings'].hidden,false);
+ await elements['teach-observation-return'].events.click();await tick();
+ assert.match(elements.message.textContent,/Workspace needs three XYZ/);
+ assert.equal(state.return_result,undefined);
  elements['observation-return-speed'].value='3';elements['validation-workspace-min'].value='-900, -900, 20';elements['validation-workspace-max'].value='900, 900, 1200';
  const taught=structuredClone(project.taught);
  await elements['teach-observation-return'].events.click();await tick();await tick();

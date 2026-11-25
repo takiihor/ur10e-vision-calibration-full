@@ -42,7 +42,7 @@ class TeacherJointMotion(ValidationMotion):
             raise
 
     def _flange(self, q):
-        # Explicit virtual TCP avoids the installed SDK's zero/omitted-TCP FK recipes.
+        # Use an explicit virtual TCP for forward kinematics.
         virtual = [0, 0, .001, 0, 0, 0]
         return pose_to_matrix(vector(self.control.getForwardKinematics(q, virtual), 6, 'FK pose')) @ invert(pose_to_matrix(virtual))
 

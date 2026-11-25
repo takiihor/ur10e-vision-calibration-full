@@ -4,8 +4,7 @@ The two standalone commands use the Vision Encoder plate's plain bright and dark
 They do not decode proprietary marks or change the existing ChArUco workflow.
 Use the existing NumPy/OpenCV/pypylon environment; no new dependencies are needed.
 
-Capture only on the camera PC. Hold a flexible steel plate flat against a
-magnetic board with full contact; a rigid flat rig is the next improvement.
+Capture only on the camera PC. Use a rigid mount and verify that the plate is flat.
 Lock focus and aperture before the first capture, choose the final working
 distance, and stay inside the depth of field. Avoid glare on measured square
 edges. Long exposures can be suitable when the camera and plate remain still;
@@ -14,20 +13,20 @@ currently accepts exposures up to 20000 microseconds (20 ms), so provide enough
 illumination within that software limit. The limit does not establish a
 physical calibration requirement.
 
-Both commands require `--serial`; neither selects a camera by default. Set
-`BASLER_SERIAL` to your camera's actual numeric serial before using these examples.
+Set `BASLER_SERIAL` to the selected camera’s numeric serial and `PITCH_MM` to
+the plate’s adjacent-cell pitch in millimetres. Use the same pitch for capture
+and fitting. Set `EXPOSURE_US`, `GAIN_DB` and `FPS` for the intended optics.
 
 ```sh
 python tools/capture_encoder_intrinsics.py --serial "$BASLER_SERIAL" \
-  --capture-dir /path/to/fresh/session --split train --count 25 \
-  --pitch-mm 1.68 --exposure-us 10000 --gain-db 0 --fps 5
+  --capture-dir /path/to/fresh/session --split train \
+  --pitch-mm "$PITCH_MM" --exposure-us "$EXPOSURE_US" --gain-db "$GAIN_DB" --fps "$FPS"
 python tools/capture_encoder_intrinsics.py --serial "$BASLER_SERIAL" \
-  --capture-dir /path/to/fresh/session --split check --count 5 \
-  --pitch-mm 1.68 --exposure-us 10000 --gain-db 0 --fps 5
+  --capture-dir /path/to/fresh/session --split check \
+  --pitch-mm "$PITCH_MM" --exposure-us "$EXPOSURE_US" --gain-db "$GAIN_DB" --fps "$FPS"
 ```
 
-**1.68 mm is an approximate nominal adjacent-cell pitch, not a published or
-calibrated dimension.** Substitute your nominal pitch consistently. Plain-square
+Plain-square
 neighbours are diagonally separated cells; the software uses `sqrt(2)*pitch` for
 their lattice spacing. A uniform pitch error rescales translation; nonuniform
 geometry and bending can bias intrinsics.
@@ -43,7 +42,7 @@ Fit later without hardware:
 
 ```sh
 python tools/encoder_intrinsics.py --images /path/to/fresh/session/train \
-  --check /path/to/fresh/session/check --serial "$BASLER_SERIAL" --pitch-mm 1.68 \
+  --check /path/to/fresh/session/check --serial "$BASLER_SERIAL" --pitch-mm "$PITCH_MM" \
   --output /path/to/fresh/session/intrinsics-estimate.json
 ```
 
@@ -54,7 +53,7 @@ it must match `--serial`. For older captures without a recorded serial, both
 models retain the supplied serial and set
 `estimation.camera_serial_recorded_in_capture` to `false`. Output creation never
 overwrites. Use `--detect-only --images FOLDER
---serial "$BASLER_SERIAL" --pitch-mm 1.68` for detection/indexing without fitting.
+--serial "$BASLER_SERIAL" --pitch-mm "$PITCH_MM"` for detection/indexing without fitting.
 Inputs must be native
 Mono8 PNG/TIFF/BMP, without resizing, ROI or binning changes. Use independent
 poses for the check set.
@@ -138,16 +137,12 @@ measurement precision or make blurred frames suitable for calibration.
 The offline tests generate synthetic Mono8 inputs to exercise detection and
 indexing. Recorded camera crops and labels are held privately. Capture and
 evaluate sharp operator views separately for physical evidence. Severe glare,
-extreme blur/perspective or wider gaps can still reject views. Full-field growth
-is intended for offline analysis and can take seconds per native frame; the
-capture preview also uses this path and may update slowly. Software evidence
+extreme blur/perspective or wider gaps can still reject views. The capture preview also runs full-field growth, so its update rate depends on
+the processing time for each frame. Software evidence
 does not establish actual plate geometry or physical camera accuracy. Separate
 calibrations are needed after changing locked optics.
 Captures made while changing focus are invalid for intrinsics and may be used
-only for detector development. A provisional evaluation of a flexible plate
-showed that full contact against a magnetic board improved the fit compared
-with a loose plate. Residual radial structure, bending and noisier dark-square
-measurements still require review; a rigid flat target is preferable.
+only for detector development. Review residuals across the image and check plate flatness before accepting a fit.
 Operator acceptance of a provisional fit does not establish metric or physical
 accuracy. Any focus/aperture change or lens removal invalidates that calibration.
 Keep measured intrinsics and deployment acceptance records outside this tool's

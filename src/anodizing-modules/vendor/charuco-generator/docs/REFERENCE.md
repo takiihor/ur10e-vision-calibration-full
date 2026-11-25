@@ -291,10 +291,10 @@ The default standalone markers use the same dictionary and IDs as the default Ch
 
 ## Generate the two-stage tank marker set
 
-The AGV carries a fixed, right-facing camera and a UR10e with a wrist camera. Positioning at each tank takes two stages:
+The generator supports coarse positioning with an AGV camera and fine positioning with a wrist camera:
 
-1. **Coarse.** The AGV camera reads a large marker per tank from 500-800 mm away. It guides the wrist camera to the tank.
-2. **Fine.** The wrist camera reads a small ChArUco board per tank from about 300 mm, for the precise coordinate.
+1. **Coarse.** The AGV camera reads a large marker per tank. It guides the wrist camera to the tank.
+2. **Fine.** The wrist camera reads a small ChArUco board per tank, for the precise coordinate.
 
 One command generates every printed item for both stages:
 
@@ -304,11 +304,11 @@ One command generates every printed item for both stages:
 
 | Folder in `output/two_stage/` | Camera | Target | Code | IDs |
 | --- | --- | --- | --- | --- |
-| `stage1_aruco_realsense` | AGV camera (RealSense), 500-800 mm | 150 mm ArUco per tank | `DICT_5X5_100` | tank *n* = ID *n* (1-16) |
-| `stage2_charuco_basler_32mm` | Wrist camera (Basler), ~300 mm | 32 x 32 mm 4 x 4 ChArUco per tank, 9 corners | `DICT_6X6_250` | tank *n*: 17 + 8(*n*-1) to 24 + 8(*n*-1) (17-144) |
-| `stage2_charuco_realsense_80mm` | Wrist camera (RealSense), ~300 mm | 80 x 80 mm version of the same boards | `DICT_6X6_250` | same as the 32 mm set |
-| `calibration_stage1` | AGV camera, calibrate at 500-650 mm | 360 x 200 mm board (9 x 5 squares of 40 mm), landscape A3 | `DICT_6X6_250` | 145-166 |
-| `calibration_stage2` | Wrist camera (Basler), ~300 mm | 75 x 105 mm board (5 x 7 squares of 15 mm) | `DICT_6X6_250` | 167-183 |
+| `stage1_aruco_realsense` | AGV camera (RealSense) | 150 mm ArUco per tank | `DICT_5X5_100` | tank *n* = ID *n* (1-16) |
+| `stage2_charuco_basler_32mm` | Wrist camera (Basler) | 32 x 32 mm 4 x 4 ChArUco per tank, 9 corners | `DICT_6X6_250` | tank *n*: 17 + 8(*n*-1) to 24 + 8(*n*-1) (17-144) |
+| `stage2_charuco_realsense_80mm` | Wrist camera (RealSense) | 80 x 80 mm version of the same boards | `DICT_6X6_250` | same as the 32 mm set |
+| `calibration_stage1` | AGV camera | 360 x 200 mm board (9 x 5 squares of 40 mm), landscape A3 | `DICT_6X6_250` | 145-166 |
+| `calibration_stage2` | Wrist camera (Basler) | 75 x 105 mm board (5 x 7 squares of 15 mm) | `DICT_6X6_250` | 167-183 |
 
 `marker_plan.json` records every set and a per-tank lookup: stage-1 ID, stage-2 board name and stage-2 IDs. The robot software should act only when both stages report the same tank.
 
@@ -317,14 +317,14 @@ One command generates every printed item for both stages:
 - **No shared codes between sets.** No two sets that may be seen together share a marker code, and generation stops before writing anything if they would. Same-size dictionaries count as one family, since `DICT_5X5_250` repeats `DICT_5X5_100`'s codes.
 - **Separate code families per stage.** Stage 1 uses 5 x 5 codes and stage 2 uses 6 x 6 codes; the sizes also differ, so the AGV camera cannot read a stage-2 board.
 - **Calibration boards have IDs of their own.** A board of one size can therefore never be mistaken for another, which would silently give a wrong scale.
-- **Install only one stage-2 size.** The 32 mm and 80 mm sets are the same targets at two sizes; the 80 mm set stands in for RealSense tests until the Basler arrives.
+- **Install only one stage-2 size.** The 32 mm and 80 mm sets are the same targets at two sizes.
 - **Front/Rear overlap.** The stage-1 IDs 1-16 share `DICT_5X5_100` codes with the Front/Rear boards in `config/boards.json`, and the command warns about it. Never let a camera see both, or re-ID the Front/Rear boards.
 - **Keep the working focus.** Calibrate each camera at the focus it will use. Refocusing afterwards invalidates the calibration.
 
 **Not covered:**
 
-- The stage-2 calibration board is sized for the Basler with a 12 mm lens at about 300 mm. For RealSense wrist tests use the A4 board from `./generate_calibration.sh`, whose IDs 0-16 are also distinct.
-- A stage-1 ChArUco board for a future Basler AGV camera (`DICT_7X7_250`, see the design notes) is not part of this set yet.
+- Check that the stage-2 calibration board fits the selected field of view. For RealSense wrist tests use the A4 board from `./generate_calibration.sh`, whose IDs 0-16 are also distinct.
+- The generator uses an ArUco marker for stage 1.
 
 ## Generate numbered tank boards (identity and coordinate)
 

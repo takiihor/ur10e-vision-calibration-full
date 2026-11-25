@@ -114,6 +114,11 @@ async function screenshot(filename){
   assert.equal(await evaluate('document.getElementById("teach-observation-return").disabled'),true);
   await click('marker_unchanged');await click('teach');
   await wait('document.getElementById("light-teach").textContent==="● Ready"','teach complete');
+  for (const [side, value] of [['min', '-900, -900, 20'], ['max', '900, 900, 1200']]) {
+    const id = 'validation-workspace-' + side;
+    assert.equal(await evaluate(`document.getElementById("${id}").value`), '');
+    await evaluate(`document.getElementById("${id}").value = ${JSON.stringify(value)}`);
+  }
   await returnToObservation('teach-observation-return','teach-observation-return-result');
   assert.equal(await evaluate('document.getElementById("step-teach").hidden'),false);
   await click('next');await click('locate');

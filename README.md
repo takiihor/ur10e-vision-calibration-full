@@ -39,11 +39,11 @@ Run `sha256sum -c CONTENTS.sha256` at the repository root to verify the
 current package. `SOURCE_MANIFEST.sha256` and
 `src/anodizing-modules/SHA256SUMS` are historical inventories with withheld
 entries omitted. Use the test runner below to verify the current source.
-The current vendor mapping can be verified offline with the original baseline
-archives. See [vendor provenance](provenance/README.md).
+The current vendor mapping can be verified offline with the trusted private baseline
+record and archives. See [vendor provenance](provenance/README.md).
 
 ```bash
-python3 provenance/verify.py
+python3 provenance/verify.py /private/baselines/BASELINES.json
 ```
 
 ## Test
@@ -55,9 +55,8 @@ ANODIZING_PYTHON=/path/to/python ./tools/test-all.bash
 
 ## Data snapshot
 
-The local packaging bundle includes a 513 MB IPC data snapshot. It is omitted
-from this public source repository because it exceeds GitHub's per-file limit
-and contains confidential site calibration and job data. See
+The IPC data snapshot contains confidential site calibration and job records.
+Keep it in private storage. See
 [`state/README.md`](state/README.md).
 
 ## Status and limits

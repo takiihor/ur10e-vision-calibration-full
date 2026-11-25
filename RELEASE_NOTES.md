@@ -77,8 +77,8 @@ software review artifact, not a hardware qualification.
   collision differences, and an A3/40 mm board change. Those edits are not in
   this bundle. The owner must identify the intended files before merging.
 - **The vendor trees are not the pinned baselines.** They contain review changes,
-  generated assets and build files. `provenance/BASELINES.json` records every
-  difference; do not describe the bundle as an unmodified upstream snapshot.
+  generated assets and build files. `provenance/BASELINES.json` describes the published
+  vendor files; do not describe the bundle as an unmodified upstream snapshot.
 - **Licensing is unresolved for most vendors.** Only `charuco-generator` includes
   an upstream license. The other vendor notices state that no redistribution
   permission is granted. Resolve licensing before publishing or redistributing.
@@ -86,18 +86,13 @@ software review artifact, not a hardware qualification.
   address, scene, workspace, joint bounds or tool box. A missing or incorrect
   profile fails closed or asks the operator to enter values; it does not supply
   safe defaults.
-- **The historical review evidence is partial.** The 36-test file is a focused
-  subset. The earlier review records also refer to a 397-file release whose
-  hashes no longer describe this revised source. Use the regenerated manifests in
-  this package.
+- **Historical review evidence is partial.** Use the current content inventory
+  and software tests when verifying this revision.
 - **CI browser coverage can skip.** GitHub-hosted runners may not have Chrome;
   the browser integration tests then skip. Run them on a prepared workstation
   before release.
-- **The IPC data archive is large and sensitive.** The local packaging bundle's
-  `state/ipc-data.tar.gz` is about 537 MB compressed (647 MB uncompressed, 897
-  files) and contains site projects, scenes and calibration data. It is omitted
-  from this public source repository because it exceeds GitHub's per-file limit
-  and is confidential operational data. See `state/README.md`.
+- **IPC data is confidential.** Store projects, scenes, calibration and their
+  backup manifest privately. See `state/README.md`.
 - **No dependency lockfile beyond pins.** `app/requirements*.txt` pins the direct
   packages used by the tests. Transitive resolution still depends on the package
   index or a prepared offline wheel set.
@@ -119,5 +114,5 @@ The commands can be reproduced with:
 cd src/anodizing-modules
 ANODIZING_PYTHON=/path/to/python ./tools/test-all.bash
 cd ../..
-python3 provenance/verify.py
+python3 provenance/verify.py /private/baselines/BASELINES.json
 ```

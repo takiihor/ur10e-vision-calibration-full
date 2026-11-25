@@ -1,24 +1,15 @@
 {
-  "created_at_utc": "2026-11-11T02:21:53.980667+00:00",
-  "revised_at_utc": "2026-11-18T08:02:52Z",
-  "source_id": "7bb9ce809c0b7426395593bfe12384aceac901aafe3f25acc8898ee73b1fac45",
-  "source_files": 415,
   "source_date": "2026-11-18",
-  "snapshot_date": "2026-11-11",
   "modules": [
     "Calibration",
     "Teaching",
     "Pick/place"
   ],
   "controller": "Shared anodizing_web service and JobOwner on IPC; native ur_rtde backend",
-  "data_files": 897,
-  "data_uncompressed_bytes": 647204562,
-  "data_archive_sha256": "fd206dde72927723b9eadb75caeb79ec27abc4016f010c237209ee4dc2e2e5e3",
-  "data_manifest_sha256": "f311c3c699175d6648a2fd82da2353a8626f2b6c53e352402d3e9281e4da3524",
   "data_included": false,
-  "data_location": "Omitted from this public source repository; see state/README.md. The local packaging bundle referenced state/ipc-data.tar.gz with a data/ member prefix.",
+  "data_location": "Private IPC data and its manifest are stored separately. See state/README.md.",
   "hardware_tested_by_packaging": false,
   "service_restarted_by_packaging": false,
   "external_requirements": "Python, third-party packages, system libraries and matching hardware setup",
-  "revision_notes": "Standalone module review fixes, isolated verification skill, encoder-plate tools and provisional Basler intrinsics, with follow-up fixes for Teaching ownership and setup, Basler inputs and capture provenance. The IPC snapshot metadata describes the original snapshot."
+  "revision_notes": "Standalone module review fixes, isolated verification skill, encoder-plate tools and a synthetic Basler intrinsics example, with follow-up fixes for Teaching ownership and setup, Basler inputs and capture provenance."
 }

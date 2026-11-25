@@ -1,4 +1,4 @@
-# Recorded installed versions; match the captured Python/platform.
+# Dependency pins for a compatible Python environment.
 # Bundled native projects are provided in src/ and loaded by the launcher.
 charset-normalizer==3.4.4
 iniconfig==2.3.1

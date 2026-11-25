@@ -1,12 +1,11 @@
 # Historical review records
 
-The files in this directory describe the 10–11 November 2026 review of source
-release `44f2f0aa` and the focused 36-test run. Private evidence is retained separately.
+This directory contains historical source inventories and describes a focused
+software test run. The installation records and test evidence are stored privately.
 
-They are **not** the manifest or test result for the current review-fix revision:
-
-- `MANIFEST.sha256` and `CHANGED_FILES.json` describe the older 397-file source.
-  Withheld entries are omitted from the manifest.
+`MANIFEST.sha256` and `CHANGED_FILES.json` retain historical entries for
+files whose recorded bytes also appear in this checkout. Full historical
+inventories are kept with the original release.
 
 Use the package-level `CONTENTS.sha256`, `provenance/`, and
 `RELEASE_NOTES.md` for the current revision.

@@ -1,22 +1,11 @@
 Vendored source provenance
 ==========================
 
-Pinned baseline commits used to prepare this bundle:
+The private baseline record identifies the source archives for these vendors.
+The public mapping in provenance/BASELINES.json lists the published files.
+See provenance/README.md for offline verification.
 
-ur10e-handeye     2f0e69c776957772548506cc9532537792a03dca
-ur-pick-place     e998dffc074c97bc3bd8f557564d0d1524de031f
-charuco-generator 52093f99665e29d479b9a9e2c29b1aac05fee0d5
-charuco-realsense 02e7010b7dcc63ed0dbfa5953ffe90a1d98b75fb
-
-Offline baseline archives, the per-file mapping and a verification script are
-in the package-level provenance/ directory. The archives are deterministic trees
-of the commits above. The two hand-eye/pick-place commits are not both reachable
-from the public upstream main branches; the local clones and fork branches used
-for packaging are recorded in provenance/README.md.
-
-The bundled vendor trees are NOT identical to those baselines. Every added,
-changed and deleted vendor file is listed in provenance/BASELINES.json. The main
-areas are:
+Changes to the vendor trees include:
 
 - ur10e-handeye: collision, Cartesian and preview work; Basler routing; generated
   preview build assets; collision tests. Version 0.1.5+anodizing.1.

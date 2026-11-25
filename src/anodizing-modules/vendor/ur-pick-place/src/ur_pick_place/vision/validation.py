@@ -148,8 +148,7 @@ class ObservationReturnMotion(ValidationMotion):
             raise ValueError('Robot must be in normal or reduced safety mode to move')
         if self.control.isJointsWithinSafetyLimits(target) is not True:
             raise ValueError('Observation joints are outside robot safety limits')
-        # Pass the TCP explicitly: on the installed controller/SDK, the omitted
-        # argument produces an incorrect pose for supplied joints.
+        # Use the project TCP when computing the pose from the supplied joints.
         target_tcp = self._workspace(self.control.getForwardKinematics(target, self.project.settings['tcp']))
         if self.control.isPoseWithinSafetyLimits(target_tcp) is not True:
             raise ValueError('Observation pose is outside robot safety limits')

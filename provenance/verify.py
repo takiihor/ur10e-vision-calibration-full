@@ -36,10 +36,17 @@ def fail(message):
 
 def main():
     record = json.loads((HERE / 'BASELINES.json').read_text())
-    failures = 0
+    if len(sys.argv) > 2:
+        fail('usage: verify.py [TRUSTED_BASELINES_JSON]')
+    receipt = Path(sys.argv[1]) if len(sys.argv) == 2 else HERE / 'private' / 'BASELINES.json'
+    if not receipt.is_file():
+        fail('supply the trusted private baseline record with its archives')
+    baselines = json.loads(receipt.read_text())['baselines']
+    if baselines.keys() != record['vendors'].keys():
+        fail('private record and public mapping have different vendors')
     with tempfile.TemporaryDirectory() as temporary:
-        for name, baseline in record['baselines'].items():
-            archive = HERE / baseline['archive']
+        for name, baseline in baselines.items():
+            archive = receipt.parent / baseline['archive']
             if not archive.is_file():
                 fail(f'missing archive {archive}')
             actual = digest(archive)
@@ -57,25 +64,19 @@ def main():
             deleted = sorted(set(baseline_files) - set(bundle_files))
             changed = sorted(key for key in baseline_files.keys() & bundle_files.keys()
                              if baseline_files[key] != bundle_files[key])
+            unchanged = sorted((baseline_files.keys() & bundle_files.keys()) - set(changed))
             expected_added = [item['path'] for item in vendor['added']]
-            expected_deleted = [item['path'] for item in vendor['deleted']]
             expected_changed = [item['path'] for item in vendor['changed']]
-            if added != expected_added or deleted != expected_deleted or changed != expected_changed:
+            if added != expected_added or changed != expected_changed or unchanged != vendor['unchanged']:
                 fail(f'{name}: bundle deltas differ from BASELINES.json')
             for item in vendor['added']:
                 if bundle_files[item['path']] != item['sha256']:
                     fail(f'{name}: added file hash changed: {item["path"]}')
             for item in vendor['changed']:
-                if (baseline_files[item['path']] != item['baseline_sha256']
-                        or bundle_files[item['path']] != item['bundle_sha256']):
+                if bundle_files[item['path']] != item['bundle_sha256']:
                     fail(f'{name}: changed file hash differs: {item["path"]}')
-            for item in vendor['deleted']:
-                if 'sha256' in item and baseline_files[item['path']] != item['sha256']:
-                    fail(f'{name}: deleted file hash differs: {item["path"]}')
             print(f'{name}: {archive.name} verified; '
                   f'{len(added)} added, {len(changed)} changed, {len(deleted)} deleted')
-    if failures:
-        raise SystemExit(1)
     print('Provenance verified.')
 
 

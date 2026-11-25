@@ -1,103 +1,8 @@
 [
   {
-    "path": "BASLER_PREPARATION.md",
-    "status": "added",
-    "sha256": "2dc245d5ff6174342296341de492731f420f3dfdbe995b2031e2365900996f45"
-  },
-  {
-    "path": "README.md",
-    "status": "modified",
-    "sha256": "afd3a894929574b81c112044c9a5facce9dfa6c88e93d6370144cd50e294dff5"
-  },
-  {
-    "path": "app/anodizing_web/calibration.py",
-    "status": "modified",
-    "sha256": "93dc75d9ef602c403baad168d1e6aecbb743f45863e9f6ce7f05c20cced2eb55"
-  },
-  {
-    "path": "app/anodizing_web/camera.py",
-    "status": "modified",
-    "sha256": "8bd10b950f88622b78869933f0c9da860a3c6fe4d4b2fc8e4e85d727fadc74bb"
-  },
-  {
-    "path": "app/anodizing_web/jobs.py",
-    "status": "modified",
-    "sha256": "333d5c3a7e85940e545ff60b308c573fa021e8cd4544ba1d3ab946092387b189"
-  },
-  {
-    "path": "app/anodizing_web/manual_execution.py",
-    "status": "modified",
-    "sha256": "cd5559979bed5e9422bbdae207299f793b5b259500a3408c1246285f0ac6e334"
-  },
-  {
-    "path": "app/anodizing_web/robot_control.py",
-    "status": "added",
-    "sha256": "b63268e5655243e26b3e9ca38f9a48b637a1aec4668937737dacaec5eef0a8fb"
-  },
-  {
-    "path": "app/anodizing_web/server.py",
-    "status": "modified",
-    "sha256": "836c990eea7f623d9fdc5fb30ad3883b82bc7ec4bf4b2769147480b1f1eaf096"
-  },
-  {
-    "path": "app/anodizing_web/web/app.js",
-    "status": "modified",
-    "sha256": "bb63e4b431cb4a5db8a00e05e46fd5eab00b725641058df66a91c19c7ca87796"
-  },
-  {
-    "path": "app/anodizing_web/web/calibration.html",
-    "status": "modified",
-    "sha256": "3e44dff49c3a54fe4de231d5ad4a29bee101cceeb41ef8942186fe4c21c4506f"
-  },
-  {
     "path": "app/anodizing_web/web/manual-job-panel.html",
     "status": "added",
     "sha256": "07b80352a0379d8e288e4b9cd496d53e691cb4b52ebdccdee22bbee5ecde70ee"
-  },
-  {
-    "path": "app/anodizing_web/web/manual-job.js",
-    "status": "modified",
-    "sha256": "20cfa7e4f87df7f60858e2eac75a4d60d2fe096e645ac10d2576a374a4908873"
-  },
-  {
-    "path": "app/anodizing_web/web/pick-place.html",
-    "status": "modified",
-    "sha256": "8eacba67d9c0840aa6855fb7ab917c6b68c3732c270c19afea5c867daec8708e"
-  },
-  {
-    "path": "app/anodizing_web/web/robot-card.html",
-    "status": "added",
-    "sha256": "feb302fb85dc7cf64eef42a63a5cce959e88aded7e799c1c4239ed8048235478"
-  },
-  {
-    "path": "app/anodizing_web/web/robot-control.js",
-    "status": "added",
-    "sha256": "46156df1c502f91e5f58b1535a88d31a0024793c0962f7e8f8b5ff2d1396b9a5"
-  },
-  {
-    "path": "app/anodizing_web/web/teacher.js",
-    "status": "modified",
-    "sha256": "0144e823b02502a4cff4be80d466e82fffba80e5285c5af01b44ea0cb4545b1f"
-  },
-  {
-    "path": "app/anodizing_web/web/teaching.html",
-    "status": "modified",
-    "sha256": "ded0568129a19a232322f349d1bcaf0e6762922aeb56d881fcbfe582f07e5ef3"
-  },
-  {
-    "path": "app/anodizing_web/web/test-profile.js",
-    "status": "modified",
-    "sha256": "4bd8631267985f74503c09408de752a5b93ebd22e7b907d768ecd2fb3c04c5bc"
-  },
-  {
-    "path": "app/test/test_basler_independent.py",
-    "status": "added",
-    "sha256": "b26223df635005400527f25f610da378e0dc345e61509930a37abf13aa7d0328"
-  },
-  {
-    "path": "app/test/test_robot_control_independent.py",
-    "status": "added",
-    "sha256": "d9fc512011bd64cff69efc038d1b7666d046ae3b3cd62de9fae13c0d63cc9dcf"
   },
   {
     "path": "data/boards/stage2_charuco_basler_32mm/board_manifest.json",
@@ -275,53 +180,13 @@
     "sha256": "20aeec9d9540767e3dc01d9dbf0390647da1b2faaa758c47ec9ac1e38de0c891"
   },
   {
-    "path": "vendor/charuco-realsense/pyproject.toml",
-    "status": "modified",
-    "sha256": "60807b56eca5c749d9a983ff533a75c71df4467b05b1f95ab9997dffa68338b5"
-  },
-  {
-    "path": "vendor/charuco-realsense/src/charuco_realsense/basler.py",
-    "status": "added",
-    "sha256": "af24e81ed041af302c63c889b82bbe54ba3106782ed05cbff1590710b6412d9b"
-  },
-  {
     "path": "vendor/ur-pick-place/src/ur_pick_place/vision/cameras.py",
     "status": "modified",
     "sha256": "211759eddb5cfefe216a3d3f476ffa3d1df6ceee9fa641134bade33803408e9c"
   },
   {
-    "path": "vendor/ur-pick-place/src/ur_pick_place/vision/teaching.py",
-    "status": "modified",
-    "sha256": "96798d1be4c90060005d7daae61acf34f32703c226328236fba3446db4804334"
-  },
-  {
-    "path": "vendor/ur-pick-place/tests/test_vision_cameras.py",
-    "status": "modified",
-    "sha256": "e5595a59bc557681403c9e5353d6b3c11d520ec6060351d83bab0633325b7696"
-  },
-  {
-    "path": "vendor/ur10e-handeye/pyproject.toml",
-    "status": "modified",
-    "sha256": "b774ce14cfc1b0ee6ed4fb02628e2dbe16335761df042dbed9e97ad398c5f6df"
-  },
-  {
-    "path": "vendor/ur10e-handeye/src/ur_handeye/cli.py",
-    "status": "modified",
-    "sha256": "5a4807a672ed39fe2c133645391f9768fd4f4a11371c13a24686cc13bc62813f"
-  },
-  {
     "path": "vendor/ur10e-handeye/src/ur_handeye/intrinsics.py",
     "status": "modified",
     "sha256": "81e0ba191902ec58f2e96db22c7551aa8d6eff638502dcd2dc2126a8f8abef90"
-  },
-  {
-    "path": "vendor/ur10e-handeye/src/ur_handeye/ui.py",
-    "status": "modified",
-    "sha256": "4f7ddb0fc5b920f13e5a0ff3b032181bdecd92c62bbc764f371933d30483d516"
-  },
-  {
-    "path": "vendor/ur10e-handeye/tests/test_cli.py",
-    "status": "modified",
-    "sha256": "071ada12b21c8f1984d214a8f7bd68cf975683ab3d0e58a3ba950b305136fade"
   }
 ]

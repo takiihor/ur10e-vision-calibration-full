@@ -1,35 +1,5 @@
 {
-  "baselines": {
-    "charuco-generator": {
-      "archive": "charuco-generator-52093f9.tar.gz",
-      "commit": "52093f99665e29d479b9a9e2c29b1aac05fee0d5",
-      "files": 40,
-      "sha256": "54e9d8192e2ebd7c4b304e2c738915d343b2421e2a65c0cf61b5091ad782edc7",
-      "top_level": "charuco-generator"
-    },
-    "charuco-realsense": {
-      "archive": "charuco-realsense-02e7010.tar.gz",
-      "commit": "02e7010b7dcc63ed0dbfa5953ffe90a1d98b75fb",
-      "files": 39,
-      "sha256": "a29fde40c0423dfe72a4200d49ab8d23e2461cc292afb6e7fa46e0a17caf156b",
-      "top_level": "charuco-realsense"
-    },
-    "ur-pick-place": {
-      "archive": "ur-pick-place-e998dff.tar.gz",
-      "commit": "e998dffc074c97bc3bd8f557564d0d1524de031f",
-      "files": 95,
-      "sha256": "690ade634cc2e332f10d91d5edfb31d4a91b38aae1c35a8c06b4be1fc683c29a",
-      "top_level": "ur-pick-place"
-    },
-    "ur10e-handeye": {
-      "archive": "ur10e-handeye-2f0e69c.tar.gz",
-      "commit": "2f0e69c776957772548506cc9532537792a03dca",
-      "files": 61,
-      "sha256": "5e419e53e31a1dc571c029f40d062c8eb5d1dd7d93b530dbbdea1b2a243af1a8",
-      "top_level": "ur10e-handeye"
-    }
-  },
-  "description": "Offline provenance mapping for vendored source. Baseline archives are deterministic git-archive-equivalent trees of the pinned commits. The bundle is not identical to these baselines. The mapping includes subsequent module updates and site-neutral replacements.",
+  "description": "Published vendor files compared with the trusted private source baselines. Hashes cover additions and the published version of changed files.",
   "vendors": {
     "charuco-generator": {
       "added": [],
@@ -37,33 +7,35 @@
       "bundle_files": 40,
       "changed": [
         {
-          "baseline_sha256": "c94a50878b021bc0f7f18a7e8dbfb1392d04ac7516a356602a2dd115540b97da",
-          "bundle_sha256": "68baae3f14ba31ab2f532caf8cebe27727e310664132c1c7abc6a62403d27b89",
+          "bundle_sha256": "24488863a9e1fa8b5df109bd5723ffd73fe314e3b7d27ceba22d6f3d500ef891",
           "path": "README.md"
         },
         {
-          "baseline_sha256": "0e2ed73db610831dc933b2ad6357f9e299cc9ac439e850dc69da47359c9d743b",
+          "bundle_sha256": "defca4cee14d44adadf04f9c64f2ffed85c732d1e2b7befef2caa5dc99a99d03",
+          "path": "docs/REFERENCE.md"
+        },
+        {
           "bundle_sha256": "8b0aaf37e7f1f40794bf290a0acf4d32de79b8a17b76761b5712ad7f8a8f8eac",
           "path": "generate_charuco.sh"
         },
         {
-          "baseline_sha256": "43285c273f1cf6468076b5e721fdb8b2aef0f9a84165c73c788c8acba908a2fa",
           "bundle_sha256": "3e840a41d62292c85c198e7f09cb8158a30a548b428a54f4862fa0de488f5bfc",
           "path": "src/charuco_generator/__init__.py"
         },
         {
-          "baseline_sha256": "adbd54b76d6a295e04b8d1b7267d218a657af96c9824d28058e200780073db75",
           "bundle_sha256": "c2bdd92aec8262808039f834b4f12e41f5fb0e83fe75a01d94a0df1d8bba4954",
           "path": "src/charuco_generator/cli.py"
+        },
+        {
+          "bundle_sha256": "8e22106fc0295a6125151a8f6b9b64ef58a0b286a926515940c2fd13498ee34e",
+          "path": "src/charuco_generator/stages.py"
         }
       ],
-      "deleted": [],
       "unchanged": [
         ".github/workflows/ci.yml",
         ".gitignore",
         "LICENSE",
         "config/boards.json",
-        "docs/REFERENCE.md",
         "generate.py",
         "generate_aruco.sh",
         "generate_calibration.sh",
@@ -83,7 +55,6 @@
         "src/charuco_generator/render.py",
         "src/charuco_generator/selection.py",
         "src/charuco_generator/sheet.py",
-        "src/charuco_generator/stages.py",
         "src/charuco_generator/tanks.py",
         "src/charuco_generator/validation.py",
         "tests/conftest.py",
@@ -112,29 +83,20 @@
       "bundle_files": 40,
       "changed": [
         {
-          "baseline_sha256": "36db9c51618c0c21b6216de7fe20e1b4fd5b92e5d4d312a43329f70cedb8200c",
-          "bundle_sha256": "84ee10dad1e82c69550a881c326cddf56d02a12f46b888f7419e784623fa5e5c",
+          "bundle_sha256": "09ce60ffa3df6c86e27e8d7bbd6285251b6f4f1041a8fdf5825b26d7f7237cdf",
           "path": "README.md"
         },
         {
-          "baseline_sha256": "cb3f05f733cb9ee8d65cecb4cdf434a85ad1a24354cd4247d4643349ea5dc308",
-          "bundle_sha256": "d189089d4ffcdb5b3355d5991e25cf59a81c12ec54d06bdf11ca3d6b56206281",
+          "bundle_sha256": "a492d525e28fcbcc6a2a12fe98391de9c182e43f746b8e466b9e349950284e9b",
           "path": "docs/REFERENCE.md"
         },
         {
-          "baseline_sha256": "85d3b2bfbdd8c02a7901fb6dd99371492e691887cd94c756dfed2cd7154914cb",
           "bundle_sha256": "410f25208451107530bbb532e95b59d033513b4c17b5ce826b40c296fe446e71",
           "path": "pyproject.toml"
         },
         {
-          "baseline_sha256": "3462504f7332cf6a3355675e3a0155d805fa00ce89370ecc524eb94d7ee32dc3",
           "bundle_sha256": "f8fd315e1afd32694240b6bb975251a4d8e3554b59e906aaaa1b5f3d537a9f61",
           "path": "src/charuco_realsense/__init__.py"
-        }
-      ],
-      "deleted": [
-        {
-          "path": "docs/measurements/2026-10-28-80mm.json"
         }
       ],
       "unchanged": [
@@ -189,121 +151,105 @@
       "bundle_files": 94,
       "changed": [
         {
-          "baseline_sha256": "4355192a24674eebef01d2b1ef09f76cc2926c4ceb6edd7a8e2a56ab90c153ba",
-          "bundle_sha256": "9386266c26491b6b4b149fc10781a99725d322589193ed2b76e4afaed6d17bdb",
+          "bundle_sha256": "5e277a749e5b9252994b4f7fc0a590647ebdd30ec659bb7576dd598541434196",
           "path": "README.md"
         },
         {
-          "baseline_sha256": "dbb37e79e08c0edea761061a949a13190844691c4182855042f0f5ac90e374ae",
-          "bundle_sha256": "7eae9a74dd2342c7aebe08c6e5242ba31dc173f2ad59da697df0a0642505e03a",
+          "bundle_sha256": "f824f36a9477beaa1ce2a5cd0141bb8f6b4f76d3a1a5481b8e6d321740f79ea5",
+          "path": "TODO.md"
+        },
+        {
+          "bundle_sha256": "43caf97683ea933aec7fceb534c41c6d57f57ac5d3d5f63bf05142cc0760c42d",
           "path": "docs/COLLISION_REVIEW.md"
         },
         {
-          "baseline_sha256": "5b662a3d7beb522f03da16194fc91e00bfe7de86c9e7f629d18f1f583ec07742",
           "bundle_sha256": "a16886bbbebac9d6157c7973fd065113e3bbf1de9c0595032ed4fa3ed8374488",
           "path": "examples/arduino.json"
         },
         {
-          "baseline_sha256": "6019ec7164a9685237d721cd22bff76f311b71a1eed5a6c0f9ba0ab7f6179ddb",
           "bundle_sha256": "ef4e902264c281422a8b7d6dfce794a90010dc79ae01b14caed56b20edc64ea3",
           "path": "examples/rg2.json"
         },
         {
-          "baseline_sha256": "04cebccfb747868b98c24cdf9b368d0ad1fd08c8479bedbdf33d007b1247d409",
           "bundle_sha256": "d524d1054eff575ee2c5c888e6468ddd41a39f3a4e8021527e029af7f512dc36",
           "path": "examples/vision-basler.json"
         },
         {
-          "baseline_sha256": "8ab7a50e7f338fe60d5a2818273eaccf7332e4999eba8592d1e4ecedf04e6536",
           "bundle_sha256": "f2d920181f457a15fe92dd554c7b1d367957980ad9069c51c72caad555ba0de1",
           "path": "pyproject.toml"
         },
         {
-          "baseline_sha256": "3dc1ef4a24734a850e365ee3531d2a7ded227fdaf8169499550f845b7707f32c",
+          "bundle_sha256": "d225c3d31f959608644002863bbce9fed836d22325740f8533681123de72f39d",
+          "path": "src/ur_pick_place/grippers/rg2_driver.py"
+        },
+        {
           "bundle_sha256": "aa031a84596d16545ef37212e193a288c28220bf5811444efac3e7678f828aaa",
           "path": "src/ur_pick_place/manual.py"
         },
         {
-          "baseline_sha256": "d2c2d47e764686a141df42c6bad3bfbbbbc5c02696365cbcc56e1eebb35565d9",
           "bundle_sha256": "211759eddb5cfefe216a3d3f476ffa3d1df6ceee9fa641134bade33803408e9c",
           "path": "src/ur_pick_place/vision/cameras.py"
         },
         {
-          "baseline_sha256": "9ea9073fce5c5a07fb017e38964b6dbd2b7e3efc1c9cfcff866e52a73faa8624",
           "bundle_sha256": "ad2493851627e516d752a0d3df8e6a95f7bca5eda76fc1761983bce8ceed4039",
           "path": "src/ur_pick_place/vision/cli.py"
         },
         {
-          "baseline_sha256": "3c8ad667e0ed34f4ec83a076bcd124b5ce4e4c189207578c31a160554ffdca01",
           "bundle_sha256": "a4757af9c6f712bcf0146050a8032afc2d0b2545de02039c993085c6329addd2",
           "path": "src/ur_pick_place/vision/config.py"
         },
         {
-          "baseline_sha256": "2b5e659c3490c373f1f80f259ead01709ebd54f34ff2dafefd743ed1cb1b29d2",
           "bundle_sha256": "bb74d3483b51bb3e7b99c3a35bfd7a383c225847d1717f259ec635e90c2eff43",
           "path": "src/ur_pick_place/vision/handeye.py"
         },
         {
-          "baseline_sha256": "edd0d7bd163150d446643e272efae199b16f300ed2aa7f5fe4854ecf1ad70809",
           "bundle_sha256": "2a747e2fe2b2fc907acd2891fbfd167aea4b369dc11ae4f563d389f8abc075cb",
           "path": "src/ur_pick_place/vision/teach_ui.py"
         },
         {
-          "baseline_sha256": "8534d3dfd2a70bcf3a7541676a29ce5ff1cd7a3d2ca767d72320e4c71e2298af",
           "bundle_sha256": "fe37ae695120ca0a284a81727a2a1159b24c1265066b6074c951b50c0d5ccb40",
           "path": "src/ur_pick_place/vision/teaching.py"
         },
         {
-          "baseline_sha256": "a66a46c45e7a2b2e07371fb7953b5535daebb6d3b7b8b2e19474b8774c63c70b",
-          "bundle_sha256": "0bb714a0c8c357e6cd4c95d03ba8bc23cb7871a8f82a071f8f84732d1126487c",
+          "bundle_sha256": "b835c16c4a3f3249bd4a4eaf526f1bf33b3c4417e35c297091a6c83e0a6b1bfa",
           "path": "src/ur_pick_place/vision/validation.py"
         },
         {
-          "baseline_sha256": "7e224835ef327f4b3feac0324b7399014b065024105a6b9ba918e30087374957",
           "bundle_sha256": "220c99039f390ca501b6235a816cc71f7edaed4e4e5164e9926b3951193fa92d",
           "path": "src/ur_pick_place/web/index.html"
         },
         {
-          "baseline_sha256": "3ed900bccc3ac0cd748ecef82ef952c4a1799196f4122eeb50676644e0fe08e2",
-          "bundle_sha256": "4997aa576f79f12fc6fba05f2cd2cb6cf20284425ce936de482a163d4c689fac",
+          "bundle_sha256": "3cf949fd4bbe7e6a3d2549b67ad4523475500f4f17bf8f9a03f7ed902db72048",
           "path": "src/ur_pick_place/web/teacher.html"
         },
         {
-          "baseline_sha256": "97c426ee9d8db3053e149d643b4314c2072e4e780f04fdba5def271ea6a50353",
-          "bundle_sha256": "612ada9bd90d94fbad3b873572eb870c792520fb51780db7bf8258850c8d9384",
+          "bundle_sha256": "ebf313a5179c71ffd06ba89bf7034bcaa76ea6fc739fbc0b6c3ea881062bd9c3",
+          "path": "src/ur_pick_place/web/teacher.js"
+        },
+        {
+          "bundle_sha256": "333582b870840ea6070bd85e2693412ef1daf8cba246055415d5fb97379a522f",
+          "path": "tests/marker_teacher_ui.cjs"
+        },
+        {
+          "bundle_sha256": "4533e15ec66425c5ca282464fe6fee6c72f862b4ad6767cacc20928ed8c701c0",
           "path": "tests/marker_validation_browser.cjs"
         },
         {
-          "baseline_sha256": "67553a40d4c99c38153d5719eca9bcfc95f41b3bba16d4d69e1b414c365a08bf",
           "bundle_sha256": "48616a5a791def1baabb0137364b15f7b96a4b6d22df9d27ce5faebacfbc7056",
           "path": "tests/test_marker_teaching.py"
         },
         {
-          "baseline_sha256": "cd45f5ba55e8513b2eba0be03f50e9239935672ed608fcaafb12da60f6b0aa06",
           "bundle_sha256": "0c86c33af74782fabbb1047115c5cf5b2839313ad5e536fa54b9ec5ec4e7cfd6",
           "path": "tests/test_vision_cameras.py"
         },
         {
-          "baseline_sha256": "6650bd2761f316889438900a1d68f45f9c68bdd7a200108be1df1b6eeeadaf0e",
           "bundle_sha256": "be846acc28774c9e6e4d7aa0b6f044dcf8382ddbf4ec2af673848893bd763c7a",
           "path": "tests/test_vision_core.py"
-        }
-      ],
-      "deleted": [
-        {
-          "path": "docs/bench-review-2026-11-02.md"
-        },
-        {
-          "path": "docs/browser-preview.png"
-        },
-        {
-          "path": "docs/tool-envelope.png"
         }
       ],
       "unchanged": [
         ".github/workflows/tests.yml",
         ".gitignore",
-        "TODO.md",
         "docs/robot-tool-preview.svg",
         "examples/target.json",
         "examples/vision-aruco.json",
@@ -319,7 +265,6 @@
         "src/ur_pick_place/grippers/__init__.py",
         "src/ur_pick_place/grippers/adapters.py",
         "src/ur_pick_place/grippers/arduino_driver.py",
-        "src/ur_pick_place/grippers/rg2_driver.py",
         "src/ur_pick_place/poses.py",
         "src/ur_pick_place/robot.py",
         "src/ur_pick_place/sequence_ui.py",
@@ -344,7 +289,6 @@
         "src/ur_pick_place/web/robot-preview.js",
         "src/ur_pick_place/web/style.css",
         "src/ur_pick_place/web/teacher.css",
-        "src/ur_pick_place/web/teacher.js",
         "src/ur_pick_place/web/tool-envelope.css",
         "src/ur_pick_place/web/tool-envelope.html",
         "src/ur_pick_place/web/tool-envelope.js",
@@ -352,7 +296,6 @@
         "src/ur_pick_place/web/ur10e-model.json",
         "start.sh",
         "start_marker_teach.sh",
-        "tests/marker_teacher_ui.cjs",
         "tests/marker_validation_fixture.py",
         "tests/robot_preview.cjs",
         "tests/test_adapters.py",
@@ -423,7 +366,7 @@
         },
         {
           "path": "tests/robot_three_visual.cjs",
-          "sha256": "1004c97b3a0cdb7b778b90c44a10a8040fdeab11518ebd443b56d099565a907a"
+          "sha256": "0d4f123531beb07572f076c50d0204ffd8bc740083357d619c6ce9ab22f3ca84"
         },
         {
           "path": "tests/test_collision_selection.py",
@@ -431,7 +374,7 @@
         },
         {
           "path": "tests/test_factory_model.py",
-          "sha256": "1fa0b62044af132a0bdf6d4941c51348bd6bca87dbfe058da0c4126eb101f0f4"
+          "sha256": "6a1c5e9733a9354e7e8845805366bee4291e90cc0e3758acdd937f69baf61f9c"
         },
         {
           "path": "tests/test_robot_scheduler.py",
@@ -446,137 +389,106 @@
       "bundle_files": 74,
       "changed": [
         {
-          "baseline_sha256": "b0f996f18a35e10b687bac81c76e7a2f64125ace2ed79690333d8287c9eb5cfc",
-          "bundle_sha256": "62eaabd32db53d4b83078f40324ab97b5aaa74df2c1bd3ab50efba039eb8ab2b",
+          "bundle_sha256": "fd1f066631f34872545de0f48763303c8374663803434ca7eaf7801483f7cf01",
           "path": "README.md"
         },
         {
-          "baseline_sha256": "dbb37e79e08c0edea761061a949a13190844691c4182855042f0f5ac90e374ae",
-          "bundle_sha256": "7eae9a74dd2342c7aebe08c6e5242ba31dc173f2ad59da697df0a0642505e03a",
+          "bundle_sha256": "f824f36a9477beaa1ce2a5cd0141bb8f6b4f76d3a1a5481b8e6d321740f79ea5",
+          "path": "TODO.md"
+        },
+        {
+          "bundle_sha256": "43caf97683ea933aec7fceb534c41c6d57f57ac5d3d5f63bf05142cc0760c42d",
           "path": "docs/COLLISION_REVIEW.md"
         },
         {
-          "baseline_sha256": "97cd23705e7b7e4054f5f815a2c9ce19a11dcdaefad50704d692c412bceb3de3",
           "bundle_sha256": "e189cec5e94787b29fc8d2f0f0a5ba00cb1c0136c5d833364ce5690ab80567c5",
           "path": "pyproject.toml"
         },
         {
-          "baseline_sha256": "80b0d8a67c634dd47aba81d0808e926afbbc55bca83dd70edb5c9cbd034da9d0",
           "bundle_sha256": "cdda76743e1d469af9954341b0db3a2590d440cda7783b0dd09cf1b7432610bb",
           "path": "src/ur_handeye/__init__.py"
         },
         {
-          "baseline_sha256": "02352879e27152e326f33eb5a130bfc0502548750d5921ed4301a19ff4cd3047",
           "bundle_sha256": "cf86fcf6125254cadd4e5abb678de46b088371e19fbee730a8e8ba7560f98787",
           "path": "src/ur_handeye/cli.py"
         },
         {
-          "baseline_sha256": "41c7b498792452c55c4987fc5c6bd46c2eb2c65d040556c53f14f5c6e9942bb8",
           "bundle_sha256": "cd1972c0c69bae06c3df0abd2b271485cfd0ec38930564939d258c535be6577e",
           "path": "src/ur_handeye/collect.py"
         },
         {
-          "baseline_sha256": "d7500465ec7b3447fb2e3c8f023e802a67826ca060c9c44f2c8838dd70bf08d7",
           "bundle_sha256": "25b3484307c300e9d4b1a330dfb7fb88c4f9cf12930667ee204fd8ad3b393c9c",
           "path": "src/ur_handeye/collision.py"
         },
         {
-          "baseline_sha256": "e02ddb17bb95c9a19a1a31b3173fd769cb30d81299f48d1a798c53027e0c2514",
           "bundle_sha256": "81e0ba191902ec58f2e96db22c7551aa8d6eff638502dcd2dc2126a8f8abef90",
           "path": "src/ur_handeye/intrinsics.py"
         },
         {
-          "baseline_sha256": "5d44ba4591bcf185ed89163964998ccbc6aed75e10af3e1b3de47ef9334f0c75",
           "bundle_sha256": "731a362539c86baed9139acb05c402038f67bc8a0629fa336b4407178738795f",
           "path": "src/ur_handeye/robot.py"
         },
         {
-          "baseline_sha256": "2d586d2b2ec3811e6d499c6b92be57482149c76f96cce45d9dd86671219280b6",
           "bundle_sha256": "8099014a46b8339e13356dc4f44dc43f18ec810c770c061683736877a5c4e2b4",
           "path": "src/ur_handeye/solver.py"
         },
         {
-          "baseline_sha256": "a8ccbb7862656365fd3d0f463e4d89003f135c0cdc25101bcaef9697c5f4360e",
           "bundle_sha256": "b390074d79b4ce94121ae3408a23da5e8507ccc6fc86a96ec31de8a3a8cec817",
           "path": "src/ur_handeye/ui.py"
         },
         {
-          "baseline_sha256": "0e07a55dc148139ea251460437a6a1a430da7b19b275de6a0245fb75da8e5dcb",
           "bundle_sha256": "e24169bc934404b4662eda7ec78893e8510c9cdcf1e2446cdba0fb269d222daf",
           "path": "src/ur_handeye/ui_jobs.py"
         },
         {
-          "baseline_sha256": "0f4779005a6564e2087aa72245a6a912701df2071c9924e05e425aaa12d481b8",
           "bundle_sha256": "3a366e9771f3bbb56235a1bfa81302b6887fc56b17513910160d6e6b77290964",
           "path": "src/ur_handeye/ui_worker.py"
         },
         {
-          "baseline_sha256": "6f90494b394757064dd742fad3eccf803631dc6f838ab2307a27c5a1ec387e6c",
           "bundle_sha256": "34b944c1ccedd8c6c0e2add52c34178917d76a8322064607393f7e9f9496a560",
           "path": "src/ur_handeye/vision.py"
         },
         {
-          "baseline_sha256": "bb845ac9f05a354d6cd1aa1e57c4d250fd3ee88db4354d8e5e598e4ab7ab2ae8",
           "bundle_sha256": "d5cdbc8515a7bd320ec5fe8544903bc9b7b0d6239a92eea01372d14e58bd62b6",
           "path": "src/ur_handeye/web/robot-preview.js"
         },
         {
-          "baseline_sha256": "a0f27addcf9bb06a9fbc46e3653cf23ea786932c231c76f1ec344da89b3f0ecc",
           "bundle_sha256": "28d84c7a4b9115f1efe04a374a58a69f8abb1ce74d604ac5bcaaaf694d1edb2a",
           "path": "src/ur_handeye/web/tool-envelope.css"
         },
         {
-          "baseline_sha256": "33eff289002102a00e26a2f878a739ede66521cadf311b15c5d45412c9d90b8f",
           "bundle_sha256": "50886664be3ff3281842de0f2bd408533ca7208b978b0aa00da02ac534a9d957",
           "path": "src/ur_handeye/web/tool-envelope.html"
         },
         {
-          "baseline_sha256": "08139c38a268a28e731886d835b907aac55624b6071bff8ab0902464e5d39663",
           "bundle_sha256": "9b12d420138f73c0fcd521ec50a4578d6d0759b3bbe586721dc3327510d6390a",
           "path": "src/ur_handeye/web/tool-envelope.js"
         },
         {
-          "baseline_sha256": "1a2c82758b29a1976e5c3e89f87572d931b7d61620dc8ce34f590979499ee954",
           "bundle_sha256": "cf2974b100cdd4eff86275aa32aacdd897ef1c480680889a28157f2fe4691fe7",
           "path": "tests/test_cli.py"
         },
         {
-          "baseline_sha256": "36da71b2b75e3c912c90145b9154cee205a6e62d555bfa4c6f01015225301a5b",
           "bundle_sha256": "8a3a3da0818a7c21b9875bc7e530121b5b14ddcc105245966c7c9df6ef03c580",
           "path": "tests/test_collect.py"
         },
         {
-          "baseline_sha256": "12aa18363164187df4d1fb8ced2039a95dadf6ab03f4a1232f6194a9478381d2",
           "bundle_sha256": "5e518e29953f82132531e6913b731c6af3c711b044ab31fded0a3afbe1511b42",
           "path": "tests/test_collision.py"
         },
         {
-          "baseline_sha256": "fe8aeaacbe4d3271fb824caf3d0789f5cf04445dc3b74cdb7a070162e9da122c",
           "bundle_sha256": "0388fc59958a1d044e92fa98b364b850f5afb7ce51801c42b36bcb8830c514f3",
           "path": "tests/test_robot.py"
         },
         {
-          "baseline_sha256": "2a9ea79bb956cff6b4d8d041690b85488661f04d211bd4a93d7613d48c877fbe",
           "bundle_sha256": "2bd2c1a7411fe1d5628289fd321205c4fd449fc439e30c838981101c35a2eda3",
           "path": "tests/test_ui.py"
-        }
-      ],
-      "deleted": [
-        {
-          "path": "docs/bench-review-2026-11-02.md"
-        },
-        {
-          "path": "docs/browser-preview.png"
-        },
-        {
-          "path": "docs/tool-envelope.png"
         }
       ],
       "unchanged": [
         ".github/workflows/ci.yml",
         ".gitignore",
         "REVIEW.md",
-        "TODO.md",
         "docs/robot-tool-preview.svg",
         "requirements.txt",
         "src/ur_handeye/__main__.py",

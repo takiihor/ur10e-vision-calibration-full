@@ -1,6 +1,6 @@
 """OnRobot URCap XML-RPC client for a wrist-connected RG2.
 
-Uses the service verified on the robot at port 41414. This does not upload a
+Uses the URCap XML-RPC service. This does not upload a
 robot program or enable depth compensation. Constructing the client never moves
 the jaws; only move() sends a grip command.
 """

@@ -699,7 +699,7 @@ class ManualWorkerTests(unittest.TestCase):
         self.assertEqual(len(self.robot.moves),3)
 
 
-    def prepare_descent(self, endpoint_z=.3, hover_z=.415433583):
+    def prepare_descent(self, endpoint_z=.3, hover_z=.425):
         from ur_pick_place.poses import PoseStore
         self.prepare(endpoint_z=endpoint_z)
         self.worker.close();self.robot.connected=True
@@ -732,14 +732,14 @@ class ManualWorkerTests(unittest.TestCase):
         self.assertEqual(self.joint_calls,[])
         self.assertEqual(self.observe_mock.call_count,0,'Separate descent reuses exact completed alignment, not a new marker target')
 
-    def test_current_teacher_taught_height_is_visible_but_below_workspace_refuses_without_clamp(self):
-        self.prepare_descent(endpoint_z=.0078922268,hover_z=.115433583)
+    def test_taught_height_below_workspace_is_visible_and_refused_without_clamping(self):
+        self.prepare_descent(endpoint_z=.006,hover_z=.125)
         original=copy.deepcopy(self.context.alignment)
         self.worker.submit('move_tcp')
         state=self.wait_for(lambda s:bool(s['error']))
         self.assertIn('workspace',state['error'].lower())
-        self.assertAlmostEqual(state['manual']['route']['endpoint'][2],.0078922268)
-        self.assertAlmostEqual(state['manual']['descent_mm'],107.5413562)
+        self.assertAlmostEqual(state['manual']['route']['endpoint'][2],.006)
+        self.assertAlmostEqual(state['manual']['descent_mm'],119.0)
         self.assertEqual(self.context.alignment,original)
         self.assertEqual(self.robot.moves,[])
         self.assertIsNone(state['manual']['prompt'])
@@ -762,7 +762,7 @@ class ManualWorkerTests(unittest.TestCase):
 
     def public_descent(self):
         owner=self.public_server()
-        self.robot.q=[.4,.1,.415433583,0,math.pi,0]
+        self.robot.q=[.4,.1,.425,0,math.pi,0]
         self.context.provenance['project']=str(self.root/'fixture-project')
         grasp_path=str(self.root/'fixture-project/grasp_pick.json')
         self.context.hashes={grasp_path:'current-grasp'}

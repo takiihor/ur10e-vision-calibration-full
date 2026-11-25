@@ -1,8 +1,0 @@
-{
-  "executable": "python3",
-  "source": "src/anodizing-modules",
-  "recognized_flags": [
-    "--line-mode",
-    "disabled"
-  ]
-}

@@ -36,6 +36,7 @@ function renderWizard(ready,busy) {
     nav.classList.toggle('failed',failedStep()===step&&!!state.error||step==='validate'&&state.project?.validation?.visual_result==='misaligned');
     $('nav-state-'+step).textContent=light.textContent.replace('● ','');
   });
+  $('validation-settings').hidden=activeStep!==2&&activeStep!==4;
   $('step-counter').textContent=`Step ${activeStep+1} of ${steps.length}`;
   $('back').disabled=busy||activeStep===0;
   $('next').hidden=activeStep===steps.length-1;

@@ -6,7 +6,7 @@ The editor now shows the nominal UR10e, the tool box, and separate camera and mo
 
 ![Generated nominal UR10e geometry](docs/robot-tool-preview.svg)
 
-This is a generated geometry view, not a browser screenshot. Teacher motion remains unchanged. Its Cartesian stages and observation return do not use the calibration checker. The preview and scene confirmation are not safety certifications. Native UR tool and safety settings are not configured.
+This is a generated geometry view, not a browser screenshot. Teacher motion remains unchanged. Its Cartesian stages and observation return do not use the calibration checker. The preview and scene confirmation are not safety certifications. Configure and verify native UR tool and safety settings separately.
 
 
 Teach waypoints and run force-guided pick-and-place cycles on a Universal Robots
@@ -155,7 +155,7 @@ Open http://127.0.0.1:8766. Follow the five steps with **Next** and **Back**:
    the desired final pick endpoint and orientation, then stop. Confirm that the
    marker has not moved and click **Read current TCP & save pick**. Check that
    the joint-motion path is clear, then click **Return to observation pose**.
-   Return speed and workspace bounds are under Step 5’s **Test motion settings**.
+   Enter the reviewed minimum and maximum XYZ bounds under **Test motion settings** before the first return. These settings are available in Steps 3 and 5.
 4. **Read & export:** show the whole marker and stop the arm. The capture pose may
    differ from teaching; returning to the saved observation joints is optional.
    Click **Read marker & export poses**. Download **Pick pose JSON**

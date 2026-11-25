@@ -90,33 +90,12 @@ Other useful commands:
 Use `./start_camera.sh COMMAND --help` for options. Offline image pose estimation
 requires `--calibration`; see the [reference guide](docs/REFERENCE.md#calibration).
 
-## Measured 80 mm board result
+## Validate a measurement
 
-On **2026-10-28**, a fixed D435i observed a fixed `tank01` board at approximately
-269 mm Z, using factory intrinsics, automatic exposure, and color 1280 × 720 at
-15 fps over USB 2.1. The sample contained **1,048 frames over 69.9 seconds**.
-
-| Measurement | Result |
-| --- | ---: |
-| Markers / corners visible in every frame | 8/8 markers, 9/9 corners |
-| Recognition and pose-quality pass rates | 100% |
-| Mean / maximum reprojection RMS | 0.096 / 0.146 px |
-| Board-origin X / Y / Z standard deviation | 0.034 / 0.012 / 0.154 mm |
-| Board-origin 3D RMS variation | 0.158 mm |
-| Board-origin 95th-percentile displacement from the mean | 0.303 mm |
-| Board-origin Z peak-to-peak range | 1.083 mm |
-| Orientation RMS variation | 0.200° |
-| Actual frame rate / camera frame gaps | 14.99 fps / 0 |
-
-The modelled board centre had 0.068 mm 3D RMS variation; it is derived from the
-same pose, at board-local coordinates `[40, 40, 0]` mm. Coordinate stability depends
-on the chosen point as well as the pose's orientation stability.
-
-These are **short-term repeatability results from one setup**. Absolute accuracy
-was not measured against an independent reference. Verify the printed scale and
-camera calibration before relying on physical distances: a 1% board-scale error
-can produce about 2.7 mm depth bias at this range despite a low image-fit error.
-See the [accuracy measurement procedure](docs/REFERENCE.md#measuring-physical-accuracy).
+Use a stationary recording to assess jitter and repeatability. To assess absolute
+accuracy, check the printed scale and compare the estimated pose with an
+independent reference. Keep run conditions and results in the private calibration
+record. See the [accuracy measurement procedure](docs/REFERENCE.md#measuring-physical-accuracy).
 
 ## Continuous operation
 
@@ -139,7 +118,7 @@ the Python API, see the [reference guide](docs/REFERENCE.md).
 | Missing manifest or unknown board | Generate the board set or pass its `--manifest` and a board name from that set. |
 | Desktop UI cannot open | Install Tk support for the selected Python and use a desktop display; use `service` for headless recording. |
 | Markers detected but pose unavailable or rejected | Show more of the board and check the quality message; the default quality gate needs at least 6 corners. |
-| Lower frame rate than requested | Check the negotiated stream profile and USB connection. The tested USB 2.1 connection uses 1280 × 720 at 15 fps. |
+| Lower frame rate than requested | Check the negotiated stream profile and USB connection. |
 | D415 detected but no frames received | Check `./start_camera.sh list` for `usb_type`. If it reports `2.1`, try a USB 3 data cable directly into a USB 3 port. A USB 3 port can still negotiate USB 2 with the attached cable. |
 | Camera busy or stuck | Inspect with `./kill.sh --dry-run`, then use `./kill.sh` to stop matching clients. This stops their active capture. |
 

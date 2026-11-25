@@ -24,7 +24,11 @@ const box=name=>({name,dimensions_m:[.1,.2,.3],pose});
 const scene={attached:['tool','camera','mount'].map(box),obstacles:[box('cell')]};
 const part={vertices:[[.1,.2,.3],[.4,.2,.3],[.1,.5,.3]],faces:[[0,1,2]],color:'#336699'};
 const visual={version:1,source:'test',bodies:[{name:'upper_arm_link',depth:6,parts:[part,{...part,color:'#995533'}]}]};
-const models=[require(web+'/ur10e-model.js').UR10E_MODEL,JSON.parse(fs.readFileSync(path.join(__dirname,'../../../../ROBOT_MODEL_FACTORY_DRAFT.json'),'utf8'))];
+const nominal = require(web+'/ur10e-model.js').UR10E_MODEL;
+const calibrated = structuredClone(nominal);
+calibrated.nominal = false;
+calibrated.joints[0].xyz_m[2] += .001;
+const models = [nominal, calibrated];
 const meshes=()=>world.children.find(child=>child.isGroup).children.filter(child=>child.isMesh);
 function matrixIs(mesh,rows) {
   const expected=new three.Matrix4().set(...rows.flat());

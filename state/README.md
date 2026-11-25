@@ -1,15 +1,10 @@
 # IPC data snapshot
 
-`ipc-data.tar.gz` is a snapshot of the IPC data directory:
+The private IPC archive can contain calibration sessions, teaching projects,
+scenes, board assets, job evidence and tool-power/MCU records.
 
-- About 537 MB compressed and 647 MB uncompressed.
-- 897 files with a `data/` prefix.
-- Includes calibration sessions, teaching projects, scenes, board assets,
-  job/evidence files and tool-power/MCU records.
-
-No passwords, SSH keys, Wi-Fi profiles or browser tokens were found in the
-snapshot. It is still confidential operational data: it can contain site layout,
-part names, controller addresses and calibration results.
+Treat the archive as confidential operational data. It can identify the site
+layout, parts, controller addresses and calibration results.
 
 Handling rules:
 
@@ -22,5 +17,5 @@ Handling rules:
 5. Delete the extracted copy when the review is complete, according to the
    owner's retention policy.
 
-`data-manifest.json` lists the archived files and hashes. `PACKAGE_INFO.json`
-records the archive hash and counts.
+Keep the file manifest and archive checksum with the private archive. Use
+them to verify an owner-supplied copy before extraction.

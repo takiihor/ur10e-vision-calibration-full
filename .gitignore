@@ -1,6 +1,7 @@
 # Confidential local snapshot; not part of the public source repository.
 state/ipc-data.tar.gz
 state/data-manifest.json
+/provenance/private/
 
 # Local UI data and environments
 .ui-data/

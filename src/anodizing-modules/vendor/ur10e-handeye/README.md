@@ -6,7 +6,7 @@ The editor now shows the nominal UR10e, the tool box, and separate camera and mo
 
 ![Generated nominal UR10e geometry](docs/robot-tool-preview.svg)
 
-This is a generated geometry view, not a browser screenshot. The hand-eye review adds conservative joint-path checks and exposes the original 25 degree tilt and 30 degree roll. The bundled scene blocks automatic motion until the physical model and cell are confirmed. Native UR tool and safety settings are not configured. A green preview or confirmed profile is not a safety certification.
+This is a generated geometry view, not a browser screenshot. The hand-eye review adds conservative joint-path checks and provides tilt and roll controls. The bundled scene blocks automatic motion until the physical model and cell are confirmed. Configure and verify native UR tool and safety settings separately. A green preview or confirmed profile is not a safety certification.
 
 An explicitly selected version-1 scene can use `"collision_scope": "supervised_self"`
 for an attended calibration trial. It must keep `environment_complete: false` and
@@ -148,3 +148,8 @@ An intrinsic fit's training error does not establish physical accuracy.
 **Try eye-in-hand simulation** runs without hardware. The rendered simulator supports
 eye in hand only; simulated results must not be used on hardware.
 Run tests with `.venv/bin/python -m pytest -q`.
+
+For the optional offline factory-posture test, set `ANODIZING_FACTORY_FIXTURES`
+to a private directory containing `model.json`, `scene.json`, `preflight.json`
+and `kinematics.json`. Use the matching factory model and scene, with distinct
+saved postures in the preflight and kinematics records.

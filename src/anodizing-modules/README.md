@@ -177,9 +177,9 @@ Exclusion is within this module service and its workers, not controller-wide or 
 
 The separate manual panel keeps independent pick-tag/place-tag selections (both must match the selected project's taught board) and explicitly reuses the original pick-taught marker-to-tool offset with separate provenance. Original grasp/reference/configuration data are never rewritten. The visible PICK / PLACE controls use the native checked sequence.
 
-After coordinator review, IPC `--allow-manual-pick-place` with the selected factory model enables explicit manual requests; it stays off by default. Select the reviewed scene, configured operating joint bounds and source, workspace and speeds; confirm active TCP and that the held item fits wholly inside the selected scene's attached tool box. PICK and PLACE each obtain a fresh pose3/reference4 qualified marker observation, show the exact plan for another bound reply, align above by checked joint transit, descend straight base-Z with actual stopped XY/orientation held, pause for manual grip/release, and withdraw straight+100mm. No automatic gripper action, force search or held-state inference. MCU commands require separate button clicks. No moveJ substitutes for vertical legs and rejected hardware requests never run simulation.
+After coordinator review, IPC `--allow-manual-pick-place` with the selected factory model enables explicit manual requests; it stays off by default. Select the reviewed scene, configured operating joint bounds and source, workspace and speeds; confirm active TCP and that the held item fits wholly inside the selected scene's attached tool box. PICK and PLACE each obtain a fresh marker observation that meets the selected project’s quality checks, show the exact plan for another bound reply, align above by checked joint transit, descend straight base-Z with actual stopped XY/orientation held, pause for manual grip/release, and withdraw straight+100mm. No automatic gripper action, force search or held-state inference. MCU commands require separate button clicks. No moveJ substitutes for vertical legs and rejected hardware requests never run simulation.
 
-Step5 additionally exposes one separately approved vertical descent after the current completed planar alignment. It binds current alignment/capture/grasp hashes and explicit confirmation that marker/dummy/rod have not moved. The full current taught height is read from saved data, not an incremental probe or old taught pose. Old Run only aligns. A later relevant task, return, reteach or restart invalidates descent eligibility. The reported7.892mm endpoint is outside the default10mm workspace minimum; an optional visible minZ0 form draft is never automatically applied or saved and never changes robot safety limits. Review and approve the exact new plan before motion.
+Step5 additionally exposes one separately approved vertical descent after the current completed planar alignment. It binds current alignment/capture/grasp hashes and explicit confirmation that marker/dummy/rod have not moved. The full current taught height is read from saved data, not an incremental probe or old taught pose. Old Run only aligns. A later relevant task, return, reteach or restart invalidates descent eligibility. If a taught endpoint falls outside the reviewed workspace, review the bounds before proceeding. A workspace edit requires operator input and cannot change controller safety limits. Review and approve the exact new plan before motion.
 
 Each vertical leg requires the full continuous-branch conditional clear_in_model certificate plus immediate exact binding recheck. Native joint chords and sampled IK never certify moveL. The checker keeps explicit floating numerical allowances and the total0.2degree model/tracking correspondence assumption. At most three representative controller-FK/safety samples detect mismatch, with progress/timing recorded; they do not prove whole-route correspondence. supervised_self excludes external cell objects. Full geometry checking still covers every accepted branch ball.
 
@@ -256,15 +256,15 @@ The runner imports the vendor trees directly, runs the app and four vendor
 suites, and leaves the opt-in browser checks skipped when Node or Chrome is not
 installed. It is also used by `.github/workflows/tests.yml`. The historical 36-test run covered a focused subset.
 
-The package-level `provenance/` directory contains deterministic baseline
-archives, the per-file vendor mapping and an offline verifier:
+From the module bundle, verify the public vendor files using the trusted private
+record and its baseline archives:
 
 ```bash
-python3 ../provenance/verify.py
+python3 ../../provenance/verify.py /private/baselines/BASELINES.json
 ```
 
 The bundled vendor trees include review changes and are not identical to the
-pinned baselines; every difference is recorded in `provenance/BASELINES.json`.
+pinned baselines; the public mapping describes the included vendor files.
 The release notes list work that was not reconciled.
 
 Basler camera preparation and physical limits: [BASLER_PREPARATION.md](BASLER_PREPARATION.md).
