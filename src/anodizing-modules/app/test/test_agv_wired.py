@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from anodizing_web import agv
-from agv_examples import REPORT
+from agv_examples import EXAMPLE_PREFIX, EXAMPLE_REPLY_PREFIX, EXAMPLE_ROUTE, EXAMPLE_VEHICLE_ID, REPORT
 
 
 @pytest.fixture
@@ -50,10 +50,13 @@ def test_profile_wired_port_is_published_before_connect(wired_link):
     assert link.commissioning()['wired_port'] == '/dev/example-wire'
 
 
-@pytest.mark.parametrize(('mode', 'prefix'), [('wired', b''), ('serial', bytes.fromhex('00 01 04'))])
+@pytest.mark.parametrize(('mode', 'prefix'), [('wired', b''), ('serial', EXAMPLE_PREFIX)])
 def test_serial_status_query_uses_transport_framing(wired_link, mode, prefix):
     link, opened = wired_link
-    state = link.submit({'action': 'connect', 'mode': mode, **({'port': '/dev/example-wire'} if mode == 'serial' else {})})
+    body = {'action': 'connect', 'mode': mode, **EXAMPLE_ROUTE}
+    if mode == 'serial':
+        body['port'] = '/dev/example-wire'
+    state = link.submit(body)
     assert state['settings']['port'] == '/dev/example-wire'
     assert opened[0].settings['baudrate'] == 9600
     with link.lock:
@@ -61,12 +64,12 @@ def test_serial_status_query_uses_transport_framing(wired_link, mode, prefix):
     assert opened[0].writes[-1] == agv.command_frame('query_status', None, prefix).encode()
 
 
-@pytest.mark.parametrize('prefix', [b'', bytes.fromhex('00 FF 04')])
+@pytest.mark.parametrize('prefix', [b'', EXAMPLE_REPLY_PREFIX])
 def test_wired_accepts_bare_and_broadcast_prefixed_status(wired_link, prefix):
     link, opened = wired_link
-    link.submit({'action': 'connect', 'mode': 'wired'})
+    link.submit({'action': 'connect', 'mode': 'wired', **EXAMPLE_ROUTE})
     opened[0].buffer = prefix + REPORT
-    assert link.capability()['status']['vehicle_id'] == 1
+    assert link.capability()['status']['vehicle_id'] == EXAMPLE_VEHICLE_ID
 
 
 @pytest.mark.parametrize('mode', ['wired', 'serial', 'simulator'])

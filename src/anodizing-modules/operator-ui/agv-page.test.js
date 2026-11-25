@@ -9,7 +9,7 @@ import { useAgv } from './useAgv.js';
 import { connectionKey, journalKey, newSession, sessionKey } from '../app/anodizing_web/web/agv-record.mjs';
 
 const stamp = '2026-11-20T08:00:00.000Z';
-const settings = { mode: 'simulator', address: '00 01', channel: '04' };
+const settings = { mode: 'simulator', address: '42 19', channel: '0D' };
 const status = {
   mode: 2, max_stations: 3, stopped: true, actual_speed_m_h: 0,
   current_station: 1, target_station: 1, fault_code: 0, obstacle_stop: false,

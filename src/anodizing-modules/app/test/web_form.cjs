@@ -48,7 +48,7 @@ if (moduleName === 'teaching' && scenario !== 'edit') {
 }
 if (moduleName === 'calibration')
   storage.set('ano-calibration-form', JSON.stringify({camera_provider: 'basler',
-    camera_exposure_us: scenario === 'exposure' ? '' : '5000', camera_gain_db: scenario === 'gain' ? '' : '0'}));
+    camera_exposure_us: scenario === 'exposure' ? '' : '3200', camera_gain_db: scenario === 'gain' ? '' : '2'}));
 
 const submitted = [];
 let editPending = scenario === 'edit';

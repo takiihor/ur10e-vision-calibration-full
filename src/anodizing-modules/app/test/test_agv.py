@@ -2,10 +2,8 @@
 import pytest
 
 from anodizing_web import agv
-from agv_examples import EXAMPLE_SPEED, REPORT, synthetic_replies
+from agv_examples import EXAMPLE_PREFIX as PREFIX, EXAMPLE_SPEED, EXAMPLE_VEHICLE_ID, REPORT, synthetic_replies
 
-
-PREFIX = bytes.fromhex('00 01 04')
 
 @pytest.mark.parametrize(('name', 'value', 'command', 'data'), [
     ('call_station', 17, 0x23, b'\x9d\x11\x00'),
@@ -59,7 +57,7 @@ def test_synthetic_status_omits_unavailable_attachment_fields(example_frames):
     wire, _, _ = example_frames
     status = agv.decode(agv.parse_frame(wire))
     assert status['length'] == 29
-    assert status['vehicle_id'] == 1 and status['battery_percent'] == 83
+    assert status['vehicle_id'] == EXAMPLE_VEHICLE_ID and status['battery_percent'] == 83
     assert status['set_speed_m_h'] == EXAMPLE_SPEED
     assert status['laser_blocked'] is True
     assert not {'attachment_active', 'roller_speed'} & status.keys()
@@ -73,7 +71,7 @@ def test_synthetic_short_speed_reply_decodes_at_example_speed(example_frames):
 
 def test_synthetic_status_decodes_every_offset():
     assert agv.decode(agv.parse_frame(REPORT)) == {
-        'header': 'A5 5A', 'length': 31, 'command': '25', 'vehicle_id': 1, 'battery_percent': 83,
+        'header': 'A5 5A', 'length': 31, 'command': '25', 'vehicle_id': EXAMPLE_VEHICLE_ID, 'battery_percent': 83,
         'set_speed_m_h': EXAMPLE_SPEED, 'stopped': True, 'obstacle_stop': False, 'station_arrival': True,
         'command_stop': False, 'actual_speed_m_h': 0, 'current_station': 7, 'target_station': 9,
         'fault_code': 0, 'max_stations': 12, 'mode': 2, 'customer_sensors': 5,
@@ -132,7 +130,7 @@ def test_splitter_recovers_after_bad_length_and_checksum():
 
 
 def test_splitter_preserves_configured_prefix_containing_header_bytes():
-    prefix = bytes.fromhex('A5 5A 04')
+    prefix = bytes.fromhex('A5 5A 0D')
     splitter = agv.Splitter(prefix)
     assert splitter.feed(prefix + REPORT[:2]) == []
     assert splitter.feed(REPORT[2:]) == [(prefix + REPORT, None)]
@@ -174,7 +172,7 @@ def test_synthetic_ack_is_not_status_and_records_elapsed_time(monkeypatch):
     now = 1
     connection._receive()
     ack = connection.log[-1]['decode']
-    assert ack['acknowledgement'] is True and ack['vehicle_id'] == 1
+    assert ack['acknowledgement'] is True and ack['vehicle_id'] == EXAMPLE_VEHICLE_ID
     assert 'stopped' not in ack and connection.status is None
     assert ack['acknowledged_command'] == 'pause'
     assert ack['ack_elapsed_s'] == pytest.approx(1)

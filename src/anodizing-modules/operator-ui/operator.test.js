@@ -6,7 +6,7 @@ import ConfirmationService from 'primevue/confirmationservice';
 import ToastService from 'primevue/toastservice';
 import App from './App.vue';
 
-const mode = { mode: 'simulator', address: '00 01', channel: '04' };
+const mode = { mode: 'simulator', address: '42 19', channel: '0D' };
 const connected = { connected: true, connection_id: 2, settings: mode, armed: true, log: [], events: [], results: [] };
 const commandNames = ['read_speed', 'query_status', 'forward'];
 let app;

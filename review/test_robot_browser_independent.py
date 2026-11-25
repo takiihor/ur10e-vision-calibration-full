@@ -23,7 +23,7 @@ class RobotBrowser(ConnectedManualBrowser):
         self.wait(lambda:self.js("return !!document.getElementById('robot-card')"),'calibration boot')
         self.js('''document.querySelector('#robot-card').open=true;
           for(const [id,v] of Object.entries({'robot-ip':'fake','robot-tcp':'0,0,150,0,0,0','robot-scene':'reviewed-scene.json',
-          'robot-workspace-min':'-900,-900,10','robot-workspace-max':'900,900,1200',
+          'robot-workspace-min':'-820,-840,25','robot-workspace-max':'820,840,1220',
           'robot-joint-min':'-360,-360,-360,-360,-360,-360','robot-joint-max':'360,360,360,360,360,360','robot-joint-source':'fixture'})){
             const e=document.getElementById(id);e.value=v;e.dispatchEvent(new Event('input'));}''')
         self.wait(lambda:self.js("return !document.querySelector('[data-robot-axis=x][data-robot-direction=\\\"1\\\"]').disabled"),'step ready')
@@ -49,7 +49,7 @@ class RobotBrowser(ConnectedManualBrowser):
             self.wait(lambda:self.js("return !!document.getElementById('robot-card')"),'robot card')
             self.js('''document.querySelector('#robot-card').open=true;
               for(const [id,v] of Object.entries({'robot-ip':'fake','robot-tcp':'0,0,150,0,0,0','robot-scene':'scene.json',
-              'robot-workspace-min':'-900,-900,10','robot-workspace-max':'900,900,1200',
+              'robot-workspace-min':'-820,-840,25','robot-workspace-max':'820,840,1220',
               'robot-joint-min':'-360,-360,-360,-360,-360,-360','robot-joint-max':'360,360,360,360,360,360','robot-joint-source':'fixture'})){
                 const e=document.getElementById(id);e.value=v;e.dispatchEvent(new Event('input'));}
               window.stepCalls=0;window.startManualJob=async()=>{window.stepCalls++;if(arguments[0]==='failure')throw Error('fixture request error');return {id:'accepted-fixture'};};''',mode)
@@ -69,7 +69,7 @@ class RobotBrowser(ConnectedManualBrowser):
         self.wait(lambda:self.js("return !!document.getElementById('robot-card')"),'robot card')
         self.js('''document.querySelector('#robot-card').open=true;
           for(const [id,v] of Object.entries({'robot-ip':'fake','robot-tcp':'0,0,150,0,0,0','robot-scene':'bad-scene.json',
-          'robot-workspace-min':'-900,-900,10','robot-workspace-max':'900,900,1200',
+          'robot-workspace-min':'-820,-840,25','robot-workspace-max':'820,840,1220',
           'robot-joint-min':'-360,-360,-360,-360,-360,-360','robot-joint-max':'360,360,360,360,360,360','robot-joint-source':'fixture'})){
             const e=document.getElementById(id);e.value=v;e.dispatchEvent(new Event('input'));}
           window.stepCalls=0;const real=window.fetch.bind(window);window.fetch=(url,opt)=>{
@@ -110,7 +110,7 @@ class RobotBrowser(ConnectedManualBrowser):
         self.wait(lambda:self.js("return !!document.querySelector('#robot-card')"),'robot card')
         self.js('''document.querySelector('#robot-card').open=true;
           for(const [id,v] of Object.entries({'robot-ip':'fake','robot-tcp':'0,0,150,0,0,0','robot-scene':'reviewed-scene.json',
-          'robot-workspace-min':'-900,-900,10','robot-workspace-max':'900,900,1200',
+          'robot-workspace-min':'-820,-840,25','robot-workspace-max':'820,840,1220',
           'robot-joint-min':'-360,-360,-360,-360,-360,-360','robot-joint-max':'360,360,360,360,360,360','robot-joint-source':'fixture'})){
             const e=document.getElementById(id);e.value=v;e.dispatchEvent(new Event('input'));}''')
         self.wait(lambda:self.js("return !document.querySelector('[data-robot-axis]').disabled"),'step ready')

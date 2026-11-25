@@ -176,14 +176,14 @@ def agv(_, token, __):
         save_json('agv-' + step + '.json', state)
         return state
 
-    connected = action('connect', action='connect', mode='simulator', stations=2)
+    connected = action('connect', action='connect', mode='simulator', stations=2, address='42 19', channel='0D')
     require(connected['connected'] and connected['settings']['mode'] == 'simulator'
             and not connected['armed'], 'Expected an unarmed simulator connection.')
     queried = action('query', action='send', command='query_status')
     status = queried['status']
-    require(not queried['stale'] and status['length'] == 29 and status['reply_prefix'] == '00 FF 04'
-            and queried['status_hex'].startswith('00 FF 04 A5 5A 1D 25 '),
-            'Expected a fresh 29-byte AGV600 reply with radio prefix 00 FF 04.')
+    require(not queried['stale'] and status['length'] == 29 and status['reply_prefix'] == '00 FF 0D'
+            and queried['status_hex'].startswith('00 FF 0D A5 5A 1D 25 '),
+            'Expected a fresh 29-byte AGV600 reply with radio prefix 00 FF 0D.')
     require(status['obstacle_input'] == 0xCC and not {'attachment_active', 'roller_speed'} & status.keys(),
             'Expected the simulator obstacle input and absent attachment fields.')
     require(queried['results']['query_status']['state'] == 'status received',

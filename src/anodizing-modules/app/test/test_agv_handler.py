@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 import pytest
 
 from anodizing_web import agv
-from agv_examples import EXAMPLE_SPEED, synthetic_replies
+from agv_examples import EXAMPLE_PREFIX, EXAMPLE_REPLY_PREFIX, EXAMPLE_ROUTE, EXAMPLE_SPEED, synthetic_replies
 
 
 source = Path(__file__).resolve().parents[1] / 'anodizing_web/server.py'
@@ -66,8 +66,8 @@ def session(tmp_path, request):
         connection.close()
 
 
-def open_simulator(request, *, agv_mode=2):
-    status, state = request({'action': 'connect', 'agv_mode': agv_mode})
+def open_simulator(request, *, agv_mode=2, **route):
+    status, state = request({'action': 'connect', 'agv_mode': agv_mode, **route})
     assert status == 200 and state['connected'] and state['settings']['mode'] == 'simulator'
     assert state['armed'] is False and state['stale'] is False
     return state['connection_id']
@@ -245,16 +245,16 @@ def test_urgent_write_can_receive_the_pending_read_reply(session, monkeypatch, a
         def interleave(seconds):
             nonlocal reply
             agv_clock.now += seconds
-            reply = bytes.fromhex('A5 5A 07 21 DC 05 08')
+            reply = agv.Frame(0x21, EXAMPLE_SPEED.to_bytes(2, 'little')).encode()
             status, state = pool.submit(send, request, 'stop', connection_id).result(timeout=1)
             assert status == 200
-            assert state['results']['read_speed']['state'] == 'reply: 1500 m/h'
+            assert state['results']['read_speed']['state'] == f'reply: {EXAMPLE_SPEED} m/h'
 
         monkeypatch.setattr(agv, 'sleep', interleave)
         status, state = send(request, 'read_speed', connection_id)
 
     assert status == 200
-    assert state['results']['read_speed']['state'] == 'reply: 1500 m/h'
+    assert state['results']['read_speed']['state'] == f'reply: {EXAMPLE_SPEED} m/h'
 
 
 def test_simulator_reports_motion_speed_target_pause_and_stop(session, agv_clock):
@@ -267,7 +267,7 @@ def test_simulator_reports_motion_speed_target_pause_and_stop(session, agv_clock
     assert state['status']['set_speed_m_h'] == 1257
     assert state['results']['set_speed']['state'] == 'confirmed by status'
     assert send(request, 'read_speed')[1]['log'][-1]['decode'] == {
-        'read_speed_m_h': 1257, 'reply_prefix': '00 FF 04',
+        'read_speed_m_h': 1257, 'reply_prefix': agv.hex_bytes(agv.reply_prefix(agv.DEFAULT_PREFIX)),
     }
     assert send(request, 'call_station', connection_id, value=2)[0] == 200
     state = send(request, 'query_status')[1]
@@ -339,7 +339,7 @@ def test_agv_uses_existing_request_authorization(session):
 def test_synthetic_replies_confirm_and_only_status_refreshes_the_link(session, monkeypatch):
     clock = SimpleNamespace(now=10.0)
     monkeypatch.setattr(agv, 'monotonic', lambda: clock.now)
-    status_reply, speed_reply, unidentified = synthetic_replies(bytes.fromhex('00 01 04'))
+    status_reply, speed_reply, unidentified = synthetic_replies(EXAMPLE_PREFIX)
 
     class ExampleReplies(agv.Simulator):
         def write(self, raw):
@@ -349,10 +349,10 @@ def test_synthetic_replies_confirm_and_only_status_refreshes_the_link(session, m
 
     monkeypatch.setattr(agv, 'Simulator', ExampleReplies)
     _, request = session
-    connection_id = open_simulator(request)
+    connection_id = open_simulator(request, **EXAMPLE_ROUTE)
     state = send(request, 'query_status', connection_id)[1]
     assert state['status_hex'] == status_reply.hex(' ').upper()
-    assert state['status']['reply_prefix'] == '00 FF 04'
+    assert state['status']['reply_prefix'] == agv.hex_bytes(EXAMPLE_REPLY_PREFIX)
     assert state['results']['query_status']['state'] == 'status received'
 
     clock.now += 4
@@ -362,7 +362,7 @@ def test_synthetic_replies_confirm_and_only_status_refreshes_the_link(session, m
     state = send(request, 'read_speed', connection_id)[1]
     reply, unknown = state['log'][-2:]
     assert reply['hex'] == speed_reply.hex(' ').upper()
-    assert reply['decode']['reply_prefix'] == '00 FF 04' and reply['decode']['read_speed_m_h'] == EXAMPLE_SPEED
+    assert reply['decode']['reply_prefix'] == agv.hex_bytes(EXAMPLE_REPLY_PREFIX) and reply['decode']['read_speed_m_h'] == EXAMPLE_SPEED
     assert unknown['hex'] == unidentified.hex(' ').upper()
     assert unknown['decode']['description'] == 'unidentified frame 01 (not in the XBOT protocol)'
     assert 'error' not in unknown['decode']
@@ -377,19 +377,20 @@ def test_synthetic_replies_confirm_and_only_status_refreshes_the_link(session, m
 
 def test_simulator_generates_replies_and_reports_01_periodically(session, agv_clock, monkeypatch):
     agv_clock.now = 0.0
+    monkeypatch.setattr(agv, 'UNIDENTIFIED_INTERVAL', 8)
     _, request = session
     # Real-time polling can enqueue status frames when the fake clock jumps.
     monkeypatch.setattr(request.connection, '_start_worker', lambda **kwargs: None)
-    connection_id = open_simulator(request)
+    connection_id = open_simulator(request, **EXAMPLE_ROUTE)
     assert request()[1]['log'] == []
 
     state = send(request, 'query_status', connection_id)[1]
-    assert state['status_hex'].startswith('00 FF 04 A5 5A 1D 25 ')
+    assert state['status_hex'].startswith(f'{agv.hex_bytes(EXAMPLE_REPLY_PREFIX)} A5 5A 1D 25 ')
     assert state['status']['obstacle_input'] == 0xCC
     assert not {'attachment_active', 'roller_speed'} & state['status'].keys()
-    assert send(request, 'read_speed', connection_id)[1]['log'][-1]['hex'] == agv.Frame(0x21, (1500).to_bytes(2, 'little'), bytes.fromhex('00 FF 04')).encode().hex(' ').upper()
+    assert send(request, 'read_speed', connection_id)[1]['log'][-1]['hex'] == agv.Frame(0x21, (1500).to_bytes(2, 'little'), EXAMPLE_REPLY_PREFIX).encode().hex(' ').upper()
 
-    for tick in (11.22, 22.44):
+    for tick in (8, 16):
         agv_clock.now = tick - .01
         before = request()[1]['log']
         agv_clock.now = tick
@@ -424,12 +425,12 @@ def test_echoed_speed_request_is_followed_by_a_real_reply(session, monkeypatch):
 
     monkeypatch.setattr(agv, 'Simulator', EchoingLink)
     _, request = session
-    connection_id = open_simulator(request)
+    connection_id = open_simulator(request, **EXAMPLE_ROUTE)
     state = send(request, 'read_speed', connection_id)[1]
     echo, reply = state['log'][-2:]
-    assert echo['hex'] == agv.command_frame('read_speed', None, bytes.fromhex('00 01 04')).encode().hex(' ').upper()
+    assert echo['hex'] == agv.command_frame('read_speed', None, EXAMPLE_PREFIX).encode().hex(' ').upper()
     assert echo['decode'] == {'description': 'echo of our transmission'}
-    assert reply['hex'] == agv.Frame(0x21, (1500).to_bytes(2, 'little'), bytes.fromhex('00 FF 04')).encode().hex(' ').upper()
+    assert reply['hex'] == agv.Frame(0x21, (1500).to_bytes(2, 'little'), EXAMPLE_REPLY_PREFIX).encode().hex(' ').upper()
     assert reply['decode']['read_speed_m_h'] == 1500
     assert state['results']['read_speed']['state'] == 'reply: 1500 m/h'
 
@@ -482,7 +483,7 @@ def test_prefixless_radio_speed_reply_completes_read_without_status(session, mon
         @property
         def in_waiting(self):
             if self.reply_at is not None and agv_clock.now >= self.reply_at:
-                self.buffer += bytes.fromhex('A5 5A 07 21 DC 05 08')
+                self.buffer += agv.Frame(0x21, EXAMPLE_SPEED.to_bytes(2, 'little')).encode()
                 self.reply_at = None
             return super().in_waiting
 
@@ -497,8 +498,8 @@ def test_prefixless_radio_speed_reply_completes_read_without_status(session, mon
     connection_id = open_simulator(request)
     state = send(request, 'read_speed', connection_id)[1]
     assert agv_clock.now == 10.0 + delay
-    assert state['log'][-1]['decode'] == {'read_speed_m_h': 1500}
-    assert state['results']['read_speed']['state'] == 'reply: 1500 m/h'
+    assert state['log'][-1]['decode'] == {'read_speed_m_h': EXAMPLE_SPEED}
+    assert state['results']['read_speed']['state'] == f'reply: {EXAMPLE_SPEED} m/h'
     assert state['status'] is None
 
 
@@ -1115,18 +1116,20 @@ def test_timed_reports_pace_ordinary_send_but_never_delay_stop(session, agv_cloc
 
 
 def test_stop_retry_cannot_collide_with_the_first_ack(session, monkeypatch, agv_clock):
+    airtime = .24
+
     class HalfDuplex(agv.Simulator):
         def write(self, raw):
             now = agv_clock.now
-            tx_end = now + .289
+            tx_end = now + airtime
             ack = self.acknowledgements[0] if self.acknowledgements else None
-            if ack is not None and now < ack and tx_end > ack - .289:
+            if ack is not None and now < ack and tx_end > ack - airtime:
                 self.acknowledgements.popleft()
                 return len(raw)
-            if now < self.next_report and tx_end > self.next_report - .494:
+            if now < self.next_report and tx_end > self.next_report - .4:
                 return len(raw)
             written = super().write(raw)
-            self.acknowledgements[-1] = now + .611
+            self.acknowledgements[-1] = now + .52
             return written
 
     monkeypatch.setattr(agv, 'Simulator', HalfDuplex)
@@ -1135,17 +1138,17 @@ def test_stop_retry_cannot_collide_with_the_first_ack(session, monkeypatch, agv_
     for _ in range(4):
         agv_clock.now += 1
         request()
-    agv_clock.now += .067
+    agv_clock.now += .04
     send(request, 'stop')
-    agv_clock.now += .043
+    agv_clock.now += .1
     request()
-    agv_clock.now += .58
+    agv_clock.now += .43
     state = request()[1]
-    assert state['results']['stop'].get('ack_elapsed_s') == pytest.approx(.623)
+    assert state['results']['stop'].get('ack_elapsed_s') == pytest.approx(.53)
     assert len(command_writes(state, 'stop')) == 1
 
 
-@pytest.mark.parametrize(('delay', 'late'), [(.102, True), (.301, False)])
+@pytest.mark.parametrize(('delay', 'late'), [(.2, True), (.31, False)])
 def test_final_urgent_ack_grace_window(session, monkeypatch, agv_clock, delay, late):
     class FinalAck(agv.Simulator):
         writes = 0

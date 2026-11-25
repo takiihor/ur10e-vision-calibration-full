@@ -171,7 +171,7 @@
           "path": "examples/rg2.json"
         },
         {
-          "bundle_sha256": "d524d1054eff575ee2c5c888e6468ddd41a39f3a4e8021527e029af7f512dc36",
+          "bundle_sha256": "f089d35ab41e505c8f2bcd3e5d72c88faf5719c0948c2865226d73846a2511cd",
           "path": "examples/vision-basler.json"
         },
         {
@@ -227,7 +227,7 @@
           "path": "src/ur_pick_place/web/teacher.js"
         },
         {
-          "bundle_sha256": "333582b870840ea6070bd85e2693412ef1daf8cba246055415d5fb97379a522f",
+          "bundle_sha256": "20c93cf0ac8177d682f28b4c81f7c02855b78812d79160bc0e32f29fd42317f5",
           "path": "tests/marker_teacher_ui.cjs"
         },
         {

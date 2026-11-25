@@ -9,9 +9,9 @@ const source = fs.readFileSync(path.join(web, 'agv-record.mjs'), 'utf8').split(/
   fs.readFileSync(path.join(web, 'agv.js'), 'utf8').replace(/^import .*?;\n/s, '');
 const storage = new Map();
 const requests = [];
-const radio = {device: '/dev/ttyUSB0', description: 'CH340'};
-const other = {device: '/dev/ttyUSB1', description: 'Other adapter'};
-const onboard = {device: '/dev/ttyS0', description: 'n/a'};
+const radio = {device: '/dev/example-radio', description: 'Example radio adapter'};
+const other = {device: '/dev/example-other', description: 'Other adapter'};
+const onboard = {device: '/dev/example-onboard', description: 'n/a'};
 let storageReads = 0, storageWrites = 0;
 
 async function load(ports) {
@@ -40,8 +40,8 @@ async function load(ports) {
   }
   const get = id => field('agv-' + id);
   get('mode').value = 'simulator';
-  get('address').value = '00 01';
-  get('channel').value = '04';
+  get('address').value = '42 19';
+  get('channel').value = '0D';
   get('stations-config').value = '3';
   let sequence = 0, now = 0, tick, stopSent;
   vm.runInNewContext(source, {
@@ -94,14 +94,14 @@ async function load(ports) {
           connected: true, status_hex: 'standard report', status_age_s: .2,
           status: {mode: 0, current_station: 7, max_stations: 1, position_units: 20, stopped: true},
           commands: [{name: 'forward', label: 'Forward', motion: true}, {name: 'reverse', label: 'Reverse', motion: true}],
-          link_quality: {sent: 4, acknowledged: 1, resent: 2, no_reply: 1, timed_report_interval_s: 1.2},
+          link_quality: {sent: 4, acknowledged: 1, resent: 2, no_reply: 1, timed_report_interval_s: .8},
         });
         if (stopSent) {
           const late = ++stopReads > 1;
           Object.assign(response, {...stopSent, sequence,
             results: {stop: {...stopSent.results.stop, tries: 5,
-              ...(late ? {state: 'acknowledged late', ack_elapsed_s: 1.102} : {state: 'no reply'})}},
-            link_quality: {sent: 5, acknowledged: +late, resent: 4, no_reply: +!late, timed_report_interval_s: 1.2}});
+              ...(late ? {state: 'acknowledged late', ack_elapsed_s: 1.2} : {state: 'no reply'})}},
+            link_quality: {sent: 5, acknowledged: +late, resent: 4, no_reply: +!late, timed_report_interval_s: .8}});
         }
       } else if (scenario === 'rejected') return {ok: false, json: async () => ({error: 'Fixture rejection'})};
       else if (scenario === 'requested-evidence' && ['stop', 'pause'].includes(body.command)) Object.assign(response, {
@@ -123,7 +123,7 @@ async function load(ports) {
         results: {pause: {tx_id: sequence, state: 'sent', sent_at: '2026-11-19T12:34:56.789Z'}},
       });
       else if (body.action === 'send') stopSent = Object.assign(response, {connected: true, connection_id: 2,
-        settings: {mode: 'simulator', address: '00 01', channel: '04', port: null},
+        settings: {mode: 'simulator', address: '42 19', channel: '0D', port: null},
         results: {stop: {tx_id: sequence, state: 'sent', sent_at: '2026-11-19T12:34:56.789Z'}}});
       else Object.assign(response, {connected: true, connection_id: 2,
         settings: {mode: body.mode, port: body.mode === 'serial' ? body.port : null,
@@ -166,7 +166,7 @@ async function run() {
     assert.match(get('pause-why').textContent, /standard mode.*Stop/i);
     assert.match(get('station-note').textContent, /station-call function/);
     assert.match(get('station-label').textContent, /Stop counter/);
-    assert.match(get('link-quality').textContent, /Sent 4.*Acknowledged 1.*Resent 2.*No reply 1.*1.2 s/);
+    assert.match(get('link-quality').textContent, /Sent 4.*Acknowledged 1.*Resent 2.*No reply 1.*0\.8 s/);
   }
   if (scenario === 'station-range' || scenario === 'station-unlearned') {
     get('call_station-value').valueAsNumber = 2;

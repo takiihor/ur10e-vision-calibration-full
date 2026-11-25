@@ -29,7 +29,7 @@ class WebProfileTests(unittest.TestCase):
     def test_invalid_basler_values_cannot_be_submitted(self):
         self.run_js(r"""
 const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
-const fields = {camera_provider: 'basler', camera_exposure_us: '5000', camera_gain_db: '0'};
+const fields = {camera_provider: 'basler', camera_exposure_us: '3200', camera_gain_db: '2'};
 const context = {document: {querySelector: () => ({content: 'fixture'}), body: {dataset: {module: 'calibration'}},
   addEventListener() {}, getElementById: id => ({value: fields[id] ?? ''})}, localStorage: {getItem: () => null}};
 vm.createContext(context);
@@ -41,8 +41,8 @@ for (const [id, invalid] of [['camera_exposure_us', ['', 'bad', '0', '-1', 'Infi
   for (const value of invalid) { fields[id] = value; assert.throws(() => context.values('camera-preview'), /Exposure|Gain/); }
   fields[id] = saved;
 }
-assert.equal(context.values('camera-preview').camera_exposure_us, 5000);
-assert.equal(context.values('camera-preview').camera_gain_db, 0);
+assert.equal(context.values('camera-preview').camera_exposure_us, 3200);
+assert.equal(context.values('camera-preview').camera_gain_db, 2);
 fields.camera_provider = 'realsense'; fields.camera_exposure_us = 'bad'; fields.camera_gain_db = 'bad';
 assert.doesNotThrow(() => context.values('camera'));
 """, 'app.js')

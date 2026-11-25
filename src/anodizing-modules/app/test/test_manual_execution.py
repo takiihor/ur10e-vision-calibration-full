@@ -22,19 +22,19 @@ def executor_module(test):
 
 class ManualRouteTests(unittest.TestCase):
     def settings(self):
-        return ManualSettings(robot_ip='fake', workspace_min_m=[-.9,-.9,.01],
-            workspace_max_m=[.9,.9,1.2], tcp_speed_mm_s=10,
+        return ManualSettings(robot_ip='fake', workspace_min_m=[-.82,-.84,.025],
+            workspace_max_m=[.82,.84,1.22], tcp_speed_mm_s=10,
             joint_speed_rad_s=math.radians(3), joint_accel_rad_s2=.1)
 
-    def test_real_saved_pick_below_workspace_is_refused_without_clamping(self):
+    def test_synthetic_pick_below_workspace_is_refused_without_clamping(self):
         module=executor_module(self)
-        route=vertical_intent([.4,.1,.007525,0,math.pi,0],117.056)
+        route=vertical_intent([.4,.1,.004,0,math.pi,0],113.0)
         original=copy.deepcopy(route)
         with self.assertRaisesRegex(ValueError, 'workspace|Workspace'):
             module.validate_route(route,self.settings())
         self.assertEqual(route,original)
-        self.assertAlmostEqual(route['endpoint'][2]*1000,7.525)
-        self.assertAlmostEqual(route['above'][2]*1000,124.581)
+        self.assertAlmostEqual(route['endpoint'][2]*1000,4.0)
+        self.assertAlmostEqual(route['above'][2]*1000,117.0)
 
     def test_all_route_stages_must_fit_workspace_before_any_dispatch(self):
         module=executor_module(self)
@@ -316,13 +316,13 @@ class ManualWorkerTests(unittest.TestCase):
                 self.worker.close()
 
     def test_saved_pick_outside_workspace_is_visible_and_refused_before_prompt(self):
-        self.prepare(endpoint_z=.007525)
-        self.context.approach_mm=117.056
+        self.prepare(endpoint_z=.004)
+        self.context.approach_mm=113.0
         self.worker.submit('move_tcp')
         state=self.wait_for(lambda s:bool(s['error']))
         self.assertIn('workspace',state['error'])
-        self.assertAlmostEqual(state['manual']['route']['endpoint'][2],.007525)
-        self.assertAlmostEqual(state['manual']['route']['above'][2],.124581)
+        self.assertAlmostEqual(state['manual']['route']['endpoint'][2],.004)
+        self.assertAlmostEqual(state['manual']['route']['above'][2],.117)
         self.assertEqual(self.robot.moves,[])
 
     def test_laptop_heartbeat_expiry_holds_at_boundary_without_replay(self):
@@ -587,8 +587,8 @@ class ManualWorkerTests(unittest.TestCase):
             'calibration':'fixture-calibration','pick_tag':'tank01','place_tag':'tank01',
             'reuse_taught_offset':True,'operator_path_approved':True,'tcp_confirmed':True,
             'held_envelope_confirmed':True,'initial_item_state':'operator_confirmed_released',
-            'collision_scene':'reviewed-scene.json','workspace_min_m':[-.9,-.9,.01],
-            'workspace_max_m':[.9,.9,1.2],'joint_speed_deg_s':3,'speed_mm_s':10,
+            'collision_scene':'reviewed-scene.json','workspace_min_m':[-.82,-.84,.025],
+            'workspace_max_m':[.82,.84,1.22],'joint_speed_deg_s':3,'speed_mm_s':10,
             'joint_bounds_rad':[[-2*math.pi,2*math.pi] for _ in range(6)],
             'joint_bounds_source':'offline fixture limits'}
         return owner

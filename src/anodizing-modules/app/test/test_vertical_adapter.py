@@ -1,4 +1,4 @@
-"""Real frozen checker/adapter integration on saved factory fixtures; no SDK."""
+"""Offline checker and adapter integration using the bundled nominal scene."""
 import json
 import math
 from pathlib import Path

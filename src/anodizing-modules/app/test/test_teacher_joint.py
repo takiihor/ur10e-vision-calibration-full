@@ -57,7 +57,7 @@ class JointTeacherTests(unittest.TestCase):
                 raise RuntimeError('injected stop connection failure')
             begin()
             self.robot._move=None
-            return None  # Installed stopJ returns no acceptance Boolean.
+            return None  # stopJ can return without an acceptance Boolean.
         self.robot.stopJ=stop
         def progress():
             self.robot._update()
