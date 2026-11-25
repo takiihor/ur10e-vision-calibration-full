@@ -357,7 +357,8 @@ os._exit(74)
 
     def test_invalid_or_synthetic_saved_projects_never_connect(self):
         from anodizing_web.tool_power import submit
-        for i,change in enumerate(({'simulation':True},{'type':'other'},{'schema_version':2},{'settings':{'robot_ip':'simulation'}},{'settings':{'robot_ip':'192.0.2.248:30002'}},{'settings':{'robot_ip':'127.0.0.1'}},{'settings':{'robot_ip':3232238840}})):
+        # The integer spelling of a TEST-NET address must also fail type validation.
+        for i,change in enumerate(({'simulation':True},{'type':'other'},{'schema_version':2},{'settings':{'robot_ip':'simulation'}},{'settings':{'robot_ip':'192.0.2.248:30002'}},{'settings':{'robot_ip':'127.0.0.1'}},{'settings':{'robot_ip':3221226232}})):
             self.project.update(change);self.save_project()
             self.body['request_id']=f'bad-project-{i:03d}'
             with mock.patch('anodizing_web.tool_power.socket.create_connection') as connect:
