@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from anodizing_web import agv
-from agv_examples import EXAMPLE_PREFIX, EXAMPLE_REPLY_PREFIX, EXAMPLE_ROUTE, EXAMPLE_VEHICLE_ID, REPORT
+from agv_examples import EXAMPLE_PREFIX, EXAMPLE_REPLY_PREFIX, EXAMPLE_ROUTE, EXAMPLE_STATUS, EXAMPLE_VEHICLE_ID, REPORT
 
 
 @pytest.fixture
@@ -72,12 +72,32 @@ def test_wired_accepts_bare_and_broadcast_prefixed_status(wired_link, prefix):
     assert link.capability()['status']['vehicle_id'] == EXAMPLE_VEHICLE_ID
 
 
+def test_dedicated_wired_link_without_radio_route_locks_to_first_complete_status(wired_link):
+    link, opened = wired_link
+    response = link.submit({'action': 'connect', 'mode': 'wired'})
+    assert response['settings']['address'] == response['settings']['channel'] == ''
+    device = opened[0]
+    device.buffer = agv.Frame(0x25, bytes((EXAMPLE_VEHICLE_ID + 1,))).encode()
+    first = link.capability()
+    assert first['status'] is None
+    assert 'vehicle ID' in first['log'][-1]['decode']['error']
+    other_vehicle = bytes((EXAMPLE_VEHICLE_ID + 1,)) + EXAMPLE_STATUS[1:]
+    device.buffer = agv.Frame(0x25, other_vehicle[:14]).encode()
+    assert link.capability()['status'] is None
+    device.buffer = agv.Frame(0x25, EXAMPLE_STATUS[:17]).encode()
+    assert link.capability()['status']['vehicle_id'] == EXAMPLE_VEHICLE_ID
+    device.buffer = agv.Frame(0x25, other_vehicle).encode()
+    other = link.capability()
+    assert other['status']['vehicle_id'] == EXAMPLE_VEHICLE_ID
+    assert 'vehicle ID' in other['log'][-1]['decode']['error']
+
+
 @pytest.mark.parametrize('mode', ['wired', 'serial', 'simulator'])
 def test_profile_locks_arming_commands_and_recipe_in_every_mode(wired_link, mode):
     link, opened = wired_link
     body = {'action': 'connect', 'mode': mode}
     if mode == 'serial':
-        body['port'] = '/dev/example-wire'
+        body.update(port='/dev/example-wire', **EXAMPLE_ROUTE)
     state = link.submit(body)
     cid = state['connection_id']
     with pytest.raises(ValueError):

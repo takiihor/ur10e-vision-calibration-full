@@ -203,7 +203,7 @@ An MCU reply does not answer the prompt. Check the physical item and use the
 separate operation confirmation before lift/retraction. Raw text, hex and FSR
 sensor values are evidence of the reply, not proof that an item is held.
 
-Anobot revision `4e9a298c94e07e1d26a47f7d615f957741dd7e2f` defines these bytes and
+The MCU protocol defines these command bytes and the
 case-insensitive exact `Tight`, `Loose`, `Open` replies, and `FSR1:n/FSR2:n` status.
 The adapter uses its 2 s read limit, 0.5 s write limit, 0.1 s quiet period and
 128-byte reply bound. Queued input is discarded before each explicit command.
@@ -279,8 +279,24 @@ Choose a base X/Y/Z increment of 1, 5 or 10 mm, or a tool-local rotation of 1, 2
 The shared IPC owner retains the worker through cleanup. Stop cancels pending approval or stops the accepted move. A disconnect does not repeat or resume work. Network failures leave the request blocked for inspection. A definite rejected request permits correction and a new explicit click. Dispatch evidence uses the existing `*.manual-path.json` restart fence. These changes require offline regression and browser acceptance before activation. Fake robot checks do not validate physical clearance, model accuracy or controller timing.
 
 
-When a private site profile contains `agv.wired_port`, the web service offers
-Wired RS-485 on both AGV pages. It uses bare outgoing frames and accepts bare
-or radio-prefixed replies. This profile fences motion and recipes in every
-transport. Use the private device path for the approved serial adapter.
-Optional `agv.fault_descriptions` maps decimal fault codes to local descriptions.
+Both AGV pages accept a live serial radio address and channel in Link settings.
+The address takes two hex bytes and the channel takes one. A blank field uses
+the corresponding `agv.address` or `agv.channel` string from the private
+`site-profile.json` in the service data directory. Restart the service after
+editing the profile. The browser remembers explicit overrides from its last
+successful connection and restores them when the transport matches. The service
+rejects missing or invalid live routes before opening a serial port.
+An API caller can omit a field to use its profile value.
+
+When the profile contains `agv.wired_port`, both pages offer Wired RS-485 and the
+service fences motion and recipes in every transport. Use a dedicated link to
+the AGV and the private device path for the approved serial adapter. Wired sends
+bare requests. A radio route also lets it recognize the configured reply
+prefix and check the vehicle ID. With both fields absent, the first complete
+status frame identifies the vehicle for that connection.
+
+The simulator uses an invented route, initial speed and periodic frame
+interval. Offline tests use fake serial and a simulated clock. They provide
+no evidence about physical routing, link timing or motion. The optional
+`agv.fault_descriptions` profile field maps decimal fault codes to local
+descriptions.

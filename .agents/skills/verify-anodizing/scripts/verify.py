@@ -176,7 +176,7 @@ def agv(_, token, __):
         save_json('agv-' + step + '.json', state)
         return state
 
-    connected = action('connect', action='connect', mode='simulator', stations=2, address='42 19', channel='0D')
+    connected = action('connect', action='connect', mode='simulator', stations=2)
     require(connected['connected'] and connected['settings']['mode'] == 'simulator'
             and not connected['armed'], 'Expected an unarmed simulator connection.')
     queried = action('query', action='send', command='query_status')
@@ -189,9 +189,9 @@ def agv(_, token, __):
     require(queried['results']['query_status']['state'] == 'status received',
             'The valid status report did not complete the query.')
     speed = action('read-speed', action='send', command='read_speed')
-    require(any(event['direction'] == 'RX' and event['decode'].get('read_speed_m_h') == 1500 for event in speed['log']),
-            'Expected the short 1500 m/h speed reply.')
-    require(speed['results']['read_speed']['state'] == 'reply: 1500 m/h',
+    require(any(event['direction'] == 'RX' and event['decode'].get('read_speed_m_h') == 1250 for event in speed['log']),
+            'Expected the short 1250 m/h speed reply.')
+    require(speed['results']['read_speed']['state'] == 'reply: 1250 m/h',
             'The valid speed reply did not complete the read.')
     connection_id = connected['connection_id']
     require(status['max_stations'] == 1 and status['current_station'] == 1, 'Expected one learned leg from station 1.')
@@ -199,7 +199,7 @@ def agv(_, token, __):
     approval = dict(connection_id=connection_id, stop_generation=armed['stop_generation'])
     action('reverse', action='send', command='reverse', **approval)
     reversed_state = action('check-reverse', action='send', command='query_status')
-    require(reversed_state['status']['actual_speed_m_h'] == -1500, 'Reverse speed must be signed.')
+    require(reversed_state['status']['actual_speed_m_h'] == -1250, 'Reverse speed must be signed.')
     time.sleep(1.1)
     acknowledged = action('check-acknowledged', action='send', command='query_status')
     require(acknowledged['results']['reverse']['ack_elapsed_s'] >= 1 and any(

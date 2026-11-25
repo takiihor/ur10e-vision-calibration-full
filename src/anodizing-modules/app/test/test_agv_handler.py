@@ -79,6 +79,41 @@ def send(request, command, connection_id=None, **fields):
     return request(dict(action='send', command=command, connection_id=connection_id, **fields))
 
 
+@pytest.mark.parametrize(('session', 'route', 'expected'), [
+    ({}, {}, None),
+    ({'agv': {'address': '26 35'}}, {}, None),
+    ({'agv': {'address': '26 35', 'channel': 'invalid'}}, {}, None),
+    ({}, EXAMPLE_ROUTE, EXAMPLE_ROUTE),
+    ({'agv': {'address': '26 35', 'channel': '2A'}}, {}, {'address': '26 35', 'channel': '2A'}),
+    ({'agv': {'address': '26 35', 'channel': '2A'}}, {'channel': '0d'}, {'address': '26 35', 'channel': '0D'}),
+    ({'agv': {'address': '26 35', 'channel': '2A'}}, {'address': ''}, None),
+], indirect=['session'])
+def test_serial_requires_reviewed_route_before_accessing_hardware(session, monkeypatch, route, expected):
+    _, request = session
+    actions = []
+
+    def ports():
+        actions.append('enumerate')
+        return [{'device': '/dev/fake', 'description': 'Test'}]
+
+    def open_port(**kwargs):
+        actions.append('open')
+        return SimpleNamespace(close=lambda: None)
+
+    monkeypatch.setattr(agv, 'serial_ports', ports)
+    monkeypatch.setattr(agv, 'serial', SimpleNamespace(Serial=open_port))
+    monkeypatch.setattr(request.connection, '_start_worker', lambda **kwargs: None)
+    code, response = request(dict(action='connect', mode='serial', port='/dev/fake', **route))
+    if expected is None:
+        assert code == 400
+        assert 'Address' in response['error'] or 'Channel' in response['error']
+        assert actions == []
+    else:
+        assert code == 200 and response['connected'] and not response['armed']
+        assert {field: response['settings'][field] for field in expected} == expected
+        assert actions == ['enumerate', 'open']
+
+
 def test_set_speed_argument_defaults_to_slowest_speed(session):
     _, request = session
     status, state = request()
@@ -267,7 +302,7 @@ def test_simulator_reports_motion_speed_target_pause_and_stop(session, agv_clock
     assert state['status']['set_speed_m_h'] == 1257
     assert state['results']['set_speed']['state'] == 'confirmed by status'
     assert send(request, 'read_speed')[1]['log'][-1]['decode'] == {
-        'read_speed_m_h': 1257, 'reply_prefix': agv.hex_bytes(agv.reply_prefix(agv.DEFAULT_PREFIX)),
+        'read_speed_m_h': 1257, 'reply_prefix': agv.hex_bytes(agv.reply_prefix(EXAMPLE_PREFIX)),
     }
     assert send(request, 'call_station', connection_id, value=2)[0] == 200
     state = send(request, 'query_status')[1]
@@ -375,20 +410,23 @@ def test_synthetic_replies_confirm_and_only_status_refreshes_the_link(session, m
     assert state['results']['read_speed']['state'] == f'reply: {EXAMPLE_SPEED} m/h'
 
 
+@pytest.mark.parametrize('session', [{'agv': {'address': '26 35', 'channel': '2A'}}], indirect=True)
 def test_simulator_generates_replies_and_reports_01_periodically(session, agv_clock, monkeypatch):
     agv_clock.now = 0.0
-    monkeypatch.setattr(agv, 'UNIDENTIFIED_INTERVAL', 8)
     _, request = session
     # Real-time polling can enqueue status frames when the fake clock jumps.
     monkeypatch.setattr(request.connection, '_start_worker', lambda **kwargs: None)
-    connection_id = open_simulator(request, **EXAMPLE_ROUTE)
-    assert request()[1]['log'] == []
+    connection_id = open_simulator(request)
+    snapshot = request()[1]
+    assert snapshot['log'] == []
+    assert snapshot['radio_profile'] == {'address': True, 'channel': True}
+    assert {field: snapshot['settings'][field] for field in EXAMPLE_ROUTE} == EXAMPLE_ROUTE
 
     state = send(request, 'query_status', connection_id)[1]
     assert state['status_hex'].startswith(f'{agv.hex_bytes(EXAMPLE_REPLY_PREFIX)} A5 5A 1D 25 ')
     assert state['status']['obstacle_input'] == 0xCC
     assert not {'attachment_active', 'roller_speed'} & state['status'].keys()
-    assert send(request, 'read_speed', connection_id)[1]['log'][-1]['hex'] == agv.Frame(0x21, (1500).to_bytes(2, 'little'), EXAMPLE_REPLY_PREFIX).encode().hex(' ').upper()
+    assert send(request, 'read_speed', connection_id)[1]['log'][-1]['hex'] == agv.Frame(0x21, (1250).to_bytes(2, 'little'), EXAMPLE_REPLY_PREFIX).encode().hex(' ').upper()
 
     for tick in (8, 16):
         agv_clock.now = tick - .01
@@ -430,9 +468,9 @@ def test_echoed_speed_request_is_followed_by_a_real_reply(session, monkeypatch):
     echo, reply = state['log'][-2:]
     assert echo['hex'] == agv.command_frame('read_speed', None, EXAMPLE_PREFIX).encode().hex(' ').upper()
     assert echo['decode'] == {'description': 'echo of our transmission'}
-    assert reply['hex'] == agv.Frame(0x21, (1500).to_bytes(2, 'little'), EXAMPLE_REPLY_PREFIX).encode().hex(' ').upper()
-    assert reply['decode']['read_speed_m_h'] == 1500
-    assert state['results']['read_speed']['state'] == 'reply: 1500 m/h'
+    assert reply['hex'] == agv.Frame(0x21, (1250).to_bytes(2, 'little'), EXAMPLE_REPLY_PREFIX).encode().hex(' ').upper()
+    assert reply['decode']['read_speed_m_h'] == 1250
+    assert state['results']['read_speed']['state'] == 'reply: 1250 m/h'
 
 
 def test_echo_without_speed_reply_times_out_at_the_reply_deadline(session, monkeypatch, agv_clock):
@@ -601,7 +639,7 @@ def test_status_events_record_both_edges_and_private_fault_description(session, 
     class StatusLink(agv.Simulator):
         def write(self, raw):
             data = bytearray(24)
-            data[0], data[13], data[14] = 1, 3, 2
+            data[0], data[13], data[14] = self.prefix[1], 3, 2
             for offset, (field, _) in agv.STATUS_FIELDS.items():
                 if field in fields:
                     data[offset - 4] = fields[field]
@@ -638,7 +676,7 @@ def test_serial_open_errors_give_a_next_step(session, monkeypatch, number, messa
     monkeypatch.setattr(agv, 'serial_ports', lambda: [{'device': '/dev/fake', 'description': 'Test'}])
     monkeypatch.setattr(agv, 'serial', SimpleNamespace(Serial=fail_open))
     _, request = session
-    code, denied = request(dict(action='connect', mode='serial', port='/dev/fake'))
+    code, denied = request(dict(action='connect', mode='serial', port='/dev/fake', **EXAMPLE_ROUTE))
     assert code == 400 and message in denied['error']
     assert 'driver diagnostic' not in denied['error']
     state = request()[1]
@@ -1569,12 +1607,12 @@ def test_software_stop_pauses_active_station_trip(session, agv_clock):
     (2, 'call_station', 2, 'stop', 'pause'),
 ])
 def test_simulator_ignores_wrong_halt_for_mode(agv_clock, mode, motion, value, wrong, correct):
-    simulator = agv.Simulator(agv.DEFAULT_PREFIX)
+    simulator = agv.Simulator(EXAMPLE_PREFIX)
     simulator.mode = mode
     for command, argument in [(motion, value), (wrong, None)]:
-        simulator.write(agv.command_frame(command, argument, agv.DEFAULT_PREFIX).encode())
+        simulator.write(agv.command_frame(command, argument, EXAMPLE_PREFIX).encode())
     assert simulator.stopped is False
-    simulator.write(agv.command_frame(correct, None, agv.DEFAULT_PREFIX).encode())
+    simulator.write(agv.command_frame(correct, None, EXAMPLE_PREFIX).encode())
     assert simulator.stopped is True
 
 
@@ -1705,7 +1743,7 @@ def test_recipe_receive_failure_attempts_halt_before_close(agv_clock):
             transport.read = failed_read
             with pytest.raises(ValueError, match='Link lost'):
                 link.recipe_feedback()
-            assert writes == [agv.command_frame('pause', None, agv.DEFAULT_PREFIX).encode()]
+            assert writes == [agv.command_frame('pause', None, EXAMPLE_PREFIX).encode()]
             assert link.recipe_stop() is True
             assert len(writes) == 1
             state = link.capability()

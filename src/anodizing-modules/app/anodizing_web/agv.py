@@ -23,7 +23,10 @@ except ImportError:
 
 
 HEADER = b'\xa5\x5a'
-DEFAULT_PREFIX = b'\x00\x01\x04'
+SIMULATOR_PREFIX = bytes.fromhex('42 19 0D')
+SIMULATOR_SPEED = 1250
+SIMULATOR_UNIDENTIFIED_INTERVAL = 8
+ROUTE_FIELDS = (('address', 2), ('channel', 1))
 REPLY_TIMEOUT = 1.5
 STATUS_REPLY_EXPECTED = .95
 WRITE_TIMEOUT = .5
@@ -33,7 +36,6 @@ PAGE_POLL_S = 1.2
 RECIPE_STALE_S = 3
 RECIPE_POLL_S = .9
 MOTION_POLL_S = .5
-UNIDENTIFIED_INTERVAL = 11.22
 REPORT_GAP = (.100, .150)
 ACK_WINDOW = .75
 FALLBACK_INTERVAL = 1.5
@@ -141,7 +143,7 @@ class Splitter:
 
     def __init__(self, prefix):
         self.prefix = prefix
-        self.prefixed_headers = (prefix + HEADER, reply_prefix(prefix) + HEADER)
+        self.prefixed_headers = (prefix + HEADER, reply_prefix(prefix) + HEADER) if prefix else ()
         self.buffer = b''
 
     def feed(self, chunk):
@@ -160,7 +162,7 @@ class Splitter:
             else:
                 # A configured prefix may itself contain A5 5A and be split across reads.
                 self.buffer = self.buffer[start:]
-                if (self.prefix + HEADER).startswith(self.buffer):
+                if self.prefix and (self.prefix + HEADER).startswith(self.buffer):
                     break
                 offset = 0
             if len(self.buffer) < offset + 4:
@@ -264,8 +266,8 @@ class Simulator:
         self.random = random.Random(seed)
         self.silent = False
         self.buffer = b''
-        self.next_unidentified = monotonic() + UNIDENTIFIED_INTERVAL
-        self.speed = 1500
+        self.next_unidentified = monotonic() + SIMULATOR_UNIDENTIFIED_INTERVAL
+        self.speed = SIMULATOR_SPEED
         self.stopped = True
         self.station = self.target = 1
         self.stations = 3
@@ -291,7 +293,7 @@ class Simulator:
                 self.buffer += Frame(0x25, self.prefix[1:2]).encode()
         if not self.silent and now >= self.next_unidentified:
             self.buffer += Frame(0x01, b'').encode()
-            self.next_unidentified = now + UNIDENTIFIED_INTERVAL
+            self.next_unidentified = now + SIMULATOR_UNIDENTIFIED_INTERVAL
         if not self.silent and self.mode == 0 and now >= self.next_report:
             self._report()
             self.next_report = now + 1
@@ -449,6 +451,13 @@ class Connection:
                                    if isinstance(descriptions, dict) else {})
         wired_port = profile.get('wired_port')
         self.wired_port = (wired_port.strip() or None) if isinstance(wired_port, str) else None
+        self.radio_route = {}
+        for field, count in ROUTE_FIELDS:
+            if field in profile:
+                try:
+                    self.radio_route[field] = hex_input(profile[field], count, field.title())
+                except ValueError:
+                    self.radio_route[field] = None
         parking = profile.get('parking_station')
         labels = profile.get('station_labels')
         self.station_profile = {
@@ -750,9 +759,13 @@ class Connection:
             offset = 3 if raw.startswith(self.splitter.prefixed_headers) else 0
             frame = parse_frame(raw, offset=offset)
             decoded = decode(frame)
-            if frame.command == 0x25 and decoded.get('vehicle_id') != self.splitter.prefix[1]:
-                self._record('RX', raw, {'error': 'Missing or unexpected vehicle ID.', 'report': decoded})
-                continue
+            if frame.command == 0x25:
+                # A dedicated wired link without a route binds on its first complete status.
+                expected = self.splitter.prefix[1] if self.splitter.prefix else (self.status or {}).get('vehicle_id')
+                vehicle = decoded.get('vehicle_id')
+                if vehicle is None or (vehicle != expected and (expected is not None or 'mode' not in decoded)):
+                    self._record('RX', raw, {'error': 'Missing or unexpected vehicle ID.', 'report': decoded})
+                    continue
             if frame.prefix:
                 decoded['reply_prefix'] = hex_bytes(frame.prefix)
             self._expire()
@@ -830,7 +843,9 @@ class Connection:
         with self.lock:
             snapshot = self._snapshot()
         if ports:
-            snapshot.update(serial_available=serial is not None, ports=devices, port_error=error, commands=[
+            snapshot.update(serial_available=serial is not None, ports=devices, port_error=error, radio_profile={
+                field: self.radio_route.get(field) is not None for field, _ in ROUTE_FIELDS
+            }, commands=[
                 dict(name=name, label=label, payload=payload, argument=ARGUMENTS.get(name),
                      motion=name not in URGENT and name not in READS)
                 for name, (label, payload) in COMMANDS.items()
@@ -905,8 +920,19 @@ class Connection:
         if self.owner.closing:
             raise ValueError('Service is closing.')
         mode = body.get('mode', 'simulator')
-        prefix = (hex_input(body.get('address', '00 01'), 2, 'Address')
-                  + hex_input(body.get('channel', '04'), 1, 'Channel'))
+        if mode not in ('simulator', 'serial', 'wired'):
+            raise ValueError('Select a supported AGV transport.')
+        route = (dict(address=SIMULATOR_PREFIX[:2], channel=SIMULATOR_PREFIX[2:])
+                 if mode == 'simulator' else dict(self.radio_route))
+        route.update({field: hex_input(body[field], count, field.title())
+                      for field, count in ROUTE_FIELDS if field in body})
+        if mode != 'wired' or route:
+            for field, _ in ROUTE_FIELDS:
+                if route.get(field) is None:
+                    raise ValueError(f'{field.title()} is required. Enter it in Link settings or configure agv.{field}.')
+            prefix = route['address'] + route['channel']
+        else:
+            prefix = b''
         port = None
         if mode == 'simulator':
             stations = body.get('stations', 3)
@@ -920,7 +946,7 @@ class Connection:
             transport = Simulator(prefix, loss_fraction=loss, seed=seed) if loss else Simulator(prefix)
             transport.stations = stations
             transport.mode = agv_mode
-        elif mode in ('serial', 'wired'):
+        else:
             if serial is None:
                 raise ValueError('Serial connection requires pyserial.')
             if mode == 'wired':
@@ -939,8 +965,6 @@ class Connection:
                 self._record('Link', b'', {'error': str(exc)})
                 self.error = port_failure(exc)
                 raise ValueError(self.error) from exc
-        else:
-            raise ValueError('Select a supported AGV transport.')
         self.transport = transport
         self.splitter = Splitter(prefix)
         self.id += 1

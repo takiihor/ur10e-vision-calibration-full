@@ -3,7 +3,7 @@ import { request, requestError, simulationEnabled } from './api';
 import {
   badFrame, connectionKey, emptyJournal, eventText, faultText, isoNow, journalKey,
   load, newSession, reads, resultText, save, seconds, sessionKey, stationCallRequired, stationLimit, urgent,
-  connectionKeyFor, pauseStationOnly, mergeJournal,
+  connectionKeyFor, pauseStationOnly, mergeJournal, savedRadioFields, rememberRadioOverrides, radioRouteError,
 } from '../app/anodizing_web/web/agv-record.mjs';
 
 const initialState = { connection_id: 0, sequence: -1, results: {}, log: [] };
@@ -34,10 +34,10 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
   let retired = false;
 
   const savedSettings = ref(load(connectionKey, null));
+  const initialMode = !simulationEnabled() || savedSettings.value?.mode === 'serial' ? 'serial' : 'simulator';
   const form = reactive({
-    mode: !simulationEnabled() || savedSettings.value?.mode === 'serial' ? 'serial' : 'simulator',
-    port: '', address: savedSettings.value?.address ?? '00 01',
-    channel: savedSettings.value?.channel ?? '04', stations: 3, speed: 500, station: 1,
+    mode: initialMode, port: '', ...savedRadioFields(savedSettings.value, initialMode),
+    stations: 3, speed: 500, station: 1,
   });
   const session = ref(load(sessionKey, newSession()));
   const savedJournal = load(journalKey, null);
@@ -78,9 +78,8 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
   const connectReason = computed(() => {
     if (connectionLocked.value) return connectionLocked.value;
     if (!capability.value) return serviceError.value || 'Waiting for the page service.';
-    if (!/^[a-f\d]{2}\s*[a-f\d]{2}$/i.test(String(form.address).trim()) || !/^[a-f\d]{2}$/i.test(String(form.channel).trim())) {
-      return 'Enter two address bytes and one channel byte in Link settings.';
-    }
+    const routeError = radioRouteError(form.mode, form, capability.value.radio_profile);
+    if (routeError) return routeError;
     if (form.mode === 'serial' || form.mode === 'wired') {
       if (!capability.value.serial_available) return 'Serial support is unavailable. Open AGV test in the serial app environment.';
       if (form.mode === 'wired' && !capability.value.wired_port) return 'Configure a wired port on the service.';
@@ -133,7 +132,9 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     if (changed || !next.connected || !next.armed) armedHere.value = false;
     if (changed && next.connected) {
       Object.assign(form, { mode: next.settings.mode, port: next.settings.port ?? '',
-        address: next.settings.address, channel: next.settings.channel });
+        address: next.settings.address ?? '', channel: next.settings.channel ?? '' });
+    } else if (!next.connected && state.value.connected) {
+      Object.assign(form, savedRadioFields(savedSettings.value, form.mode));
     }
     const wasStale = stale.value;
     const fault = state.value.status?.fault_code;
@@ -165,6 +166,11 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     return true;
   }
 
+  function changeTransport(mode) {
+    Object.assign(form, { mode, ...savedRadioFields(savedSettings.value, mode) });
+    pickPort();
+  }
+
   function pickPort() {
     if (state.value.connected || form.mode !== 'serial') return;
     const listed = device => ports.value.some(port => port.device === device);
@@ -180,7 +186,7 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
       const next = await request('/api/agv?ports=1');
       if (retired) return;
       if (!capability.value || next.sequence > capability.value.sequence) {
-        if (!capability.value && !next.connected && next.wired_port) form.mode = 'wired';
+        if (!capability.value && !next.connected && next.wired_port) changeTransport('wired');
         capability.value = next;
         portError.value = next.port_error ? 'Ports could not be listed. Reseat the USB plug, then refresh ports.' : '';
         apply(next, requestedAt);
@@ -239,9 +245,10 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
         }
       } else {
         if (body.action === 'connect' && current.connected) {
-          const { mode, port, address, channel } = current.settings;
+          const { mode, port } = current.settings;
           savedSettings.value = { mode, port: port ? { device: port,
-            description: ports.value.find(item => item.device === port)?.description ?? '' } : null, address, channel };
+            description: ports.value.find(item => item.device === port)?.description ?? '' } : null,
+          ...rememberRadioOverrides(body, current.settings) };
           save(connectionKey, savedSettings.value);
         }
         if (body.action === 'arm') armedHere.value = Boolean(body.armed && current.armed && next.armed);
@@ -482,7 +489,7 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute) {
     session, journal, recordNote, sound, serviceError,
     currentFeedback: computed(() => feedback(latest.value)),
     frameError: computed(() => clock.value < badFrameUntil ? badFrame : ''),
-    refreshPorts, pickPort, commandReason, send, post, feedback, setSound,
+    refreshPorts, changeTransport, commandReason, send, post, feedback, setSound,
     enterAgv, persistSession, persistJournal, newRecord,
     showOutcome(id, outcome, select) {
       if (select) latest.value = id;

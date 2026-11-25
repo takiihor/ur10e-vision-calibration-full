@@ -37,6 +37,40 @@ function save(key, value) {
   catch { return false; }
 }
 
+const radioFields = { address: /^[a-f\d]{2}\s*[a-f\d]{2}$/i, channel: /^[a-f\d]{2}$/i };
+
+function radioOverrides(fields) {
+  return Object.fromEntries(Object.keys(radioFields).flatMap(field => {
+    const value = typeof fields?.[field] === 'string' ? fields[field].trim() : '';
+    return value ? [[field, value]] : [];
+  }));
+}
+
+function savedRadioFields(settings, mode) {
+  return { address: '', channel: '', ...radioOverrides(settings?.mode === mode ? settings : null) };
+}
+
+function rememberRadioOverrides(body, settings) {
+  return Object.fromEntries(Object.keys(radioOverrides(body)).map(field => [field, settings[field]]));
+}
+
+function radioRouteError(mode, fields, configured) {
+  const entered = radioOverrides(fields);
+  if (Object.entries(entered).some(([field, value]) => !radioFields[field].test(value))) {
+    return 'Enter two address bytes and one channel byte in Link settings.';
+  }
+  if (mode === 'serial' && Object.keys(radioFields).some(field => !entered[field] && !configured?.[field])) {
+    return 'Enter the radio address and channel in Link settings or configure them in the site profile.';
+  }
+  return '';
+}
+
+function radioPlaceholder(mode, configured, field) {
+  if (mode === 'simulator') return 'Simulator example';
+  if (configured?.[field]) return 'From site profile';
+  return field === 'address' ? 'Two hex bytes' : 'One hex byte';
+}
+
 function mergeJournal(stored, current) {
   const entryKey = entry => entry.id != null ? JSON.stringify([entry.connection, entry.id]) :
     JSON.stringify([entry.observation_id, entry.timestamp, entry.connection, entry.field, entry.text, entry.decode]);
@@ -224,4 +258,5 @@ function markdown(record, commands) {
 export { connectionKey, sessionKey, journalKey, urgent, reads, linkLost, badFrame, motionText, pauseStationOnly, mergeJournal,
   stationCallRequired, stationLimit, emptyJournal, isoNow, localTime, seconds, speedText, load, save, newSession,
   fieldLabels, modes, outcomesList, checklist, checklistCommands, foundFields, faultText,
-  linkQualityText, resultText, eventText, connectionKeyFor, exportRecord, markdown };
+  linkQualityText, resultText, eventText, connectionKeyFor, exportRecord, markdown,
+  radioOverrides, savedRadioFields, rememberRadioOverrides, radioRouteError, radioPlaceholder };

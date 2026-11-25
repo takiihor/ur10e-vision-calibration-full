@@ -151,7 +151,7 @@
       "bundle_files": 94,
       "changed": [
         {
-          "bundle_sha256": "5e277a749e5b9252994b4f7fc0a590647ebdd30ec659bb7576dd598541434196",
+          "bundle_sha256": "3294abf1eb126b754236959ec4bedf15846fea25283ab3424b4ebaae2a6822cd",
           "path": "README.md"
         },
         {
@@ -235,8 +235,12 @@
           "path": "tests/marker_validation_browser.cjs"
         },
         {
-          "bundle_sha256": "48616a5a791def1baabb0137364b15f7b96a4b6d22df9d27ce5faebacfbc7056",
+          "bundle_sha256": "8135e5ca4b829179b1783ae82c89d7967238e0aa2c6c3860d818d0b662ebf9cb",
           "path": "tests/test_marker_teaching.py"
+        },
+        {
+          "bundle_sha256": "246bceff6b80de1b1f15d1aad95496e20c4caa9948a60918715c5b6bfa996d1a",
+          "path": "tests/test_marker_validation.py"
         },
         {
           "bundle_sha256": "0c86c33af74782fabbb1047115c5cf5b2839313ad5e536fa54b9ec5ec4e7cfd6",
@@ -245,6 +249,10 @@
         {
           "bundle_sha256": "be846acc28774c9e6e4d7aa0b6f044dcf8382ddbf4ec2af673848893bd763c7a",
           "path": "tests/test_vision_core.py"
+        },
+        {
+          "bundle_sha256": "b065ef0b9596b2ceac9dbd1ccdac6d768c40653d55b8f6c0e89fe76c36326926",
+          "path": "tests/test_vision_mobile.py"
         }
       ],
       "unchanged": [
@@ -303,7 +311,6 @@
         "tests/test_controller.py",
         "tests/test_manual.py",
         "tests/test_marker_teacher_startup.py",
-        "tests/test_marker_validation.py",
         "tests/test_marker_validation_browser.py",
         "tests/test_rg2.py",
         "tests/test_robot.py",
@@ -312,7 +319,6 @@
         "tests/test_shutdown.py",
         "tests/test_ui.py",
         "tests/test_vision_detection.py",
-        "tests/test_vision_mobile.py",
         "tests/test_vision_pipeline.py",
         "tests/tool_envelope.cjs",
         "tests/vision_sim.py"

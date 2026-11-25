@@ -20,6 +20,7 @@ import AgvRecord from './AgvRecord.vue';
 import { simulationEnabled } from './api';
 import {
   faultText, fieldLabels, linkQualityText, localTime, modes, motionText, speedText, stationCallRequired, stationLimit,
+  radioOverrides, radioPlaceholder,
 } from '../app/anodizing_web/web/agv-record.mjs';
 
 const { agv } = defineProps({ agv: { type: Object, required: true } });
@@ -96,8 +97,7 @@ async function refreshPorts() {
 }
 
 function changeTransport(mode) {
-  agv.form.mode = mode;
-  agv.pickPort();
+  agv.changeTransport(mode);
   if (mode === 'serial') void refreshPorts();
 }
 
@@ -114,8 +114,8 @@ function requestSilence(event) {
 
 function connect() {
   if (agv.connectReason) return;
-  const { mode, port, address, channel, stations } = agv.form;
-  void agv.post({ action: 'connect', mode, port, address, channel, stations }, 'connect');
+  const { mode, port, stations } = agv.form;
+  void agv.post({ action: 'connect', mode, port, stations, ...radioOverrides(agv.form) }, 'connect');
 }
 </script>
 
@@ -227,10 +227,12 @@ function connect() {
               <div class="field-row">
                 <label for="agv-address">Address (hex)
                   <InputText data-ui="agv.link.address" id="agv-address" v-model="agv.form.address" autocomplete="off" spellcheck="false"
+                    :placeholder="radioPlaceholder(agv.form.mode, agv.capability?.radio_profile, 'address')"
                     :disabled="Boolean(agv.connectionLocked)" aria-describedby="link-lock" />
                 </label>
                 <label for="agv-channel">Channel (hex)
                   <InputText data-ui="agv.link.channel" id="agv-channel" v-model="agv.form.channel" autocomplete="off" spellcheck="false"
+                    :placeholder="radioPlaceholder(agv.form.mode, agv.capability?.radio_profile, 'channel')"
                     :disabled="Boolean(agv.connectionLocked)" aria-describedby="link-lock" />
                 </label>
                 <label v-if="agv.form.mode === 'simulator'" for="agv-stations-config">Simulator stations (0–255)

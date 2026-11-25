@@ -1,7 +1,8 @@
 import { connectionKey, sessionKey, journalKey, urgent, reads, linkLost, badFrame, motionText, pauseStationOnly, mergeJournal,
   stationCallRequired, stationLimit, emptyJournal, isoNow, localTime, seconds, speedText, load, save, newSession,
   fieldLabels, modes, outcomesList, checklist, checklistCommands, foundFields, faultText,
-  linkQualityText, resultText, eventText, connectionKeyFor, exportRecord, markdown } from './agv-record.mjs';
+  linkQualityText, resultText, eventText, connectionKeyFor, exportRecord, markdown,
+  radioOverrides, savedRadioFields, rememberRadioOverrides, radioRouteError, radioPlaceholder } from './agv-record.mjs';
 
 'use strict';
 
@@ -165,8 +166,14 @@ function buildCommands(list) {
   }
 }
 
-function prefixIsValid() {
-  return /^[a-f\d]{2}\s*[a-f\d]{2}$/i.test($('address').value.trim()) && /^[a-f\d]{2}$/i.test($('channel').value.trim());
+function radioFieldsInForm() {
+  return {address: $('address').value, channel: $('channel').value};
+}
+
+function restoreRadioFields() {
+  for (const [field, value] of Object.entries(savedRadioFields(savedSettings, $('mode').value))) {
+    $(field).value = value;
+  }
 }
 
 function commandValue(name, preset) {
@@ -314,8 +321,12 @@ function renderOutcome(id) {
 
 function render() {
   renderStatus();
-  const wiredMode = $('mode').value === 'wired';
-  const serialMode = wiredMode || $('mode').value === 'serial';
+  const mode = $('mode').value;
+  const wiredMode = mode === 'wired';
+  const serialMode = wiredMode || mode === 'serial';
+  for (const field of ['address', 'channel']) {
+    $(field).placeholder = radioPlaceholder(mode, capability?.radio_profile, field);
+  }
   const connectionLocked = busy ? 'Wait for the current request.' : state.connected ? 'Disconnect to change link settings.' : '';
   for (const id of ['mode', 'address', 'channel', 'stations-config']) {
     $(id).disabled = !!connectionLocked;
@@ -328,10 +339,10 @@ function render() {
   disabled('port', connectionLocked || (wiredMode ? 'Port is set by the IPC site profile.'
     : !serialMode ? 'Select Serial port first.' : !capability?.serial_available ? unavailablePort : ''));
   const stationCount = Number($('stations-config').value);
-  const connectReason = connectionLocked || (!capability ? 'Waiting for the page service.' : !prefixIsValid()
-    ? 'Check the address and channel in Link settings.' : serialMode ? unavailablePort
+  const connectReason = connectionLocked || (!capability ? 'Waiting for the page service.' :
+    radioRouteError(mode, radioFieldsInForm(), capability.radio_profile) || (serialMode ? unavailablePort
       : !Number.isInteger(stationCount) || stationCount < 0 || stationCount > 255 || $('stations-config').value === ''
-        ? 'Enter a simulator station count from 0 to 255.' : '');
+        ? 'Enter a simulator station count from 0 to 255.' : ''));
   disabled('connect', connectReason);
   disabled('disconnect', !state.connected ? 'Connect first.' : state.recipe_active ? 'Stop the active recipe before disconnecting.' :
     state.halt_pending ? 'AGV Stop or Pause is awaiting delivery. Wait before disconnecting.' : busy ? 'Wait for the current request.' : '');
@@ -431,7 +442,10 @@ function apply(next) {
         $('stop-shortcut').hidden = true;
         $('stop').removeAttribute('aria-keyshortcuts');
       }
-      if (next.wired_port && !next.connected) $('mode').value = 'wired';
+      if (next.wired_port && !next.connected) {
+        $('mode').value = 'wired';
+        restoreRadioFields();
+      }
     }
     capability = next;
   }
@@ -441,14 +455,15 @@ function apply(next) {
     reportError = '';
     if (next.connected) {
       $('mode').value = next.settings.mode;
-      $('address').value = next.settings.address;
-      $('channel').value = next.settings.channel;
+      $('address').value = next.settings.address ?? '';
+      $('channel').value = next.settings.channel ?? '';
       const previous = journal.events.findLast(event => event.field === 'transport_error');
       if (previous?.after) journal.events.push({
         field: 'transport_error', before: true, after: false, text: 'Transport recovered', timestamp: isoNow(), connection,
       });
     }
   }
+  if (!next.connected && state.connected) restoreRadioFields();
   if ((next.stale && !state.stale) || (next.status?.fault_code && next.status.fault_code !== state.status?.fault_code)) soundAlarm();
   if (next.error && next.error !== state.error) reportError = '';
   if (performance.now() >= reportErrorUntil) reportError = '';
@@ -517,9 +532,9 @@ async function post(body, {id, priority = false, viaEsc = false} = {}) {
     const result = await api({connection_id: state.connection_id, ...body});
     changeNetworkError(false);
     if (body.action === 'connect' && result.connected) {
-      const {mode, port, address, channel} = result.settings;
+      const {mode, port} = result.settings;
       const description = capability.ports.find(({device}) => device === port)?.description ?? '';
-      savedSettings = {mode, port: port ? {device: port, description} : null, address, channel};
+      savedSettings = {mode, port: port ? {device: port, description} : null, ...rememberRadioOverrides(body, result.settings)};
       save(connectionKey, savedSettings);
     }
     apply(result);
@@ -609,6 +624,7 @@ buildChecklist();
 
 $('link-settings').addEventListener('toggle', render);
 $('mode').addEventListener('input', () => {
+  restoreRadioFields();
   if ($('port').value === state.wired_port) $('port').value = '';
   if (capability) showPorts(capability.ports);
   if ($('mode').value === 'serial') void api(null, true).then(apply, () => {});
@@ -616,8 +632,8 @@ $('mode').addEventListener('input', () => {
 });
 for (const id of ['port', 'address', 'channel', 'stations-config']) $(id).addEventListener('input', render);
 $('connect').addEventListener('click', () => post({action: 'connect', mode: $('mode').value,
-  port: $('port').value, address: $('address').value, channel: $('channel').value,
-  stations: Number($('stations-config').value)}, {id: 'connect'}));
+  port: $('port').value, stations: Number($('stations-config').value),
+  ...radioOverrides(radioFieldsInForm())}, {id: 'connect'}));
 $('disconnect').addEventListener('click', () => post({action: 'disconnect'}, {id: 'disconnect'}));
 $('armed').addEventListener('change', event => post({action: 'arm', armed: event.currentTarget.checked}, {id: 'armed'}));
 $('silence').addEventListener('change', event => post({action: 'silence', silent: event.currentTarget.checked}));
@@ -664,7 +680,7 @@ if (['simulator', 'serial'].includes(savedSettings?.mode)) {
   $('mode').value = savedSettings.mode;
   if (!$('mode').value) $('mode').value = defaultMode;
 }
-for (const id of ['address', 'channel']) if (typeof savedSettings?.[id] === 'string') $(id).value = savedSettings[id];
+restoreRadioFields();
 if ('ResizeObserver' in window) new ResizeObserver(entries =>
   document.body.style.setProperty('--agv-top-height', entries[0].target.offsetHeight + 'px')).observe(document.querySelector('.agv-safety'));
 window.addEventListener('pagehide', saveJournal);

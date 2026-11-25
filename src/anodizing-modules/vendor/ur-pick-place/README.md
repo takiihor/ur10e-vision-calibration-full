@@ -201,8 +201,8 @@ camera-view refinement is tested through Robot Bench's live picking workflow.
 For a fresh measurement on each run:
 
 1. In Marker Pick Teacher, select the camera and enable **Refine before picking**
-   when creating a new project. Capture a clear teaching view at about 300 mm,
-   then teach and save the pick as usual.
+   when creating a new project. Capture a clear teaching view with the entire
+   marker visible, then teach and save the pick as usual.
 2. In Robot Bench, open **Joint & force tests → Camera target**. Enter the saved
    project's full `vision.json` path in **Live vision configuration**. Select
    Home/Place and configure the gripper, approach height and force limits.
@@ -262,10 +262,11 @@ XYZ errors and stores their magnitude and whether they are within 2 mm. Its
 fixed-Z visual test and controller arrival error alone do not prove pick accuracy.
 
 The vision report includes frame spread, marker-to-pick distance and the rotational
-contribution to pick-point spread. At a 300 mm offset, 0.2° angular error can cause
-about 1.05 mm displacement. Frame spread measures repeatability, not systematic
-calibration error. Robot Bench saves the last completed live plan alongside its
-sequence settings as `latest_vision_pick.json`.
+contribution to pick-point spread. For a given angular error, the maximum
+pick-point displacement grows in proportion to the marker-to-pick distance.
+Frame spread measures repeatability. Use independent measurements to check
+systematic calibration error. Robot Bench saves the last completed live plan
+alongside its sequence settings as `latest_vision_pick.json`.
 
 ## Saved files and useful commands
 

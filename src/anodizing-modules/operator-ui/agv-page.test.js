@@ -76,6 +76,26 @@ it.each(['on', 'off'])('offers the configured transports with simulation %s', as
   expect(fetch.mock.calls.every(([, request]) => request.method === undefined)).toBe(true);
 });
 
+it('uses blank profile fields on live serial and remembers only an explicit override', async () => {
+  localStorage.setItem(connectionKey, JSON.stringify(settings));
+  const port = { device: '/dev/example-radio', description: 'Example adapter' };
+  const agv = await open(body => ({
+    connected: body?.action === 'connect', connection_id: body?.action === 'connect' ? 3 : 2, status: null,
+    settings: { mode: 'serial', port: port.device, address: '26 35', channel: '1B' },
+    serial_available: true, ports: [port], radio_profile: { address: true, channel: true },
+  }), 'off');
+  expect(agv.form.address).toBe('');
+  expect(agv.form.channel).toBe('');
+  expect(app.get('#agv-address').attributes('placeholder')).toBe('From site profile');
+  await app.get('#agv-channel').setValue('1b');
+  await app.get('[data-ui="agv.link.connect"]').trigger('click');
+  await flushPromises();
+  const sent = fetch.mock.calls.map(([, options]) => options.body && JSON.parse(options.body)).find(Boolean);
+  expect(sent).toMatchObject({ action: 'connect', mode: 'serial', channel: '1b' });
+  expect(sent).not.toHaveProperty('address');
+  expect(JSON.parse(localStorage.getItem(connectionKey))).toEqual({ mode: 'serial', port, channel: '1B' });
+});
+
 it('defaults to the configured status-only wired link while simulation is hidden', async () => {
   const agv = await open(() => ({
     connected: false, status: null, settings: null, wired_port: '/dev/example',

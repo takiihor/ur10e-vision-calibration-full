@@ -326,7 +326,7 @@ class MarkerTeachingTests(unittest.TestCase):
         for path in (original, local, invalid, simulated):
             path.parent.mkdir(parents=True, exist_ok=True)
         original.write_text(json.dumps(calibration_dict(tcp_offset=[0]*6)))
-        tcp = [0, 0, .2286, 0, 0, 0]
+        tcp = [0, 0, .137, 0, 0, 0]
         local.write_text(json.dumps(calibration_dict(tcp_offset=tcp)))
         invalid.write_text('{}')
         demo = calibration_dict()

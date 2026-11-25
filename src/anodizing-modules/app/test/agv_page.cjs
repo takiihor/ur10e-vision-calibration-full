@@ -69,6 +69,7 @@ async function load(ports) {
       if (!body) {
         Object.assign(response, {serial_available: true, ports, commands: [],
           settings: {mode: 'simulator', address: '00 99', channel: '08', port: null}});
+        if (scenario === 'radio-profile') response.radio_profile = {address: true, channel: true};
         if (scenario === 'requested-evidence') Object.assign(response, {
           connected: true, status_hex: 'station report', status_age_s: .2,
           status: {mode: 2, max_stations: 3, stopped: false, actual_speed_m_h: 500},
@@ -127,7 +128,7 @@ async function load(ports) {
         results: {stop: {tx_id: sequence, state: 'sent', sent_at: '2026-11-19T12:34:56.789Z'}}});
       else Object.assign(response, {connected: true, connection_id: 2,
         settings: {mode: body.mode, port: body.mode === 'serial' ? body.port : null,
-          address: body.address.toUpperCase(), channel: body.channel.toUpperCase()}});
+          address: (body.address ?? '26 35').toUpperCase(), channel: (body.channel ?? '2a').toUpperCase()}});
       return {ok: true, json: async () => response};
     },
   }, {filename: 'agv.js'});
@@ -142,7 +143,24 @@ function selectSerial(get) {
 }
 
 async function run() {
+  if (scenario === 'radio-profile') {
+    storage.set('ano-agv-connection', JSON.stringify({mode: 'simulator', address: '42 19', channel: '0D'}));
+  }
   const get = await load(scenario === 'reload' || scenario === 'ambiguous' ? [onboard, radio, other] : [onboard, radio]);
+  if (scenario === 'radio-profile') {
+    selectSerial(get);
+    assert.equal(get('address').value, '');
+    assert.equal(get('channel').value, '');
+    assert.equal(get('address').placeholder, 'From site profile');
+    assert.equal(get('connect').disabled, false);
+    get('channel').value = '1b';
+    await get('connect').emit('click');
+    assert.equal(requests[0].address, undefined);
+    assert.equal(requests[0].channel, '1b');
+    assert.deepEqual(JSON.parse(storage.get('ano-agv-connection')),
+      {mode: 'serial', port: radio, channel: '1B'});
+    return;
+  }
   if (scenario === 'requested-evidence') {
     await get('pause').emit('click');
     await get('stop').emit('click');
