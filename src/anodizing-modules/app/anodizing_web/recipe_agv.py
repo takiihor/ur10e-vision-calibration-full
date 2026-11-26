@@ -89,9 +89,10 @@ def learned(status, station):
 
 class StationVisit:
     def __init__(self, connection, robot_stop, *, strict_station=True, connection_id=None,
-                 stop_generation=None, switched_off=False, allow_wired=False):
+                 stop_generation=None, switched_off=False, allow_wired=False, check_attested_track=None):
         self.connection = connection
         self.allow_wired = allow_wired
+        self.check_attested_track = check_attested_track
         self.robot_stop = robot_stop
         self.strict_station = strict_station
         self.connection_id = connection_id
@@ -116,6 +117,8 @@ class StationVisit:
         link = (nullcontext() if self.switched_off else
                 self.connection.recipe_link(self.connection_id, stop_generation=self.stop_generation))
         with link as transport:
+            if self.check_attested_track and (not self.allow_wired or transport != 'wired'):
+                raise ValueError('The isolated test track requires the wired AGV.')
             if not self.switched_off and not (self.allow_wired and transport == 'wired'):
                 require_serial(transport)
             self.transport = transport
@@ -195,6 +198,8 @@ class StationVisit:
                 raise ValueError(self.error)
             status = self.status
             actual = self._check_hold(status, self.status_at)
+            if self.check_attested_track:
+                self.check_attested_track(status, self.status_at, dispatch=True)
             if actual != target or status.get('station_arrival') is not True or not learned(status, target):
                 raise ValueError(f'Park the AGV at station {target} before starting robot work there.')
 
@@ -203,7 +208,9 @@ class StationVisit:
         if self.cancelled.is_set():
             raise ValueError('Recipe stopped during AGV travel. Check the AGV before starting a new run.')
         check_status(status, stamp)
-        if now-self.pose_at >= POSE_FRESH_S:
+        if self.check_attested_track:
+            self.check_attested_track(status, stamp, dispatch=False)
+        elif now-self.pose_at >= POSE_FRESH_S:
             raise ValueError('Lost confirmation that the robot is still at the travel pose.')
         if ack_s is not None and ack_s <= ACK_S:
             self.leg['ack_s'] = ack_s
@@ -271,11 +278,16 @@ class StationVisit:
                 if not learned(status, target):
                     raise ValueError(f'AGV station {target} is not learned. Check the AGV route.')
                 check_speed(status, speed_cap)
-                if self.cancelled.is_set() or cancelled.is_set() or time.monotonic()-pose_at >= POSE_FRESH_S:
+                if self.check_attested_track:
+                    self.check_attested_track(status, stamp, dispatch=True)
+                if (self.cancelled.is_set() or cancelled.is_set() or
+                        (not self.check_attested_track and time.monotonic()-pose_at >= POSE_FRESH_S)):
                     raise ValueError('Robot travel-pose check expired or was stopped. Start a new run.')
 
             def retry_check(status, stamp, updates):
                 now = time.monotonic()
+                if self.check_attested_track:
+                    raise ValueError('Do not resend an isolated test track station call. Check the AGV.')
                 if self.cancelled.is_set() or cancelled.is_set() or now-self.pose_at >= POSE_FRESH_S:
                     raise ValueError('Robot travel-pose check expired or was stopped. Start a new run.')
                 if now >= self.travel_deadline or now-self.sent >= ACK_S:

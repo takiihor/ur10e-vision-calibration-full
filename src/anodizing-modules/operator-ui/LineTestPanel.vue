@@ -8,7 +8,7 @@ import Tag from 'primevue/tag';
 import Textarea from 'primevue/textarea';
 import { downloadBlob, request, requestDownload } from './api';
 
-const props = defineProps({ quality: String, variable: Function, catalog: Object, systemSignals: Object });
+const props = defineProps({ quality: String, variable: Function, catalog: Object, systemSignals: Object, writeBlock: String });
 const emit = defineEmits(['outcome', 'changed']);
 const path = '/api/tests/line';
 const state = ref(null);
@@ -58,7 +58,7 @@ const modeReady = computed(() => {
   const { remote_mode: remote, local_mode: local } = props.systemSignals ?? {};
   return remote && local && props.variable('line.' + remote)?.value === 1 && props.variable('line.' + local)?.value === 0;
 });
-const armReason = computed(() => statusError.value || state.value?.reason ||
+const armReason = computed(() => props.writeBlock || statusError.value || state.value?.reason ||
   (state.value?.enabled ? '' : 'Checking line test availability.'));
 const reviewReason = computed(() => armReason.value || (!armed.value ? 'Arm a simulator write session.' :
   !mapping.value ? 'Choose a reviewed command and feedback case.' :
@@ -111,7 +111,7 @@ async function refresh() {
 }
 
 async function perform(action, fields = {}, accept = () => {}) {
-  if (working.value) return;
+  if (props.writeBlock || working.value) return;
   working.value = action;
   show('Sending…', 'running', true);
   const timeout = setTimeout(() => show('Waiting for the line test service… 3 s', 'waiting'), 1000);
@@ -248,7 +248,7 @@ defineExpose({
         <Button data-ui="line.test.arm" v-if="!armed" id="line-arm" label="Arm simulator writes" :disabled="Boolean(armReason || working)" @click="arm" />
         <template v-else>
           <Tag severity="warn" :value="'Armed · ' + remaining + ' s'" />
-          <Button data-ui="line.test.disarm" label="Disarm simulator writes" severity="secondary" :disabled="Boolean(working)" @click="disarm" />
+          <Button data-ui="line.test.disarm" label="Disarm simulator writes" severity="secondary" :disabled="Boolean(writeBlock || working)" @click="disarm" />
         </template>
         <span v-if="!armed && armReason">{{ armReason }}</span>
       </div>
@@ -363,7 +363,7 @@ defineExpose({
           </label>
         </div>
         <div class="line-actions">
-          <Button data-ui="line.history.save" id="line-save-judgment" label="Save human result" :disabled="Boolean(working)" @click="saveJudgment" />
+          <Button data-ui="line.history.save" id="line-save-judgment" label="Save human result" :disabled="Boolean(writeBlock || working)" @click="saveJudgment" />
           <Button data-ui="line.history.download" :data-ui-key="format" v-for="[format, suffix] in [['summary', 'md'], ['json', 'json'], ['csv', 'csv']]" :key="format"
             :label="'Download ' + format" severity="secondary"
             @click="download('run/' + saved.id + '/' + format, 'line-test-' + saved.id + '.' + suffix)" />

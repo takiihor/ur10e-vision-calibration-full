@@ -193,16 +193,18 @@ async function run() {
       assert.equal(get('stations').options.length, 2);
       assert.equal(get('station-1').textContent, 'Go to station 1');
       assert.equal(get('station-2').textContent, 'Go to station 2 · Current');
+      assert.match(get('station-note').textContent, /The AGV has learned 1 leg: stations 1 to 2\./);
       assert.equal(get('call_station').disabled, false);
       get('call_station-value').valueAsNumber = 3;
       get('call_station-value').emit('input');
       assert.equal(get('call_station').disabled, true);
-      assert.match(get('call_station-why').textContent, /from 1 to 2/);
+      assert.match(get('call_station-why').textContent, /The AGV has learned 1 leg: stations 1 to 2\./);
       await get('station-2').emit('click');
       assert.equal(requests.at(-1).value, 2);
     } else {
       assert.equal(get('stations').options.length, 0);
       assert.equal(get('call_station').disabled, true);
+      assert.match(get('station-note').textContent, /The AGV has learned 0 legs\. No stations are available\./);
       assert.match(get('station-label').textContent, /Stop counter/);
       assert.deepEqual(requests, []);
     }

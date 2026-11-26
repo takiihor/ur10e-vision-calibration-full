@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import Accordion from 'primevue/accordion';
 import AccordionContent from 'primevue/accordioncontent';
 import AccordionHeader from 'primevue/accordionheader';
@@ -17,36 +17,92 @@ import ToggleSwitch from 'primevue/toggleswitch';
 import OperatorButton from './OperatorButton.vue';
 import StateIcon from './StateIcon.vue';
 import AgvRecord from './AgvRecord.vue';
+import AgvBluetooth from './AgvBluetooth.vue';
 import { simulationEnabled } from './api';
 import {
-  faultText, fieldLabels, linkQualityText, localTime, modes, motionText, speedText, stationCallRequired, stationLimit,
-  radioOverrides, radioPlaceholder,
+  faultText, fieldLabels, linkQualityText, localTime, modes, motionText, speedText, stationCallRequired,
+  radioOverrides, radioPlaceholder, stationRangeText,
 } from '../app/anodizing_web/web/agv-record.mjs';
 
 const { agv } = defineProps({ agv: { type: Object, required: true } });
+const bluetoothOpen = ref(false);
+const ownerLabels = new Map([['agv-page', 'AGV page'], ['calibration', 'Calibration module']]);
+const ownerLabel = name => ownerLabels.get(name) ?? name;
+const ownerReason = computed(() => {
+  if (agv.operatorReadOnly) return 'Enroll the operator key to change the job owner.';
+  if (agv.state.programme_motion_block) return agv.state.programme_motion_block;
+  if (agv.state.executor_job && ['accepted', 'running', 'waiting'].includes(agv.state.executor_job.state)) {
+    return 'Wait for the current job or use Stop.';
+  }
+  if (agv.state.manual_visit) return 'Resolve the retained station visit before changing the job owner.';
+  if (agv.state.stop_unconfirmed) return 'Verify a safe halt before changing the job owner.';
+  if (agv.state.owner && !['agv-page', 'calibration'].includes(agv.state.owner)) {
+    return `${agv.state.owner} owns the executor. Ask it to release control or use Stop.`;
+  }
+  return agv.busy ? 'Wait for the current request.' : '';
+});
 const status = computed(() => agv.freshReport);
 const standard = computed(() => status.value?.mode === 0);
-const maximum = computed(() => stationLimit(status.value));
+const maximum = computed(() => agv.maximumStation);
+const manualDeadline = computed(() => agv.manualTravel
+  ? new Date(agv.state.executor_health.manual_travel_until * 1000).toLocaleString()
+  : null);
 const zero = computed(() => maximum.value === 0);
 const stationMode = computed(() => status.value?.mode === 2 && maximum.value > 0);
 const parking = computed(() => agv.state.station_profile?.parking_station ?? 17);
-const stations = computed(() => Array.from({ length: Math.max(17, maximum.value ?? 0) }, (_, i) => i + 1)
+const stations = computed(() => Array.from({ length: agv.supervisedRange ? (maximum.value ?? 0) : Math.max(17, maximum.value ?? 0) }, (_, i) => i + 1)
   .filter(station => station !== parking.value));
 const callReason = computed(() => agv.commandReason('call_station', agv.state.manual_visit?.station ?? 1));
 const manualVisit = computed(() => agv.state.manual_visit);
-const manualNote = ref('');
-const orphanJob = ref('');
-watch(() => agv.state.executor_recovery_evidence, evidence => {
-  if (evidence?.acknowledged === false) {
-    orphanJob.value = evidence.job_id;
-    manualNote.value = evidence.disposition ?? evidence.observation?.disposition ?? evidence.reconciliation?.disposition ?? '';
-  }
-}, { immediate: true });
-const manualNeedsReview = computed(() => manualVisit.value?.missing ||
-  (manualVisit.value?.result?.outcome === 'unknown' && !manualVisit.value.result.reconciliation));
+const confirmation = ref(null);
+const confirmationHeading = ref(null);
+watch([() => agv.haltRevision, () => agv.state.executor_boot, () => agv.state.executor_session,
+  () => agv.state.stop_generation, () => agv.state.connection_id, () => agv.state.stop_unconfirmed,
+  () => agv.armed, () => agv.manualTravel, () => agv.isolatedTrack, () => Boolean(agv.state.motion_block)], () => {
+  confirmation.value = null;
+}, { flush: 'sync' });
+
+function requestStation(station, control) {
+  if (!agv.manualTravel) return agv.send('call_station', control, station);
+  if (agv.commandReason('call_station', station)) return;
+  confirmation.value = { station, control };
+  nextTick(() => confirmationHeading.value?.focus());
+}
+
+function confirmStation() {
+  const request = confirmation.value;
+  confirmation.value = null;
+  if (!request || !agv.manualTravel) return;
+  const { station, control } = request;
+  return agv.send('call_station', control, station, false, {
+    id: crypto.randomUUID().replaceAll('-', ''), station, confirmed_at: Date.now() / 1000,
+  });
+}
+
 const evidenceFaults = computed(() => Object.values(agv.state.evidence_faults ?? {}));
-const orphanRecovery = computed(() => !evidenceFaults.value.length && !manualVisit.value &&
-  (agv.state.recovery_ids?.length || agv.state.executor_recovery_evidence?.acknowledged === false));
+const operatorCheck = computed(() => {
+  const check = agv.state.operator_check;
+  return check && (check.technician || (!agv.state.programme_motion_block && check.run_id == null)) ? check : null;
+});
+const operator = ref('');
+const location = ref('');
+const confirmed = ref(false);
+watch(() => JSON.stringify([operatorCheck.value, agv.state.review_cursor, agv.state.executor_boot,
+  agv.state.executor_session, agv.state.stop_generation, agv.state.connection_id, agv.state.stop_unconfirmed]), () => {
+  operator.value = '';
+  location.value = '';
+  confirmed.value = false;
+}, { flush: 'sync' });
+const abortReason = computed(() => agv.operatorKeyReason || (agv.state.stop_unconfirmed ? 'Verify a safe halt first.' :
+  agv.busy ? 'Wait for the current request.' :
+    !operator.value.trim() || !location.value.trim() || !confirmed.value ? 'Confirm the AGV location and enter the operator.' : ''));
+
+function abortVisit() {
+  if (!operatorCheck.value || operatorCheck.value.technician || evidenceFaults.value.length || abortReason.value) return;
+  void agv.post({ action: 'operator_check', choice: 'abort', job_id: operatorCheck.value.job_id,
+    basket: null, operator: operator.value.trim(), location: location.value.trim(), confirmed: true }, 'abort-station');
+}
+
 const visitOutcome = computed(() => manualVisit.value?.result?.outcome);
 const visitSummary = computed(() => {
   const visit = manualVisit.value;
@@ -55,10 +111,10 @@ const visitSummary = computed(() => {
   return `Station ${visit.station} visit ${state}`;
 });
 const age = computed(() => agv.age == null ? 'No status report yet.' : `Last report ${agv.age.toFixed(1)} s ago.`);
-const disconnectReason = computed(() => !agv.state.connected ? 'Connect first.' :
+const disconnectReason = computed(() => agv.operatorKeyReason || (!agv.state.connected ? 'Connect first.' :
   agv.state.programme_motion_block || (agv.state.recipe_active ? 'Stop the active recipe before disconnecting.' :
     agv.state.halt_pending || agv.state.stop_unconfirmed ? 'Verify the pending halt before disconnecting.' :
-      agv.busy ? 'Wait for the current request.' : ''));
+      agv.busy ? 'Wait for the current request.' : '')));
 const portsBusy = ref(false);
 const transports = computed(() => {
   if (agv.capability?.executor_link) return [{ label: 'IPC executor', value: 'wired' }];
@@ -105,7 +161,7 @@ function stationLabel(station, showNumber = false) {
 
 function stationReason(station) {
   if (agv.state.manual_visit) return agv.commandReason('call_station', station);
-  return stationMode.value && station > maximum.value ? `Station not learned (1–${maximum.value}).` : callReason.value;
+  return stationMode.value && station > maximum.value ? stationRangeText(status.value) : callReason.value;
 }
 
 function label(name) {
@@ -143,7 +199,14 @@ function connect() {
 </script>
 
 <template>
-  <div data-ui="agv.page" class="agv-grid">
+  <nav data-ui="agv.bluetooth.tabs" class="agv-maintenance-nav" aria-label="AGV pages">
+    <Button data-ui="agv.bluetooth.wiredtab" type="button" severity="secondary" label="AGV controls" :aria-pressed="!bluetoothOpen"
+      @click="bluetoothOpen = false" />
+    <Button data-ui="agv.bluetooth.tab" type="button" severity="secondary" label="Bluetooth" :aria-pressed="bluetoothOpen"
+      @click="bluetoothOpen = true" />
+  </nav>
+  <AgvBluetooth v-if="bluetoothOpen" :read-only="agv.operatorReadOnly" />
+  <div v-else data-ui="agv.page" class="agv-grid">
     <div class="agv-main">
       <Panel data-ui="agv.status.panel" class="panel agv-surface" aria-labelledby="status-title">
         <template #header>
@@ -153,9 +216,33 @@ function connect() {
               :value="agv.state.connected ? agv.state.settings.mode === 'simulator' ? 'Simulator' : 'Serial AGV' : 'No open connection'" />
           </div>
         </template>
+        <Message v-if="agv.state.bluetooth_block" severity="warn">{{ agv.state.bluetooth_block }}</Message>
         <Message v-if="agv.state.stop_unconfirmed" severity="error" role="alert">
           Stop unconfirmed. Verify a safe halt. Use the AGV e-stop if needed.
         </Message>
+        <section data-ui="agv.owner.panel" v-if="agv.state.job_gateway" aria-labelledby="job-owner-title">
+          <h3 id="job-owner-title">Job ownership</h3>
+          <p>Owner {{ ownerLabel(agv.state.owner) ?? 'None' }} ·
+            {{ agv.state.armed_for ? 'Armed for ' + ownerLabel(agv.state.armed_for) : 'Disarmed' }}</p>
+          <div class="field-row">
+            <OperatorButton data-ui="agv.owner.manual" id="job-owner-agv" label="Select AGV page" :why="ownerReason"
+              :outcome="agv.feedback('job-owner-agv')" @press="agv.post({ action: 'claim_owner', owner: 'agv-page' }, 'job-owner-agv')" />
+            <OperatorButton data-ui="agv.owner.calibration" v-if="agv.state.calibration_available" id="job-owner-calibration" label="Select Calibration module"
+              :why="ownerReason" :outcome="agv.feedback('job-owner-calibration')"
+              @press="agv.post({ action: 'claim_owner', owner: 'calibration' }, 'job-owner-calibration')" />
+            <OperatorButton data-ui="agv.owner.release" v-if="agv.state.owner" id="job-owner-release" label="Release owner" :why="ownerReason"
+              :outcome="agv.feedback('job-owner-release')" @press="agv.post({ action: 'claim_owner', owner: null }, 'job-owner-release')" />
+          </div>
+          <p v-if="agv.state.executor_job">Current job {{ agv.state.executor_job.job_id }} · {{ agv.state.executor_job.state }}</p>
+          <details data-ui="agv.jobs.recent" v-if="agv.state.recent_jobs?.length" open>
+            <summary data-ui="agv.jobs.toggle">Recent client jobs</summary>
+            <ul>
+              <li data-ui="agv.jobs.item" :data-ui-key="job.job_id" v-for="job in agv.state.recent_jobs" :key="job.job_id">
+                {{ ownerLabel(job.client_name) }} · {{ job.job_id }} · {{ job.state }}
+              </li>
+            </ul>
+          </details>
+        </section>
         <div class="stats">
           <Card data-ui="agv.status.metric" :data-ui-key="stat.key" v-for="stat in stats" :key="stat.label" class="stats-widget">
             <template #content>
@@ -191,66 +278,93 @@ function connect() {
       <Panel data-ui="agv.call.panel" class="panel agv-surface" aria-labelledby="stations-title">
         <template #header><h2 id="stations-title">Stations</h2></template>
         <p v-if="standard">{{ stationCallRequired }}</p>
-        <p v-else-if="zero">No route learned. The report shows the stop counter. Teach the route with the AGV’s green button. See the XBOT station guide (V1.61, pp. 2–3).</p>
-        <p v-else-if="stationMode">{{ maximum }} targets on the learned route, including the start.</p>
+        <p v-else-if="zero || stationMode">
+          {{ stationRangeText(status) }}
+          It is at station {{ status.current_station ?? 'unknown' }}<template v-if="agv.state.status_time"> (read {{ localTime(agv.state.status_time).split('.')[0] }})</template>.
+        </p>
         <p v-else>Query status to check for a learned route.</p>
+        <p v-if="manualDeadline" data-ui="agv.call.window">
+          <template v-if="agv.isolatedTrack">
+            Supervised folded-arm travel on the line tape. Tank-clear and equipment-off signals are not connected yet: check the path and the tank equipment by eye before each call.
+            The AGV’s fresh battery percentage supplies the reserve check.
+          </template>
+          Manual travel deadline {{ manualDeadline }} (local time). DRAFT battery floor {{ agv.state.executor_health.manual_travel_min_battery }}%.
+        </p>
+        <Message v-if="!standard && (zero || (stationMode && maximum === 2))"
+          data-ui="agv.call.range.warning" severity="warn">
+          {{ zero ? 'Teach the route before calling a station.' : 'Teach the new tape before calling stations beyond the learned range.' }}
+          Use the AGV’s green button (XBOT station guide V1.61, pp. 2–3), then press Query status.
+        </Message>
         <p v-if="!standard && callReason" id="agv-station-call-reason" data-ui="agv.call.reason">{{ callReason }}</p>
         <p v-if="agv.state.quality_alarm" role="status">{{ agv.state.quality_alarm.reason }}</p>
         <p v-for="fault in evidenceFaults" :key="fault" role="alert">{{ fault }}</p>
-        <div v-if="manualVisit">
-          <p role="status">{{ visitSummary }}{{ manualVisit.missing ? ' · IPC result missing' : '' }}{{ manualVisit.result?.error ? ' · ' + manualVisit.result.error : '' }}</p>
-          <p v-if="manualVisit.prior_result">Previous saved outcome: {{ manualVisit.prior_result.outcome }}</p>
-          <p v-if="manualVisit.result?.reconciliation">Reconciled: {{ manualVisit.result.reconciliation.disposition }}</p>
-          <template v-if="manualNeedsReview && !evidenceFaults.length">
-            <label>Verified station disposition <input data-ui="agv.call.disposition" v-model="manualNote" maxlength="500"></label>
-            <OperatorButton data-ui="agv.call.reconcile" id="reconcile-station" label="Reconcile original station visit"
-              :why="agv.busy || !manualNote.trim() ? 'Enter the verified station disposition.' : ''"
-              :outcome="agv.feedback('reconcile-station')"
-              @press="agv.post({ action: 'reconcile_station', job_id: manualVisit.id, note: manualNote }, 'reconcile-station')" />
+        <section v-if="operatorCheck" data-ui="agv.check.panel" aria-labelledby="agv-operator-check">
+          <h3 id="agv-operator-check">Operator check</h3>
+          <p role="alert">{{ operatorCheck.reason }}</p>
+          <p><template v-if="operatorCheck.job_id">Job {{ operatorCheck.job_id }} · </template>
+            Last observed location {{ operatorCheck.location ?? 'unknown' }}</p>
+          <p v-if="operatorCheck.earlier_location">Earlier observed location {{ operatorCheck.earlier_location }}</p>
+          <template v-if="!operatorCheck.technician && !evidenceFaults.length">
+            <div class="field-row">
+              <label for="agv-check-operator">Operator
+                <InputText id="agv-check-operator" data-ui="agv.check.operator" v-model="operator" maxlength="500" />
+              </label>
+              <label for="agv-check-location">Observed AGV location
+                <InputText id="agv-check-location" data-ui="agv.check.location" v-model="location" maxlength="500" />
+              </label>
+            </div>
+            <label class="check">
+              <input type="checkbox" data-ui="agv.check.confirmed" v-model="confirmed">
+              I physically checked the AGV location
+            </label>
+            <OperatorButton data-ui="agv.check.abort" id="abort-station"
+              :label="manualVisit?.id === operatorCheck.job_id ? 'Abort station visit' : 'Confirm safe hold'"
+              :why="abortReason" :outcome="agv.feedback('abort-station')" @press="abortVisit" />
           </template>
-          <OperatorButton v-if="visitOutcome && !manualNeedsReview && !evidenceFaults.length" data-ui="agv.call.acknowledge"
+        </section>
+        <div v-if="manualVisit">
+          <p role="status">{{ visitSummary }}{{ manualVisit.result?.error ? ' · ' + manualVisit.result.error : '' }}</p>
+          <OperatorButton v-if="visitOutcome === 'succeeded' && !operatorCheck && !evidenceFaults.length" data-ui="agv.call.acknowledge"
             id="acknowledge-station" label="Acknowledge result" :why="agv.busy ? 'Wait for the current request.' : ''"
             :outcome="agv.feedback('acknowledge-station')"
             @press="agv.post({ action: 'acknowledge_station', job_id: manualVisit.id }, 'acknowledge-station')" />
         </div>
-        <div v-if="orphanRecovery">
-          <p>Recover the executor using the original job ID from the controller journal and a verified disposition.</p>
-          <label>Original job ID <input data-ui="agv.marker.job" v-model="orphanJob" maxlength="32"></label>
-          <label>Verified disposition <input data-ui="agv.marker.disposition" v-model="manualNote" maxlength="500"></label>
-          <OperatorButton data-ui="agv.marker.reconcile" id="repair-executor-marker" label="Reconcile executor evidence"
-            :why="agv.busy || !orphanJob.trim() || !manualNote.trim() ? 'Enter the original job ID and verified disposition.' : ''"
-            :outcome="agv.feedback('repair-executor-marker')"
-            @press="agv.post({ action: 'repair_executor_marker', job_id: orphanJob.trim(), note: manualNote }, 'repair-executor-marker')" />
-        </div>
-        <p v-if="agv.state.executor_recovery_evidence?.acknowledged" role="status">
-          Recovery evidence acknowledged for {{ agv.state.executor_recovery_evidence.job_id }}
-        </p>
         <div v-if="!manualVisit && agv.state.manual_visit_history">
-          {{ agv.state.manual_visit_history.admission_refused ? 'Station visit refused' : 'Last acknowledged station visit' }}
+          {{ agv.state.manual_visit_history.refused ? 'Last station visit refused' :
+            agv.state.manual_visit_history.operator_check ? 'Station visit aborted' : 'Last acknowledged station visit' }}
           {{ agv.state.manual_visit_history.id }}
-          · {{ agv.state.manual_visit_history.result?.error || agv.state.manual_visit_history.result?.outcome }}
         </div>
+        <section v-if="confirmation" data-ui="agv.call.attestation" aria-labelledby="station-confirmation-heading">
+          <h3 id="station-confirmation-heading" ref="confirmationHeading" tabindex="-1">Confirm station {{ confirmation.station }}</h3>
+          <p>I am at the e-stop, the arm is folded, and the path and tank equipment are clear.</p>
+          <p v-if="agv.isolatedTrack">My observation of the folded arm applies to this station call only.</p>
+          <div class="field-row">
+            <OperatorButton id="confirm-station" data-ui="agv.call.confirm" label="Confirm and call"
+              :why="agv.commandReason('call_station', confirmation.station)" @press="confirmStation" />
+            <OperatorButton id="cancel-station" data-ui="agv.call.cancel" label="Cancel" @press="confirmation = null" />
+          </div>
+        </section>
         <div v-if="!standard" data-ui="agv.call.grid" class="station-grid">
           <OperatorButton data-ui="agv.call.station" :data-ui-key="station" v-for="station in stations" :id="'station-' + station" :key="station"
             :label="stationLabel(station) + (station === status?.current_station && stationMode ? ' · Current' : '')"
             :current="station === status?.current_station && stationMode"
             :why="stationReason(station)" :why-id="callReason && stationReason(station) === callReason ? 'agv-station-call-reason' : undefined"
             :outcome="agv.feedback('station-' + station)"
-            @press="agv.send('call_station', 'station-' + station, station)" />
+            @press="requestStation(station, 'station-' + station)" />
         </div>
-        <OperatorButton v-if="!standard" data-ui="agv.call.parking" :id="'station-' + parking" class="parking-call"
+        <OperatorButton v-if="!standard && (!agv.supervisedRange || parking <= maximum)" data-ui="agv.call.parking" :id="'station-' + parking" class="parking-call"
           :label="stationLabel(parking) + (parking === status?.current_station && stationMode ? ' · Current' : '')"
           :current="parking === status?.current_station && stationMode"
           :why="stationReason(parking)" :why-id="callReason && stationReason(parking) === callReason ? 'agv-station-call-reason' : undefined"
           :outcome="agv.feedback('station-' + parking)"
-          @press="agv.send('call_station', 'station-' + parking, parking)" />
+          @press="requestStation(parking, 'station-' + parking)" />
         <div v-if="agv.commands.has('call_station') && !standard && !zero" class="field-row">
           <label for="agv-manual-station">Manual station number{{ maximum ? ` (1–${maximum})` : '' }}
             <InputNumber :pt="{ pcInputText: { root: { 'data-ui': 'agv.call.number' } } }" input-id="agv-manual-station" v-model="agv.form.station" fluid :use-grouping="false"
               @input="agv.form.station = $event.value" />
           </label>
           <OperatorButton data-ui="agv.call.submit" id="call_station" label="Call station" :why="agv.commandReason('call_station', agv.form.station)"
-            :outcome="agv.feedback('call_station')" @press="agv.send('call_station', 'call_station', agv.form.station)" />
+            :outcome="agv.feedback('call_station')" @press="requestStation(agv.form.station, 'call_station')" />
         </div>
       </Panel>
     </div>
@@ -280,7 +394,7 @@ function connect() {
           </div>
           <Message v-if="agv.portError" severity="error" :pt="{ root: { id: 'port-error' } }">{{ agv.portError }}</Message>
         </div>
-        <p v-if="agv.form.mode === 'wired'">Status-only link · {{ agv.capability?.wired_port ?? agv.state.wired_port }}</p>
+        <p v-if="agv.form.mode === 'wired'">{{ agv.isolatedTrack ? 'Supervised wired link' : 'Status-only link' }} · {{ agv.capability?.wired_port ?? agv.state.wired_port }}</p>
         <Accordion class="agv-disclosure">
           <AccordionPanel data-ui="agv.link.settings" value="settings">
             <AccordionHeader data-ui="agv.link.settings.toggle">Link settings</AccordionHeader>
@@ -334,7 +448,8 @@ function connect() {
       </Panel>
       <Panel data-ui="agv.movement.panel" class="panel agv-surface movement" :data-armed="Boolean(agv.armed)">
         <template #header><h2>Movement and speed</h2></template>
-        <p v-if="agv.state.robot_interlock">Robot travel pose required for motion. Save the pose on Teaching.</p>
+        <p v-if="agv.isolatedTrack">The UR10e is disconnected. Check the folded arm at the e-stop before each station call.</p>
+        <p v-else-if="agv.state.robot_interlock">Robot travel pose required for motion. Save the pose on Teaching.</p>
         <p v-else-if="agv.state.robot_interlock === false">AGV-only test bench · No robot interlock.</p>
         <label for="agv-armed" class="check">
           <ToggleSwitch input-id="agv-armed" :model-value="Boolean(agv.armed)" :disabled="Boolean(agv.armReason)"
@@ -383,6 +498,7 @@ function connect() {
 </template>
 
 <style scoped>
+.agv-maintenance-nav { display: flex; gap: .5rem; margin-block-end: .75rem; }
 .agv-surface { padding: 0; }
 .agv-surface h2 { margin: 0; }
 .station-grid {

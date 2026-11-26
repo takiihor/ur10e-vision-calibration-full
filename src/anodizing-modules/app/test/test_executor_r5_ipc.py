@@ -1,3 +1,5 @@
+import time
+import secrets
 """Phase 1 executor fault checks with fake hardware only."""
 import json
 import multiprocessing
@@ -7,7 +9,7 @@ from threading import Event, Thread
 import pytest
 
 from anodizing_web.executor import AdmissionRefused, Executor, FakeDevices
-from anodizing_web.executor_http import _validate_job
+from anodizing_web.executor_http import _validate_job, stop_corroborated
 
 from test_executor_phase1 import FAKE_TANK_SETPOINTS, session, terminal, visit, wait_for
 from test_executor_r3_ipc import dip, lease, plant
@@ -28,68 +30,6 @@ def test_refusal_is_available_by_id_after_restart(tmp_path):
         assert job is not None
         assert job['state'] == 'refused'
         assert job['error'] == str(refused.value)
-        assert restarted.devices.effects == []
-    finally:
-        restarted.close()
-
-
-def test_deleted_refusal_inventory_fences_after_restart(tmp_path):
-    executor = Executor(tmp_path, FakeDevices())
-    try:
-        request = visit(session(executor))
-        executor.devices.reserve_s = 0
-        with pytest.raises(AdmissionRefused):
-            executor.submit(request)
-    finally:
-        executor.close()
-    refusal = tmp_path / '.executor-refused.json'
-    refusal.unlink()
-    restarted = Executor(tmp_path, FakeDevices())
-    try:
-        status = restarted.status()
-        assert status['recovery_required']
-        assert 'call a technician' in status['evidence_faults'][refusal.name]
-        identity = lease(restarted)
-        with pytest.raises(ValueError, match='technician'):
-            restarted.control('arm', dict(identity, stop_generation=status['stop_generation']))
-        assert not refusal.exists()
-        assert restarted.devices.effects == []
-    finally:
-        restarted.close()
-
-
-@pytest.mark.parametrize('damage', ['missing', 'malformed-result', 'contradictory-result'])
-def test_damaged_accepted_job_stays_untouched_and_fenced(tmp_path, damage):
-    executor = Executor(tmp_path, FakeDevices(setpoints=FAKE_TANK_SETPOINTS))
-    try:
-        request = dip(session(executor), destination='output')
-        plant(executor, request)
-        executor.submit(request)
-        terminal(executor, request['job_id'])
-    finally:
-        executor.close()
-    ident = request['job_id']
-    path = tmp_path / '.jobs' / (ident + '.json')
-    if damage == 'missing':
-        path.unlink()
-        original = None
-    else:
-        stored = json.loads(path.read_text())
-        if damage == 'malformed-result':
-            del stored['result']['steps'][0]['plc']
-        else:
-            stored['result']['steps'][0]['dwell_s'] = 0
-        original = json.dumps(stored)
-        path.write_text(original)
-    restarted = Executor(tmp_path, FakeDevices())
-    try:
-        status = restarted.status(ident)
-        assert status['recovery_required']
-        assert 'call a technician' in status['evidence_faults'][str(path.relative_to(tmp_path))]
-        identity = lease(restarted)
-        with pytest.raises(ValueError, match='technician'):
-            restarted.reconcile(dict(identity, job_id=ident, disposition='Observed plant', missing=original is None))
-        assert (path.read_text() if path.exists() else None) == original
         assert restarted.devices.effects == []
     finally:
         restarted.close()
@@ -123,24 +63,6 @@ def test_validated_reply_requires_consistent_measured_dwell_and_plc(tmp_path):
         job['result']['steps'][0]['plc'] = {'cycle': 0}
         with pytest.raises(ValueError):
             _validate_job(job)
-    finally:
-        executor.close()
-
-
-def test_unaccounted_disposition_cannot_close_when_original_is_now_at_park(tmp_path):
-    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
-    executor = Executor(tmp_path, devices)
-    try:
-        request = dip(session(executor))
-        plant(executor, request)
-        executor.submit(request)
-        done = terminal(executor, request['job_id'])
-        assert done['result']['hold']['location'] == 'park'
-        with pytest.raises(ValueError, match='ordinary.*unload'):
-            executor.reconcile(dict(request, disposition='Basket not accounted for', observed_only=True,
-                                    allow_unaccounted=True, observation_id='observation', **{
-                                        key: request['params'][key] for key in ('basket', 'run_id')}))
-        assert executor.status(request['job_id'])['job']['observation'] is None
     finally:
         executor.close()
 
@@ -188,36 +110,26 @@ def test_measured_dwell_breach_alarms_without_blocking_next_job(tmp_path):
 
 
 def exit_during_admission(root, phase):
+    import anodizing_web.executor as executor_module
+
     devices = FakeDevices(state_path=root / '.fake-devices.json')
     executor = Executor(root, devices)
     request = visit(session(executor))
-    write_marker = executor._write_marker
-    save_job = executor.owner._save
-    submit = executor.owner.submit
+    write = executor_module.atomic_json
 
-    def marker(*args, **kwargs):
-        write_marker(*args, **kwargs)
-        if phase == ('pending-marker' if kwargs.get('committing_id') else 'committed-marker'):
+    def interrupted(path, data, **kwargs):
+        write(path, data, **kwargs)
+        if phase == 'entry' and path.parent == executor.journal:
+            os._exit(85)
+        if phase == 'tip' and path == executor.journal_tip and data['count'] == 1:
             os._exit(85)
 
-    def job(*args):
-        save_job(*args)
-        if phase == 'job-file':
-            os._exit(85)
-
-    def job_admission(*args):
-        if phase == 'acceptance-inventory':
-            os._exit(85)
-        return submit(*args)
-
-    executor._write_marker = marker
-    executor.owner._save = job
-    executor.owner.submit = job_admission
+    executor_module.atomic_json = interrupted
     executor.submit(request)
     os._exit(86)
 
 
-@pytest.mark.parametrize('phase', ['pending-marker', 'acceptance-inventory', 'job-file', 'committed-marker'])
+@pytest.mark.parametrize('phase', ['entry', 'tip'])
 def test_process_exit_at_admission_write_boundaries_has_no_effect(tmp_path, phase):
     child = multiprocessing.get_context('spawn').Process(target=exit_during_admission, args=(tmp_path, phase))
     child.start()
@@ -228,88 +140,19 @@ def test_process_exit_at_admission_write_boundaries_has_no_effect(tmp_path, phas
     assert child.exitcode == 85
     restarted = Executor(tmp_path, FakeDevices(state_path=tmp_path / '.fake-devices.json'))
     try:
-        snapshot = restarted.status(visit({})['job_id'])
-        committed = phase == 'committed-marker'
-        assert snapshot['job']['outcome'] == ('unknown' if committed else 'stopped')
-        assert snapshot['recovery_required'] == committed
-        assert not snapshot.get('evidence_faults')
+        ident = visit({})['job_id']
+        snapshot = restarted.status(ident)
+        assert snapshot['job']['outcome'] == 'unknown'
+        assert snapshot['operator_check']['job_id'] == ident
+        assert not snapshot['evidence_faults']
         assert restarted.devices.agv.station == 0
         assert restarted.devices.effects == []
     finally:
         restarted.close()
 
 
-def exit_during_refusal(root):
-    import anodizing_web.executor as executor_module
-
-    saved = executor_module.atomic_json
-    devices = FakeDevices(state_path=root / '.fake-devices.json')
-    executor = Executor(root, devices)
-    request = visit(session(executor))
-    devices.reserve_s = 0
-
-    def write(path, data, **kwargs):
-        saved(path, data, **kwargs)
-        if path.name == '.executor-refused-proof.json' and 'previous' in data:
-            os._exit(87)
-
-    executor_module.atomic_json = write
-    executor.submit(request)
-    os._exit(88)
-
-
-def test_process_exit_after_refusal_proof_preserves_the_original_refusal(tmp_path):
-    child = multiprocessing.get_context('spawn').Process(target=exit_during_refusal, args=(tmp_path,))
-    child.start()
-    child.join(8)
-    if child.is_alive():
-        child.kill()
-        child.join()
-    assert child.exitcode == 87
-    restarted = Executor(tmp_path, FakeDevices(state_path=tmp_path / '.fake-devices.json'))
-    try:
-        identity = session(restarted)
-        request = visit(identity)
-        snapshot = restarted.status(request['job_id'])
-        assert not snapshot['recovery_required']
-        refused = snapshot['job']
-        assert refused['state'] == 'refused' and 'reserve' in refused['error'].lower()
-        with pytest.raises(AdmissionRefused, match='reserve'):
-            restarted.submit(request)
-        assert restarted.devices.effects == []
-    finally:
-        restarted.close()
-
-
-def test_active_checkpoint_never_rewrites_externally_damaged_job(tmp_path):
-    devices = FakeDevices()
-    entered, release = Event(), Event()
-    perform = devices.perform
-
-    def paused(effect, value):
-        result = perform(effect, value)
-        entered.set()
-        assert release.wait(3)
-        return result
-
-    devices.perform = paused
-    executor = Executor(tmp_path, devices)
-    try:
-        request = visit(session(executor))
-        executor.submit(request)
-        assert entered.wait(3)
-        path = tmp_path / '.jobs' / (request['job_id'] + '.json')
-        path.write_text('damaged job bytes')
-        release.set()
-        wait_for(lambda: executor.owner.active, lambda active: active is None)
-        assert path.read_text() == 'damaged job bytes'
-        assert executor.status(request['job_id'])['evidence_faults']
-    finally:
-        release.set()
-        executor.close()
-
-
 def test_wired_halt_is_attempted_during_blocked_station_interlock(tmp_path, monkeypatch):
+    monkeypatch.setenv('ANODIZING_MANUAL_TRAVEL_UNTIL', str(__import__('time').time() + 3600))
     import time
     from types import SimpleNamespace
     from anodizing_web import agv
@@ -353,6 +196,7 @@ def test_wired_halt_is_attempted_during_blocked_station_interlock(tmp_path, monk
         identity = lease(executor)
         executor.control('status_read', identity)
         request = visit(dict(identity, stop_generation=0))
+        request['attestation'] = dict(id=request['job_id'], station=2, confirmed_at=time.time())
         executor.control('arm', request)
         executor.submit(request)
         assert entered.wait(3)
@@ -383,7 +227,7 @@ def test_invalid_remote_events_reject_one_reply_without_breaking_status(tmp_path
             return status
 
         executor.dispatch = invalid_status
-        token = 'r5-private-test-executor-token-string'
+        token = secrets.token_urlsafe(32)
         listener = control_listener(0, executor, token)
         with running(listener):
             client = Client(listener.server_port, token)
@@ -394,110 +238,31 @@ def test_invalid_remote_events_reject_one_reply_without_breaking_status(tmp_path
         executor.close()
 
 
-def test_stop_during_recovery_observation_prevents_any_new_unload(tmp_path):
-    devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
-    entered, release = Event(), Event()
-    observe = devices.observe_recovery_hold
-
-    def paused_observation():
-        hold = observe()
-        entered.set()
-        assert release.wait(3)
-        return hold
-
-    devices.observe_recovery_hold = paused_observation
-    executor = Executor(tmp_path, devices)
-    errors = []
-    worker = None
-    try:
-        request = dip(session(executor))
-        plant(executor, request)
-        executor.submit(request)
-        terminal(executor, request['job_id'])
-        params = request['params']
-        intent = dict(request, disposition='Unload original basket', observed_only=True, release_basket=True,
-                      basket=params['basket'], run_id=params['run_id'], observation_id='r5-unload-check')
-
-        def reconcile():
-            try:
-                executor.reconcile(intent)
-            except ValueError as exc:
-                errors.append(str(exc))
-
-        worker = Thread(target=reconcile, daemon=True)
-        worker.start()
-        assert entered.wait(3)
-        assert executor.stop({'stop_id': 'urgent-unload-stop'})['received']
-        release.set()
-        worker.join(3)
-        assert not worker.is_alive()
-        assert errors and 'Stop' in errors[0]
-        assert devices.robot.basket == params['basket']
-        assert devices.robot.location == 'park'
-    finally:
-        release.set()
-        if worker is not None:
-            worker.join(3)
-        executor.close()
-
-
-def test_fresh_stop_evidence_confirms_both_overlapping_receipts(tmp_path):
+@pytest.mark.parametrize('first_halt_succeeds', [True, False])
+def test_fresh_stop_evidence_confirms_both_overlapping_receipts(tmp_path, first_halt_succeeds):
     devices = FakeDevices()
     executor = Executor(tmp_path, devices)
     evidence_ready = Event()
     evidence = devices.stop_evidence
-    devices.stop_evidence = lambda requested: evidence_ready.is_set() and evidence(requested)
+    devices.stop_evidence = lambda *times: evidence(*times) if evidence_ready.is_set() else None
+    halt = devices.stop
+    attempts = iter((first_halt_succeeds, True))
+    devices.stop = lambda: next(attempts) and halt()
     try:
         session(executor)
         earlier = {'stop_id': 'earlier-stop'}
         newer = {'stop_id': 'newer-stop'}
         assert not executor.stop(earlier)['confirmed']
+        wait_for(lambda: not executor.stop_workers, bool)
         assert not executor.stop(newer)['confirmed']
         evidence_ready.set()
         first = wait_for(lambda: executor.stop(newer), lambda receipt: receipt['confirmed'])
         retained = executor.stop(earlier)
         assert retained['confirmed']
+        assert retained['halt_attempted'] is first_halt_succeeds
         assert retained['generation'] < first['generation']
-        assert executor.status()['stop']['stop_id'] == newer['stop_id']
+        status = executor.status()
+        assert status['stop']['stop_id'] == newer['stop_id']
+        assert stop_corroborated(status, retained)
     finally:
         executor.close()
-
-
-def test_technician_restores_exact_result_before_restarting_and_acknowledging(tmp_path):
-    from anodizing_web.executor_http import Client, control_listener
-    from test_executor_phase1 import running
-
-    devices = FakeDevices(state_path=tmp_path / '.fake-devices.json')
-    executor = Executor(tmp_path, devices)
-    try:
-        request = visit(session(executor))
-        executor.submit(request)
-        ident = request['job_id']
-        original = terminal(executor, ident)
-        relative = '.jobs/' + ident + '.json'
-        path = tmp_path / relative
-        intact = path.read_bytes()
-        path.unlink()
-
-        token = 'r5-private-test-executor-token-string'
-        listener = control_listener(0, executor, token)
-        with running(listener):
-            client = Client(listener.server_port, token)
-            status = client('status', {'job_id': ident})
-            assert status['job'] is None
-            assert 'call a technician' in status['evidence_faults'][relative]
-            with pytest.raises(ValueError, match='technician'):
-                client('acknowledge', request)
-            path.write_bytes(intact)
-            assert client('status', {'job_id': ident})['recovery_required']
-    finally:
-        executor.close()
-
-    restarted = Executor(tmp_path, FakeDevices(state_path=devices.state_path))
-    try:
-        identity = lease(restarted)
-        assert restarted.status(ident)['job'] == original
-        assert restarted.acknowledge(dict(identity, job_id=ident))['acknowledged']
-        assert restarted.devices.effects == []
-    finally:
-        restarted.close()

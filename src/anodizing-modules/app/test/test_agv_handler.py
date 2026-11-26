@@ -39,9 +39,12 @@ def session(tmp_path, request):
                             execution_uncertain=False, root=tmp_path)
     connection = agv.Connection(owner)
 
-    def exchange(body=None, *, token='secret', origin=None):
+    session_token = secrets.token_urlsafe(32)
+
+    def exchange(body=None, *, token=session_token, origin=None):
         h = object.__new__(namespace['Handler'])
-        h.server = SimpleNamespace(owner=owner, agv=connection, hosts={'localhost:8870'}, token='secret')
+        h.server = SimpleNamespace(owner=owner, agv=connection, bluetooth=SimpleNamespace(reason=None),
+                                   hosts={'localhost:8870'}, token=session_token)
         h.path = '/api/agv'
         h.headers = Message()
         h.headers['Host'] = 'localhost:8870'
@@ -1843,11 +1846,13 @@ def test_pause_flag_does_not_confirm_stop_at_nonzero_speed(session, agv_clock):
     transport._report()
     request()
     send(request, 'pause')
+    agv_clock.now += .1
     transport.stopped = False  # Simulate the brief period before braking completes.
     transport._report()
     state = request()[1]
     assert state['status']['actual_speed_m_h'] > 0
     assert state['results']['pause']['confirmed_stopped'] is False
+    agv_clock.now += .1
     transport.stopped = True
     transport._report()
     state = request()[1]

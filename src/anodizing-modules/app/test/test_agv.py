@@ -187,3 +187,36 @@ def test_seeded_simulator_drops_host_frames_before_processing_them():
         assert transport.write(raw) == len(raw)
         received.append(bool(transport.read(transport.in_waiting)))
     assert received == [False, False, True, False, True, False, False, True]
+
+
+def test_status_timestamp_tracks_first_serial_bytes_across_a_delay(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    clock = 10.0
+    chunk = REPORT[:8]
+    monkeypatch.setattr(agv, 'monotonic', lambda: clock)
+
+    def read(_):
+        return chunk
+
+    link = agv.Connection(SimpleNamespace(root=tmp_path))
+    link.transport = SimpleNamespace(in_waiting=len(REPORT), read=read)
+    link.splitter = agv.Splitter(b'')
+    link.connected_at = clock
+
+    link._receive()
+    assert link.status is None
+    clock = 11.0  # A halt may be sent while waiting for the rest of this frame.
+    chunk = REPORT[8:] + REPORT
+    consumed = []
+    consume = link._status_received
+
+    def delayed_consume(*args):
+        nonlocal clock
+        clock = 12.0  # Decoding and recording are not serial observations.
+        consume(*args)
+        consumed.append(link.status_at)
+
+    monkeypatch.setattr(link, '_status_received', delayed_consume)
+    link._receive()
+    assert consumed == [10.0, 11.0]

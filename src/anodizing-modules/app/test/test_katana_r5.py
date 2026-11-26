@@ -52,7 +52,7 @@ def test_history_query_returns_requested_measured_rows_while_current_stays_live(
         for basket in ('A', 'B'):
             state = wait_for(lambda: call('programme'), lambda s: s['approval'])
             call('programme', dict(action='start', revision=state['recipe']['id'], approval=state['approval'], basket=basket))
-            run = wait_for(lambda: call('programme')['run'], lambda r: r['state'] == 'succeeded' and not r['ack_pending'])
+            run = wait_for(lambda: call('programme')['run'], lambda r: r['state'] == 'succeeded')
             if basket == 'A':
                 first = run
         historical = call('programme?run_id=' + first['id'])
@@ -89,32 +89,29 @@ def test_remote_recording_forwards_each_frame_and_event_once_and_marks_gap(tmp_p
 
 
 
-@pytest.mark.parametrize('lock_name', ['lock', 'stop_lock'])
+@pytest.mark.parametrize('lock_name', ['lock', 'stop_receipts'])
 def test_link_delivers_before_cache_or_receipt_storage_is_available(tmp_path, lock_name):
-    delivered = Event()
-
-    with remote(tmp_path) as (client, _, _):
-        def track(op, body=None):
-            result = client(op, body)
-            if op == 'stop':
-                delivered.set()
-            return result
-
-        app = server.Server(0, tmp_path / 'katana', executor_client=track)
+    root = tmp_path / 'katana'
+    with remote(tmp_path) as (client, executor, _):
+        app = server.Server(0, root, executor_client=client)
+        worker = Thread(target=app.executor_link.stop, args=({'stop_id': 'priority-stop'},))
         try:
             link = app.executor_link
             wait_for(link.status, lambda state: state.get('executor_session'))
             with getattr(link, lock_name):
-                worker = Thread(target=link.stop, args=({'stop_id': 'priority-stop'},))
                 worker.start()
-                assert delivered.wait(.8), f'Stop waited behind {lock_name}'
-        finally:
+                wait_for(executor.status, lambda state: (state['stop'] or {}).get('stop_id') == 'priority-stop',
+                         timeout=.8)
             worker.join(5)
+            assert not worker.is_alive()
+            intent = json.loads((root / 'executor-stop-witness.json').read_text())
+            assert intent['id'] == 'priority-stop' and not intent['report']['confirmed']
+        finally:
             app.server_close()
 
 
 
-def test_lost_manual_refusal_preserves_reason_and_releases_unadmitted_visit(tmp_path):
+def test_lost_manual_refusal_requires_operator_check_without_motion(tmp_path):
     from anodizing_web.executor import AdmissionRefused
     with remote(tmp_path) as (client, _, devices):
         def lost(op, body=None):
@@ -129,11 +126,11 @@ def test_lost_manual_refusal_preserves_reason_and_releases_unadmitted_visit(tmp_
             devices.reserve_s = 0
             with pytest.raises(OSError):
                 call('agv', dict(reviewed, action='send', command='call_station', value=2))
-            result = wait_for(lambda: call('agv'), lambda s: s.get('manual_visit_history'), timeout=3)
-            history = result['manual_visit_history']
-            assert result['manual_visit'] is None and history['result']['state'] == 'refused'
-            assert history['result']['error'] and history['result']['job_id'] == history['id']
-            assert not devices.effects
+            result = wait_for(lambda: call('agv'), lambda s: s.get('operator_check'), timeout=3)
+            check = result['operator_check']
+            assert result['manual_visit']['id'] == check['job_id']
+            assert 'reserve' in check['reason'].lower()
+            assert not result['manual_visit_history'] and not devices.effects
 
 
 
@@ -164,11 +161,13 @@ def test_manual_station_ack_requires_matching_observed_station(tmp_path, when):
                 assert seen.wait(3)
             with pytest.raises(HTTPError):
                 call('agv', dict(action='acknowledge_station', job_id=job_id))
-            assert not executor.status(job_id)['job']['acknowledged']
+            check = wait_for(lambda: call('agv'), lambda s: s.get('operator_check'))
+            assert check['manual_visit']['id'] == job_id
+            assert check['manual_visit']['doubt']
             corrupt = False
-            wait_for(lambda: call('agv'), lambda s: ((s['manual_visit']['result'] or {}).get('result') or {})
-                     .get('hold', {}).get('station') == 4)
-            call('agv', dict(action='acknowledge_station', job_id=job_id))
+            with pytest.raises(HTTPError):
+                call('agv', dict(action='acknowledge_station', job_id=job_id))
+            assert executor.status(job_id)['job']['result']['hold']['station'] == 4
             assert devices.effects == [('station', 4)]
 
 
@@ -183,3 +182,83 @@ def test_kiosk_projects_technician_diagnostic_from_cached_status():
     with running(display_listener(0, lambda: cached)) as port:
         with urlopen(f'http://127.0.0.1:{port}/status') as reply:
             assert json.load(reply).get('evidence_faults') == faults
+
+
+def test_programme_operator_receipt_write_failure_fences_dispatch(tmp_path, monkeypatch):
+    from anodizing_web.programme import Programme
+
+    allow_tick = Event()
+    tick = Programme.tick
+
+    def delayed_tick(programme):
+        if allow_tick.wait(5):
+            tick(programme)
+
+    monkeypatch.setattr(Programme, 'tick', delayed_tick)
+    original = server.atomic_json
+    failures = []
+
+    def fail_result(path, value, **options):
+        if not failures and path.parent.name == 'executor-operator-actions' and 'result' in value:
+            failures.append(path)
+            raise OSError('simulated operator receipt storage failure')
+        return original(path, value, **options)
+
+    with remote(tmp_path) as (client, executor, devices), operator(tmp_path / 'katana', client, steps('seal')) as call:
+        state = wait_for(lambda: call('programme'), lambda review: review['approval'])
+        monkeypatch.setattr(server, 'atomic_json', fail_result)
+        with pytest.raises(HTTPError) as error:
+            call('programme', dict(action='start', revision=state['recipe']['id'], basket='receipt-fault',
+                                   approval=state['approval'], request_id='faulted-start',
+                                   review_cursor=state['review_cursor']))
+        explanation = json.load(error.value)['error']
+        assert str(failures[0]) in explanation
+        assert 'simulated operator receipt storage failure' in explanation
+        try:
+            check = wait_for(lambda: executor.status().get('operator_check'), timeout=4)
+            run_id = call('programme')['run']['id']
+            assert check['run_id'] == run_id and not check.get('manual')
+            assert str(failures[0]) in check['reason']
+        finally:
+            allow_tick.set()
+        hold = wait_for(lambda: call('programme'), lambda review: review['run']['state'] == 'operator_check'
+                        and not review['run']['stop_pending'] and review['approval']
+                        and executor.status().get('operator_check'))
+        run = hold['run']
+        assert not run['operator_check']['technician']
+        with pytest.raises(HTTPError):
+            call('agv', dict(action='arm', armed=True))
+        with pytest.raises(HTTPError):
+            call('programme', dict(action='abort', job_id=run['id'], basket=run['basket'], location='input',
+                                   operator='Inspector', confirmed=False, approval=hold['approval']))
+        assert not devices.effects and not executor.status()['armed']
+        pending_receipt = json.loads(failures[0].read_text())
+        assert set(pending_receipt) == {'signature'}
+
+        hold = call('programme')
+        try:
+            aborted = call('programme', dict(action='abort', job_id=run['id'], basket=run['basket'], location='input',
+                                            operator='Inspector', confirmed=True, approval=hold['approval']))
+        except HTTPError as exc:
+            pytest.fail(f'Physical Abort was refused: {exc.read().decode()} | IPC={executor.status()["operator_check"]!r}')
+        assert aborted['state'] == 'aborted' and aborted['operator_choices'][-1]['applied']
+        assert not devices.effects and not executor.status()['armed']
+        assert executor.status()['operator_check'] is None
+        assert json.loads(failures[0].read_text()) == pending_receipt
+
+
+def test_missing_operator_receipt_keeps_retained_basket_and_blocks_start(tmp_path):
+    root = tmp_path / 'katana'
+    with remote(tmp_path) as (client, executor, devices), operator(root, client, steps('seal')) as call:
+        state = wait_for(lambda: call('programme'), lambda review: review['approval'])
+        call('programme', dict(action='start', revision=state['recipe']['id'], basket='saved',
+                               approval=state['approval']))
+        recorded = wait_for(lambda: call('programme')['run'], lambda run: run['state'] == 'succeeded')
+        [receipt] = (root / 'executor-operator-actions').glob('*.json')
+        receipt.unlink()
+        current = call('programme')
+        assert receipt.name in current['technician']
+        assert 'call a technician' in current['technician']
+        assert current['run']['steps'] == recorded['steps']
+        assert current['approval'] is None
+        assert [effect for effect, _ in devices.effects].count('place') == 1

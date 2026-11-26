@@ -1,5 +1,5 @@
 import { connectionKey, sessionKey, journalKey, urgent, reads, linkLost, badFrame, motionText, pauseStationOnly, mergeJournal,
-  stationCallRequired, stationLimit, emptyJournal, isoNow, localTime, seconds, speedText, load, save, newSession,
+  stationCallRequired, stationLimit, stationRangeText, emptyJournal, isoNow, localTime, seconds, speedText, load, save, newSession,
   fieldLabels, modes, outcomesList, checklist, checklistCommands, foundFields, faultText,
   linkQualityText, resultText, eventText, connectionKeyFor, exportRecord, markdown,
   radioOverrides, savedRadioFields, rememberRadioOverrides, radioRouteError, radioPlaceholder } from './agv-record.mjs';
@@ -231,12 +231,12 @@ function commandReason(name, preset) {
     if (![0, 2].includes(state.status.mode)) return 'Select standard or station-call mode in the XBOT app first.';
     if (state.status.fault_code || state.status.obstacle_stop) return 'Clear the reported AGV fault or obstacle before continuing.';
     if (name === 'resume' && state.status.mode === 0) return 'Resume requires station-call mode.';
-    if (name === 'call_station' && !state.status.max_stations) return 'Learn the route before calling a station.';
+    if (name === 'call_station' && !stationLimit(state.status)) return 'Learn the route before calling a station.';
   }
   if (busy) return 'Wait for the current request.';
   const value = commandValue(name, preset);
   const maximum = stationLimit(state.status);
-  if (name === 'call_station' && maximum > 0 && value > maximum) return `Choose a learned station from 1 to ${maximum}.`;
+  if (name === 'call_station' && maximum > 0 && value > maximum) return `Choose a learned station. ${stationRangeText(state.status)}`;
   if (value === undefined) return name === 'set_speed' ? 'Enter a whole number from 500 to 4000 m/h.' : 'Enter a whole number from 1 to 255.';
   return '';
 }
@@ -253,8 +253,8 @@ function renderStatus() {
   $('manual-station').hidden = standard;
   $('target-readout').hidden = standard;
   display('station-note', standard ? stationCallRequired : maximum === 0
-    ? 'No route learned yet. Teach the route with the AGV’s green button; see the XBOT station guide (V1.61, pp. 2–3).'
-    : maximum > 0 ? `${maximum} stations on the learned route. Current station is marked on its button.`
+    ? `${stationRangeText(status)} Teach the route with the AGV’s green button. See the XBOT station guide (V1.61, pp. 2–3).`
+    : maximum > 0 ? `${stationRangeText(status)} Current station is marked on its button.`
       : 'Query status to see whether the AGV has learned a route. Manual station numbers are unverified.');
   if (maximum !== lastMaximum) {
     for (const id of controls.keys()) if (id.startsWith('station-')) controls.delete(id);
@@ -345,14 +345,14 @@ function render() {
   disabled('port', connectionLocked || (wiredMode ? 'Port is set by the IPC site profile.'
     : !serialMode ? 'Select Serial port first.' : !capability?.serial_available ? unavailablePort : ''));
   const stationCount = Number($('stations-config').value);
-  const connectReason = connectionLocked || (!capability ? 'Waiting for the page service.' :
+  const connectReason = state.bluetooth_block || connectionLocked || (!capability ? 'Waiting for the page service.' :
     radioRouteError(mode, radioFieldsInForm(), capability.radio_profile) || (serialMode ? unavailablePort
       : !Number.isInteger(stationCount) || stationCount < 0 || stationCount > 255 || $('stations-config').value === ''
         ? 'Enter a simulator station count from 0 to 255.' : ''));
   disabled('connect', connectReason);
   disabled('disconnect', !state.connected ? 'Connect first.' : state.recipe_active ? 'Stop the active recipe before disconnecting.' :
     state.halt_pending ? 'AGV Stop or Pause is awaiting delivery. Wait before disconnecting.' : busy ? 'Wait for the current request.' : '');
-  disabled('armed', !state.connected ? 'Connect first.' : busy ? 'Wait for the current request.' : state.motion_block || '');
+  disabled('armed', (!state.armed && state.bluetooth_block) || (!state.connected ? 'Connect first.' : busy ? 'Wait for the current request.' : state.motion_block || ''));
   disabled('silence', busy ? 'Wait for the current request.' : '');
   $('armed').checked = state.armed || false;
   $('movement').dataset.armed = String(!!state.armed);
@@ -378,6 +378,7 @@ function render() {
   $('link').dataset.state = error || stale ? 'failed' : '';
 
   const alarms = [];
+  if (state.bluetooth_block) alarms.push(state.bluetooth_block);
   if (stale) alarms.push('Link stale. The AGV may still be moving. Use its e-stop if needed. Check the radio before moving again.');
   if (error) alarms.push(networkError ? state.connected ? linkLost : 'Page service unavailable. Reload and reconnect when safe.' : state.error);
   if (state.status?.fault_code) alarms.push(faultText(state.status) + '. Check the machine and consult the manual before moving.');

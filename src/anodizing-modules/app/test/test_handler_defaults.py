@@ -1,5 +1,6 @@
 """Exercise real HTTP responses without opening a listening socket."""
 import email
+import secrets
 import io
 import json
 from pathlib import Path
@@ -15,7 +16,7 @@ class HandlerDefaultsTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.server = SimpleNamespace(root=self.root, token='first-start-token',
+        self.server = SimpleNamespace(root=self.root, token=secrets.token_urlsafe(32),
             hosts={'localhost'}, model_source=None, asset_cache={}, check_model=lambda: None,
             owner=SimpleNamespace(allow_manual_pick_place=False),
             line=SimpleNamespace(tanks={'Tank03': {}}),
@@ -37,12 +38,12 @@ class HandlerDefaultsTests(unittest.TestCase):
     def test_token_pages_are_not_stored_and_refresh_the_token(self):
         for path in ('/', '/calibration', '/teaching', '/pick-place', '/preview/tool-envelope.html'):
             with self.subTest(path=path):
-                self.server.token = 'first-start-token'
+                self.server.token = secrets.token_urlsafe(32)
                 status, headers, body = self.get(path)
                 self.assertEqual(status, 200)
                 self.assertEqual(headers['Cache-Control'], 'no-store')
                 self.assertIn(self.server.token.encode(), body)
-                self.server.token = 'second-start-token'
+                self.server.token = secrets.token_urlsafe(32)
                 status, newer, body = self.get(path, f'If-None-Match: {headers["ETag"]}\r\n')
                 self.assertEqual(status, 200)
                 self.assertNotEqual(headers['ETag'], newer['ETag'])

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import Button from 'primevue/button';
 import Card from 'primevue/card';
 import Message from 'primevue/message';
@@ -15,7 +15,7 @@ import LineTestPanel from './LineTestPanel.vue';
 import PickPlacePage from './PickPlacePage.vue';
 import TeacherPage from './TeacherPage.vue';
 import CalibrationPage from './CalibrationPage.vue';
-import { request, simulationEnabled } from './api';
+import { operatorKeyRequired, request, simulationEnabled } from './api';
 import { useAgv } from './useAgv';
 
 const route = ref(location.hash);
@@ -33,7 +33,12 @@ const title = computed(() => isAgv.value ? 'AGV commissioning' : isScene.value ?
   lineRoute.value ? (lineTest.value ? 'Unified line test' : 'Line reads') :
   pickRoute.value ? (pickTitles[pickRoute.value[1]] ?? 'Pick/place') : isTeacher.value ? 'Teaching' :
   isCalibration.value ? 'Calibration' : 'Home');
-const agv = useAgv(isAgv, isScene, lineEscape, computed(() => pickRoute.value || isTeacher.value || isCalibration.value));
+const service = ref(null);
+const requiresSavedKey = operatorKeyRequired();
+const operatorReadOnly = computed(() => (service.value?.operator_auth?.required ?? requiresSavedKey)
+  && !service.value?.operator_auth?.authorized);
+const agv = useAgv(isAgv, isScene, lineEscape, computed(() => pickRoute.value || isTeacher.value || isCalibration.value),
+  operatorReadOnly);
 const sceneConfig = ref(null);
 const sceneError = ref('');
 let sceneRead = false;
@@ -52,7 +57,16 @@ async function loadScene() {
 }
 const heading = ref();
 const safety = ref();
-const service = ref(null);
+const linkClock = ref(Date.now());
+const lineLink = computed(() => service.value?.line_link);
+const linkSince = computed(() => Date.parse(lineLink.value?.since));
+const linkAge = computed(() => Math.max(0, linkClock.value - linkSince.value));
+const linkRecovered = computed(() => lineLink.value?.state === 'ok' && linkAge.value < 30000);
+const linkTime = computed(() => new Date(linkSince.value).toLocaleTimeString([], {
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+}));
+const linkElapsed = computed(() => linkAge.value < 60000
+  ? `${Math.floor(linkAge.value / 1000)} s` : `${Math.floor(linkAge.value / 60000)} min`);
 const offline = ref('');
 const targetOutcome = ref({});
 const linePanel = ref();
@@ -89,6 +103,7 @@ const targets = computed(() => {
 
 
 async function refreshService() {
+  linkClock.value = Date.now();
   if (checking) return;
   checking = true;
   try {
@@ -207,17 +222,21 @@ function navigate() {
   void nextTick(() => heading.value?.focus());
 }
 
+function measureStopBar() {
+  const height = Math.ceil(safety.value.getBoundingClientRect().height);
+  document.documentElement.style.setProperty('--stop-height', height + 'px');
+}
+
+watch([() => lineLink.value?.cause, linkRecovered], measureStopBar, { flush: 'post' });
+
 onMounted(() => {
   document.title = title.value + ' · Operator app';
   if (isScene.value) void loadScene();
   window.addEventListener('hashchange', navigate);
   void refreshService();
   timer = setInterval(refreshService, 1500);
-  const measureStopBar = () => {
-    document.documentElement.style.setProperty('--stop-height', safety.value.offsetHeight + 'px');
-  };
+  measureStopBar();
   if ('ResizeObserver' in window) {
-    measureStopBar();
     observer = new ResizeObserver(measureStopBar);
     observer.observe(safety.value);
   }
@@ -236,22 +255,32 @@ onUnmounted(() => {
     <StopBar :agv="agv" :targets="targets" :target-outcomes="targetOutcome" :line-active="lineActive"
       :line-alarm="lineState?.alarm" :line-stop-outcome="lineStopOutcome" :line-escape="lineTest"
       @target-stop="stopTarget" @line-stop="stopLine()" />
+    <div v-if="lineLink?.state === 'lost'" class="line-link-alert" role="alert">
+      <strong>AGV link lost since {{ linkTime }}</strong> <span aria-hidden="true">({{ linkElapsed }})</span>.
+      The AGV is designed to hold and disarm on link loss. {{ lineLink.hint }}
+    </div>
+    <div v-else-if="linkRecovered" class="line-link-alert link-back" role="status">
+      Link back at {{ linkTime }}, <a data-ui="line.link.reconnect" href="#/agv">reconnect on the AGV page</a>.
+    </div>
   </div>
   <AppLayout :route="route" :transport="transport">
     <h1 ref="heading" tabindex="-1">{{ title }}</h1>
+    <Message v-if="operatorReadOnly" data-ui="operator.readonly" severity="info">
+      Read-only access. <a data-ui="operator.enroll" href="/operator-key">Enroll this browser</a> to use operator controls.
+    </Message>
     <AgvPage v-if="isAgv" :agv="agv" />
     <ScenePage v-else-if="isScene" :config="sceneConfig" :config-error="sceneError"
       :state-error="agv.stateError" :variable="agv.variableInfo"
       :line-mode="agv.line?.mode" :line-tanks="agv.line?.mode === 'disabled' ? null : agv.line?.tanks" />
-    <RecordsPage v-else-if="isRecords" :variables="agv.variables" :state-error="agv.stateError"
+    <RecordsPage v-else-if="isRecords" :variables="agv.variables" :state-error="agv.stateError" :write-block="agv.operatorKeyReason"
       @outcome="(outcome, choose) => agv.showOutcome('recorder', outcome, choose)" />
     <LinePage v-else-if="lineRoute" :test="lineTest" :state="agv.line" :state-error="agv.stateError"
-      :variable="agv.variableInfo" :view="lineRoute[2]"
+      :variable="agv.variableInfo" :view="lineRoute[2]" :write-block="agv.operatorKeyReason"
       @view="selectLineView"
       @outcome="(outcome, choose) => agv.showOutcome('line-read', outcome, choose)">
       <template v-if="lineTest" #default="{ quality, catalog }">
         <LineTestPanel ref="linePanel" :quality="quality" :catalog="catalog" :variable="agv.variableInfo"
-          :system-signals="agv.line?.system_signals" @changed="refreshService"
+          :system-signals="agv.line?.system_signals" :write-block="agv.operatorKeyReason" @changed="refreshService"
           @outcome="(outcome, choose) => agv.showOutcome('line-test', outcome, choose)" />
       </template>
     </LinePage>

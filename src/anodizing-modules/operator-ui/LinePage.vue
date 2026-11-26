@@ -8,7 +8,7 @@ import Tag from 'primevue/tag';
 import { downloadBlob, request, simulationEnabled } from './api';
 import { sampleAge } from './sceneState';
 
-const props = defineProps({ test: Boolean, state: Object, stateError: String, variable: Function, view: String });
+const props = defineProps({ test: Boolean, state: Object, stateError: String, variable: Function, view: String, writeBlock: String });
 const emit = defineEmits(['outcome', 'view']);
 const allowSimulation = simulationEnabled();
 const serviceUnavailable = 'Line status unavailable. Check the service and reload.';
@@ -76,9 +76,9 @@ const visibleRows = computed(() => shown.value.map(row => ({
   ...row, sample: row.tag && props.variable('line.' + row.tag.tag_name),
 })));
 const refreshFeedback = computed(() => outcome.value?.text || refreshMessages[props.state?.refresh?.outcome]);
-const refreshReason = computed(() => props.stateError ? serviceUnavailable :
+const refreshReason = computed(() => props.writeBlock || (props.stateError ? serviceUnavailable :
   remaining.value || props.state?.refresh?.outcome === 'pending' ? 'Wait for the current refresh.' :
-  !props.state?.refresh_available ? props.state?.reason || 'Waiting for line setup.' : '');
+  !props.state?.refresh_available ? props.state?.reason || 'Waiting for line setup.' : ''));
 
 watch(() => props.state?.catalog_revision, loadCatalog, { immediate: true });
 watch(tankIds, ids => { if (!ids.includes(tank.value)) tank.value = ids[0] ?? ''; }, { immediate: true });

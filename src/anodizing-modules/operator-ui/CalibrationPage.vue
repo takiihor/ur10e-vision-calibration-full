@@ -171,6 +171,7 @@ const wantsCamera = action => ['camera', 'camera-preview'].includes(action);
 const offline = action => ['simulate', 'solve', 'calibrate', 'intrinsics', 'verify'].includes(action);
 
 function submitReason(action) {
+  if (props.agv.operatorKeyReason) return props.agv.operatorKeyReason;
   if (control.value) return 'Wait for the current request.';
   if (unconfirmed.value) return 'Inspect the unconfirmed job before starting again.';
   if (wantsCamera(action) && props.service && !props.service.allow_camera) return 'Camera access is disabled.';
@@ -354,7 +355,7 @@ function inspect() {
 }
 
 function answer(id, value) {
-  if (!pending.value || control.value || !current.value) return;
+  if (props.agv.operatorReadOnly || !pending.value || control.value || !current.value) return;
   const binding = { job_id: job.value.id, request_id: pending.value.id, value };
   if (value === true && (!available.value || !wantsMotion(job.value.auto_action))) return;
   revision++;
@@ -590,13 +591,13 @@ onUnmounted(() => {
         <template v-if="pending">
           <h3>Operator request</h3>
           <p class="calibration-prompt">{{ pending.summary }}</p>
-          <div v-if="pending.kind === 'manual' && !job.auto_action" :key="pending.id" class="actions">
+          <div v-if="!agv.operatorReadOnly && pending.kind === 'manual' && !job.auto_action" :key="pending.id" class="actions">
             <OperatorButton data-ui="calibration.operation.capture" id="cal-capture-view" label="Capture view" :why="control ? 'Wait for the current request.' : ''"
               :outcome="outcomes['capture-view']" @press="answer('capture-view', '')" />
             <OperatorButton data-ui="calibration.operation.finish" id="cal-finish" label="Finish collection" :why="control ? 'Wait for the current request.' : ''"
               :outcome="outcomes.finish" @press="answer('finish', 'q')" />
           </div>
-          <div v-if="pending.kind === 'motion'" :key="pending.id" class="actions">
+          <div v-if="!agv.operatorReadOnly && pending.kind === 'motion'" :key="pending.id" class="actions">
             <OperatorButton data-ui="calibration.operation.approve" id="cal-approve" label="Approve phase" :why="control ? 'Wait for the current request.' :
               !available || !wantsMotion(job.auto_action) ? 'This job is not authorized for automatic motion.' : ''"
               :outcome="outcomes.approve" @press="answer('approve', true)" />

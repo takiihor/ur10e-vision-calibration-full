@@ -8,7 +8,7 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-from anodizing_web.executor import Executor, FakeDevices
+from anodizing_web.executor import PROTOCOL, Executor, FakeDevices
 from anodizing_web.executor_http import display_listener
 from anodizing_web.programme import Programme
 
@@ -70,14 +70,14 @@ def test_lost_acceptance_and_terminal_reply_cannot_repeat_effect(tmp_path):
 def test_wifi_loss_finishes_admitted_leg_and_fences_next(tmp_path):
     clock, entered, release = Clock(), Event(), Event()
     devices = FakeDevices()
-    perform = devices.perform
+    travel = devices.agv.visit
 
-    def slow(effect, value):
+    def slow(station):
         entered.set()
         assert release.wait(4)
-        return perform(effect, value)
+        return travel(station)
 
-    devices.perform = slow
+    devices.agv.visit = slow
     executor = Executor(tmp_path, devices, clock=clock)
     try:
         lease = session(executor)
@@ -86,7 +86,8 @@ def test_wifi_loss_finishes_admitted_leg_and_fences_next(tmp_path):
         clock.now += 3
         assert not executor.heartbeat(dict(lease, sequence=1))['lease_valid']
         release.set()
-        assert terminal(executor, 'station-visit-1')['outcome'] == 'held'
+        assert terminal(executor, 'station-visit-1')['outcome'] == 'unknown'
+        assert executor.status()['operator_check']['job_id'] == 'station-visit-1'
         assert not executor.status()['armed']
         executor.heartbeat(dict(lease, sequence=2))
         with pytest.raises(ValueError):
@@ -112,26 +113,30 @@ def test_local_interlocks_refuse_before_any_effect(tmp_path, fault, message):
 
 
 def test_executor_restart_fences_unknown_effect(tmp_path):
-    jobs = tmp_path / '.jobs'
-    jobs.mkdir()
-    (jobs / 'station-interrupted.json').write_text(json.dumps({
-        'id': 'station-interrupted', 'module': 'executor', 'state': 'running',
-        'fingerprint': 'saved', 'execution_uncertain': True,
-        'checkpoint': {'intent': {'effect': 'station', 'value': 2}, 'confirmed': []},
-    }))
     devices = FakeDevices()
-    devices.restore(has_history=False)
+    writer = Executor(tmp_path, devices)
+    try:
+        writer.owner._save({
+            'id': 'station-interrupted', 'module': 'executor', 'state': 'running',
+            'fingerprint': 'saved', 'execution_uncertain': True,
+            'checkpoint': {'intent': {'effect': 'station', 'value': 2}, 'confirmed': []},
+        })
+    finally:
+        writer.close()
     executor = Executor(tmp_path, devices)
     try:
         job = executor.status('station-interrupted')['job']
         assert job['outcome'] == 'unknown'
         assert job['checkpoint']['intent']['value'] == 2
-        identity = {'boot': executor.health()['boot'], 'protocol': 1, 'session': 'new-controller'}
+        identity = {'boot': executor.health()['boot'], 'protocol': PROTOCOL, 'session': 'new-controller'}
         executor.heartbeat(dict(identity, sequence=1))
         executor.control('connect', identity)
-        with pytest.raises(ValueError, match='Reconcile'):
-            executor.control('arm', dict(identity, stop_generation=executor.status()['stop_generation']))
-        executor.reconcile(dict(identity, job_id=job['job_id'], disposition='Verified parked at the input.'))
+        status = executor.status()
+        with pytest.raises(ValueError, match='operator check'):
+            executor.control('arm', dict(identity, stop_generation=status['stop_generation']))
+        executor.operator_check(dict(identity, stop_generation=status['stop_generation'], choice='abort',
+                                     job_id=job['job_id'], operator='reviewer', confirmed=True,
+                                     basket=None, location='input'))
         assert not executor.status()['armed']
     finally:
         executor.close()
@@ -229,7 +234,7 @@ def test_unreachable_stop_survives_controller_restart(tmp_path):
         link.available = True
         stopped = wait_for(lambda: (recovered.tick(), recovered.status()['run'])[1],
                            lambda item: not item['stop_pending'])
-        assert stopped['state'] == 'stopped'
+        assert stopped['state'] == 'operator_check'
     finally:
         executor.close()
 
@@ -297,18 +302,18 @@ def pair(lease):
 
 
 @pytest.mark.parametrize('boundary', ['dwell', 'lift'])
-def test_wifi_loss_during_dwell_or_transfer_finishes_pair(tmp_path, boundary):
+def test_wifi_loss_during_dwell_or_transfer_starts_no_further_effect(tmp_path, boundary):
     clock, entered, release = Clock(), Event(), Event()
     devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
-    perform = devices.perform
+    component, method = (devices.plc, 'finish') if boundary == 'dwell' else (devices.robot, 'lift')
+    action = getattr(component, method)
 
-    def slow(effect, value):
-        if effect == boundary and not entered.is_set():
-            entered.set()
-            assert release.wait(4)
-        return perform(effect, value)
+    def slow(*args):
+        entered.set()
+        assert release.wait(4)
+        return action(*args)
 
-    devices.perform = slow
+    setattr(component, method, slow)
     executor = Executor(tmp_path, devices, clock=clock)
     try:
         lease = session(executor)
@@ -320,11 +325,11 @@ def test_wifi_loss_during_dwell_or_transfer_finishes_pair(tmp_path, boundary):
         assert not executor.heartbeat(dict(lease, sequence=1))['lease_valid']
         release.set()
         done = terminal(executor, 'paired-dip-1')
-        assert done['outcome'] == 'held'
-        assert [step['id'] for step in done['result']['steps']] == ['step-2', 'step-3']
-        assert done['result']['hold']['location'] == 'park'
+        assert done['outcome'] == 'unknown'
+        assert [step['id'] for step in done['result']['steps']] == ([] if boundary == 'dwell' else ['step-2'])
+        assert executor.status()['operator_check']['job_id'] == request['job_id']
         assert not executor.status()['armed']
-        assert [effect for effect, _ in devices.effects].count('place') == 2
+        assert [effect for effect, _ in devices.effects].count('place') == 1
     finally:
         release.set()
         executor.close()
@@ -366,7 +371,7 @@ def test_limit_breach_records_measured_dwell_and_finishes_programme(tmp_path):
         revision = programme.status()['recipe']['id']
         run = programme.start(revision, 'inspect-001', programme.review()['approval'])
         completed = wait_for(lambda: (programme.tick(), programme.status()['run'])[1],
-                             lambda record: record['state'] == 'succeeded' and not record['ack_pending'])
+                             lambda record: record['state'] == 'succeeded')
         assert completed['id'] == run['id'] and completed['inspection']
         assert completed['steps'][0]['inspection']
         assert completed['steps'][0]['plc']['elapsed_s'] == 100 and completed['steps'][0]['dwell_s'] >= 100
@@ -378,7 +383,7 @@ def test_limit_breach_records_measured_dwell_and_finishes_programme(tmp_path):
         executor.close()
 
 
-def test_katana_restart_recovers_intent_before_advancing(tmp_path):
+def test_katana_restart_preserves_intent_and_waits_for_operator_check(tmp_path):
     clock, entered, release = Clock(), Event(), Event()
     devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     perform = devices.perform
@@ -404,20 +409,17 @@ def test_katana_restart_recovers_intent_before_advancing(tmp_path):
         assert recovered.status()['run']['pending']['job_id'] == ident
         clock.now += 3
         executor.status()
-        executor.heartbeat(dict(session=first.session, boot=executor.boot, protocol=1, sequence=1))
+        executor.heartbeat(dict(session=first.session, boot=executor.boot, protocol=PROTOCOL, sequence=1))
         release.set()
-        assert terminal(executor, ident)['outcome'] == 'held'
+        assert terminal(executor, ident)['outcome'] == 'unknown'
         recovered.tick()
         state = recovered.status()['run']
-        assert state['state'] == 'held' and state['cursor'] == 0
-        assert state['jobs'][0]['job']['job_id'] == ident
-        assert state['pending'] is None
-        assert devices.effects == [('station', 1)]
-        recovered.resume(state['id'], recovered.review()['approval'])
-        completed = wait_for(lambda: (recovered.tick(), recovered.status()['run'])[1],
-                             lambda record: record['state'] == 'succeeded')
-        assert len(completed['steps']) == 12
-        assert devices.effects.count(('station', 1)) == 1
+        assert state['state'] == 'operator_check' and state['cursor'] == 0
+        assert state['pending']['job_id'] == ident
+        assert [job['job']['job_id'] for job in state['jobs']] == [ident]
+        assert state['jobs'][0]['job']['outcome'] == 'unknown'
+        assert not state['steps']
+        assert devices.effects == []
     finally:
         release.set()
         executor.close()
@@ -426,10 +428,14 @@ def test_katana_restart_recovers_intent_before_advancing(tmp_path):
 def test_incompatible_protocol_is_readable_and_cannot_renew_lease(tmp_path):
     executor = Executor(tmp_path, FakeDevices())
     try:
+        legacy = dict(boot=executor.boot, session='controller-one', protocol=1, stop_generation=0)
         with pytest.raises(ValueError, match='Incompatible'):
-            executor.heartbeat(dict(boot=executor.boot, session='controller-one', protocol=2, sequence=1))
+            executor.heartbeat(dict(legacy, sequence=1))
+        with pytest.raises(ValueError, match='Incompatible'):
+            executor.control('arm', legacy)
         assert executor.status()['boot'] == executor.boot
         assert not executor.status()['lease_valid']
+        assert not executor.status()['armed']
     finally:
         executor.close()
 
@@ -449,7 +455,7 @@ def test_acceptance_persists_payload_before_the_first_effect(tmp_path):
         request = visit(session(executor))
         executor.submit(request)
         assert entered.wait(4)
-        record = json.loads((tmp_path / '.jobs' / 'station-visit-1.json').read_text())
+        record = json.loads(sorted(executor.journal.glob('*.json'))[-1].read_text())['job']
         assert record['executor_payload'] == {k: request[k] for k in ('type', 'version', 'params')}
         assert record['checkpoint']['intent'] == {'effect': 'station', 'value': 2}
         assert record['checkpoint']['confirmed'] == []
@@ -460,6 +466,7 @@ def test_acceptance_persists_payload_before_the_first_effect(tmp_path):
 
 @pytest.mark.parametrize('clear_at_write', [True, False])
 def test_qualified_fake_wire_uses_station_visit_watchdog(tmp_path, monkeypatch, clear_at_write):
+    monkeypatch.setenv('ANODIZING_MANUAL_TRAVEL_UNTIL', str(time.time() + 3600))
     from anodizing_web import agv
     from anodizing_web.executor_http import WiredDevices
     from types import SimpleNamespace
@@ -489,14 +496,17 @@ def test_qualified_fake_wire_uses_station_visit_watchdog(tmp_path, monkeypatch, 
     monkeypatch.setattr(agv, 'RECIPE_POLL_S', .2)
     monkeypatch.setattr(agv.Connection, 'recipe_call', recipe_call)
     executor = Executor(tmp_path, WiredDevices(tmp_path, None, pose=time.monotonic, reserve=lambda: True,
-                                             tank_clear=lambda: time.monotonic() if tank_clear else None))
+                                             tank_clear=lambda: time.monotonic() if tank_clear else None),
+                        clock=Clock())
     try:
-        identity = dict(session='controller-one', boot=executor.boot, protocol=1)
+        identity = dict(session='controller-one', boot=executor.boot, protocol=PROTOCOL)
         executor.heartbeat(dict(identity, sequence=1))
         executor.control('connect', identity)
         executor.control('status_read', identity)
         executor.control('arm', dict(identity, stop_generation=executor.status()['stop_generation']))
-        executor.submit(visit(dict(identity, stop_generation=0)))
+        request = visit(dict(identity, stop_generation=0))
+        request['attestation'] = dict(id=request['job_id'], station=2, confirmed_at=time.time())
+        executor.submit(request)
         done = terminal(executor, 'station-visit-1')
         moves = sum(f.command == 0x23 and f.data[0] == 0x9D for f in frames)
         if clear_at_write:
@@ -554,22 +564,23 @@ def test_ipc_process_loss_after_effect_recovers_without_replaying(tmp_path):
         assert job['outcome'] == 'unknown'
         assert job['checkpoint']['intent'] == {'effect': 'station', 'value': 2}
         assert recovered.status()['recovery_required']
-        replay = dict(session='new-controller', boot=recovered.boot, protocol=1, stop_generation=0)
+        replay = dict(session='new-controller', boot=recovered.boot, protocol=PROTOCOL, stop_generation=0)
         recovered.heartbeat(dict(replay, sequence=1))
         assert recovered.submit(visit(replay))['outcome'] == 'unknown'
-        with pytest.raises(ValueError, match='Reconcile'):
+        with pytest.raises(ValueError, match='operator check'):
             recovered.submit(visit(replay, 'station-visit-2'))
         assert new_devices.effects == []
-        reconciled = recovered.reconcile(dict(replay, job_id='station-visit-1',
-                                              disposition='Verified retained station after IPC crash.'))
-        assert reconciled['reconciliation']['hold']['station'] == 2
-        assert reconciled['reconciliation']['boot'] == recovered.boot
-        assert not recovered.status()['recovery_required']
+        status = recovered.status()
+        assert status['operator_check']['location'] == 'station 2'
+        chosen = recovered.operator_check(dict(replay, stop_generation=status['stop_generation'],
+                                               job_id='station-visit-1', choice='abort', operator='reviewer',
+                                               location='station 2', basket=None, confirmed=True))
+        assert chosen['operator_check'] is None and not chosen['armed']
     finally:
         recovered.close()
 
 
-def test_recovery_disposition_keeps_uncertain_basket_out_of_dispatch(tmp_path):
+def test_operator_abort_keeps_uncertain_basket_out_of_dispatch(tmp_path):
     devices = FakeDevices(setpoints=FAKE_TANK_SETPOINTS)
     devices.plc.stale_done = True
     executor = Executor(tmp_path / 'executor', devices)
@@ -578,14 +589,14 @@ def test_recovery_disposition_keeps_uncertain_basket_out_of_dispatch(tmp_path):
         revision = programme.status()['recipe']['id']
         run = programme.start(revision, 'recover-001', programme.review()['approval'])
         held = wait_for(lambda: (programme.tick(), programme.status()['run'])[1],
-                        lambda record: record['state'] == 'recovery required')
+                        lambda record: record['state'] == 'operator_check'
+                        and executor.status()['operator_check'] is not None)
         assert held['cursor'] == 0
-        assert executor.status()['recovery_required']
-        with pytest.raises(ValueError, match='Safe hold'):
-            programme.disposition(run['id'], 'Basket location uncertain.')
-        devices.robot.location = 'input'
-        devices.plc.equipment_on = False
-        assert programme.disposition(run['id'], 'Verified basket in input hold.')['state'] == 'stopped'
+        check = executor.status()['operator_check']
+        assert check['location'] == 'tank-0'
+        result = programme.decide(run['id'], 'abort', programme.review()['approval'], operator='reviewer',
+                                  basket=run['basket'], location=check['location'], confirmed=True)
+        assert result['state'] == 'aborted' and result['inspection']
         assert not executor.status()['recovery_required']
         assert devices.effects.count(('place', 'step-0')) == 1
     finally:

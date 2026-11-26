@@ -8,7 +8,7 @@ import Message from 'primevue/message';
 import Textarea from 'primevue/textarea';
 import { downloadBlob, request, requestDownload } from './api';
 
-const props = defineProps({ variables: Array, stateError: String });
+const props = defineProps({ variables: Array, stateError: String, writeBlock: String });
 const emit = defineEmits(['outcome']);
 const rates = [0.2, 1, 5];
 const formats = [
@@ -46,6 +46,7 @@ const ended = computed(() => finished.value[0]?.outcome?.reason);
 const endedWithError = computed(() => ['storage_error', 'event_overflow', 'source_error'].includes(ended.value));
 const selectedIds = computed(() => props.variables.filter(item => selected.value.includes(item.id)).map(item => item.id));
 const blocked = computed(() => {
+  if (props.writeBlock) return props.writeBlock;
   if (operation.value) return 'Wait for the recorder response.';
   if (error.value) return 'Reconnect to the service before changing the recording.';
   if (!catalog.value) return 'Checking the recorder…';
@@ -54,9 +55,9 @@ const blocked = computed(() => {
   return '';
 });
 const startReason = computed(() => blocked.value || (!selectedIds.value.length ? 'Choose at least one variable.' : ''));
-const stopReason = computed(() => operation.value ? 'Wait for the recorder response.' :
+const stopReason = computed(() => props.writeBlock || (operation.value ? 'Wait for the recorder response.' :
   error.value ? 'Reconnect to the service to stop recording.' :
-  active.value?.status === 'stopping' ? 'The server is finishing the recording.' : '');
+  active.value?.status === 'stopping' ? 'The server is finishing the recording.' : ''));
 let version = 0;
 let reading = false;
 let retired = false;

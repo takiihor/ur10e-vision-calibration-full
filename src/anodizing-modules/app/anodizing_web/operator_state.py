@@ -13,7 +13,7 @@ def agv_state(sample, now=None):
     limit = 1000 * (agv.RECIPE_STALE_S if recipe else agv.STALE_AFTER)
     age = None if stamp is None else max(0, int(1000 * (now - stamp)))
     source = f'agv.{mode}.status' if mode else 'agv.status'
-    station_mode = report.get('mode') == 2 and report.get('max_stations', 0) > 0
+    station_mode = report.get('mode') == 2 and agv.station_limit(report.get('max_stations')) > 0
 
     def reported(key, name, value, unit=None):
         reason = ('AGV link lost. Use its e-stop if needed.' if error else 'Connect the AGV.') if not connected else (

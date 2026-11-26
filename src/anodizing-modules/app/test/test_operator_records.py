@@ -1,6 +1,7 @@
 """Offline recorder behavior through the worker, native event producers and HTTP."""
 from concurrent.futures import ThreadPoolExecutor
 import csv
+import secrets
 from io import StringIO
 import json
 from threading import Event, RLock
@@ -299,7 +300,7 @@ def test_invalid_manifests_are_refused(recording, settings):
 
 def test_records_http_keeps_loopback_token_and_download_policy(recording):
     records, link, _ = recording
-    service = SimpleNamespace(records=records, agv=link, owner=link.owner, token='secret',
+    service = SimpleNamespace(records=records, agv=link, owner=link.owner, token=secrets.token_urlsafe(32),
                               hosts={'127.0.0.1:8870'})
     assert request(service, '/api/records', token='old')[0] == 403
     assert request(service, '/api/records', origin='http://localhost:8870')[0] == 403

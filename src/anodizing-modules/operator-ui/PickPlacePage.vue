@@ -98,7 +98,7 @@ const motion = computed(() => {
 const cross = computed(() => reviewed.value && reviewed.value.stations.A !== reviewed.value.stations.B);
 const jobActive = computed(() => job.value && !terminal(job.value));
 const fence = computed(() => lost.value ? 'Inspect the unconfirmed request ID in Current operation before sending another command.' : '');
-const common = computed(() => (busy.value ? 'Wait for the current request.' : '') || fence.value || ownerReason(props.owner) ||
+const common = computed(() => props.agv.operatorKeyReason || (busy.value ? 'Wait for the current request.' : '') || fence.value || ownerReason(props.owner) ||
   (jobActive.value ? 'Follow the active operation.' : ''));
 const hardwareReason = computed(() => !manualCapability.value?.hardware_available
   ? 'Manual execution unavailable. Check service access and the selected robot model.' : '');
@@ -450,6 +450,7 @@ function step(axis, direction) {
   submitMotion('step-' + axis + '-' + direction, '/api/robot-control', body);
 }
 function confirm(id, prompt) {
+  if (props.agv.operatorReadOnly) return;
   void perform('pick-confirm', async () => {
     await request('/api/manual-control', { job_id: id, action: 'confirm', prompt, value: true });
     void refreshJob();

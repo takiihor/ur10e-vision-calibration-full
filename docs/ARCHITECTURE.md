@@ -3,15 +3,16 @@
 ## Installation roles
 
 The mains-powered controller runs the existing Anodizing Operator app. It is
-the only operator control surface and owns recipe review, scheduling and
-basket records. The battery-powered vehicle IPC owns hardware access and runs
+the operator control surface and owns recipe review, scheduling and
+basket records. The built-in Calibration module runs test recipes. The planned
+Main app loop will orchestrate normal production. The battery-powered vehicle IPC owns hardware access and runs
 one accepted job at a time. The IPC keeps that job's instructions, checkpoints
 and results. The controller keeps the recipe and the plan cursor.
 
 | Installation role | Responsibility |
 | --- | --- |
-| `orchestrator` | Runs the existing UI and the programme loop. Sends versioned jobs, tracks their results and maintains the controller lease. |
-| `executor` | Runs the stable IPC service with a stable data directory. Owns the wired AGV bus and performs admission, interlocks, device retries and local recovery. |
+| `orchestrator` | Runs the operator UI and the Calibration module for test runs. Sends versioned jobs over the keyed IPC HTTPS API and tracks their results. |
+| `executor` | Runs the stable IPC service with a stable data directory. Owns the wired AGV bus and checks admission and interlocks, journals work and holds on doubt. |
 | `status-display` | Shows a cached executor snapshot on a dedicated IPC listener. Serves the kiosk without opening devices or exposing control routes or credentials. |
 
 Use one role setting per installation. Roles choose the services and routes
@@ -24,9 +25,10 @@ Phase 1 uses the existing `StationVisit`, wired AGV driver, `JobOwner` and
 `JobStop` in the executor. The controller uses the same job interface for
 manual station requests and recipe travel. Release the raw serial bridge's
 bus ownership before starting the executor. Verify live status through the
-executor before retiring the bridge. The controller reaches the IPC loopback
-job service through a tunnel. A service-only credential restricts control
-access. The kiosk's listener serves cached state, including its age, without
+executor before retiring the bridge. Katana and developer modules reach the same keyed IPC HTTPS API on
+the line LAN. The IPC allows one owner and one executing job, disarms on owner
+change, and admits eligible jobs through its existing interlocks.
+[Module API and keys](MODULE_JOBS.md) The kiosk's listener serves cached state, including its age, without
 querying the bus. Install the executor under a separate system service identity
 so the graphical kiosk account cannot read its token or manage its service.
 
@@ -37,35 +39,31 @@ radio as an explicit, mutually exclusive maintenance mode.
 
 ## Job contract
 
+Protocol major 2 implements Operator check. During a rolling upgrade,
+protocol 1 and 2 peers can display status. A control lease requires a
+matching major version in the health and control envelopes. The loopback
+`/v1/` HTTP URLs and the per-job type versions remain stable.
+
 | Operation | Required behaviour |
 | --- | --- |
 | Health and capabilities | Report protocol major, build, supported job types and versions, and executor boot identity. Keep cached status readable across incompatible builds and reject incompatible control. |
 | Status | Report current and by-ID job state and result, last confirmed step, outstanding intent, device state and freshness, hold or recovery reason, and dispatch permission. |
 | Connect, disconnect, arm, disarm | Require explicit control with fresh compatible state. Bind approvals to the executor boot, controller session and Stop generation. A new connection grants no motion authority. |
-| Submit | Persist the run, basket, ordered steps, recipe and limits revision, job ID and immutable payload on the controller before sending. Persist acceptance on the IPC before execution. A repeated ID with the same canonical payload returns its existing state or result. A changed payload conflicts. A different ID while occupied returns busy. |
+| Submit | Persist the run, basket, ordered steps, recipe and limits revision, job ID and immutable payload on the controller before sending. Persist acceptance on the IPC before execution. A repeated ID with the same canonical payload returns its existing state or result. A changed payload conflicts. A valid new ID submitted while occupied receives a recorded busy refusal. |
 | Heartbeat | The controller service sends advancing heartbeats every 1 s. The executor expires the active session 3 s after its last valid heartbeat, measured on its monotonic clock. Ignore duplicate, delayed and prior-session renewals. |
-| Stop | Send directly to the executor with priority even while busy or disarmed. Latch Stop against concurrent admission independently of the normal queue and routine storage. Allow same-ID retries and report receipt, halt attempt and fresh confirmation separately. Confirm after active work retires and fresh evidence verifies the basket, equipment and AGV at a safe hold. |
-| Acknowledge and reconcile | Merge progress by job ID and sequence. Commit the basket record and next cursor together before acknowledging receipt. Preserve IPC deduplication across releases and through the retry window. Require explicit recovery with fresh physical evidence before resuming from an agreed boundary. |
+| Stop | Both hosts latch a new Stop generation independently of the normal request, device and journal locks. The IPC sends the halt frame on a motion-capable transport before any journal write. Katana shows receipt, halt attempt and confirmation separately. Only fresh confirmation from the current IPC boot for the applicable Stop may clear a pending Stop. |
+| Physical commands | Start, Resume, Arm and station visits carry the boot, session and Stop generation reviewed by the operator. The IPC checks the latch before each physical step. Older authority expires even if the request arrives late. |
+| Job history | The append-only IPC journal retains consumed job IDs across restarts. A known ID returns its recorded state. Before a physical effect, persist the intent. After observing the effect, record the evidence. |
+| Read-only queries | Katana may repeat status and by-ID reads. An ambiguous physical submission enters Operator check immediately. Katana never resubmits it or advances the basket from a later reply alone. |
 
-Jobs progress from accepted to running and succeeded, or to stopping and
-confirmed stopped. Held, failed and interrupted or unknown outcomes retain
-the reason and last confirmed location. An outcome and permission to
-dispatch are independent. Before an irreversible effect, persist intent.
-Record the resulting evidence and advance the durable progress sequence only
-after confirmation. An unconfirmed effect prevents further motion even if
-the scheduler supplies a new job ID. The controller retries delivery using
-the original ID. Only the executor can make bounded device retries under
-local interlocks. For a station visit, the device acknowledgement proves
-receipt. Arrival needs fresh matching station and stopped feedback. The
-controller records a manual visit with its original boot, session and
-Stop generation before sending it. Katana looks up that ID through a lost
-reply or restart. It may retry a missing submission only under the
-original authority. The AGV page offers reconciliation by that ID when
-the outcome is unknown or the original authority changed and the result
-is missing. Verify the simulated hold, record the disposition and then
-acknowledge the result. Katana archives the original ID, outcome and
-disposition in `executor-manual-history/<job-id>.json` before clearing
-the current intent.
+A station command acknowledgement establishes receipt. Fresh, stopped feedback
+at the requested station establishes arrival. The last confirmed location,
+the observed basket and the expected basket remain separate facts.
+
+The AGV status field `max_stations` reports learned legs. A positive count
+makes the start station 1 and allows calls through the count plus one, capped
+at 255. A zero count allows no station calls. The operator UI, IPC admission
+and wired travel checks use this same range.
 
 A paired `dip` job identifies both step IDs, the source and destination,
 tank and taught-endpoint references, expected basket state, time bounds,
@@ -73,21 +71,38 @@ and required final hold. The complete place, dwell, lift and transfer path
 runs on the executor with simulated devices in Phase 1. Production dip
 handling, live robot integration and taught-endpoint resolution are Phase 2.
 
-## Loss of link, power and feedback
+## Operator check
 
-A successful handoff requires a verified basket location, gripper and robot
-condition, stopped AGV and the required tank or equipment state. A job may
-end in a verified rinse hold or park with the executor disarmed. The
-controller loses dispatch permission when the lease expires. Job continuation
-depends on the local evidence and the pre-authorised boundary below.
+When the outcome of physical work is in doubt, the IPC starts no new physical
+action. An action already under way may halt or finish its current move into
+a qualified hold. It records what was observed and disarms. A paired job
+cannot start its next move under the expired authority.
 
-| Event | Response |
+Katana freezes the plan and shows **Operator check** with the reason, last
+confirmed location, observed basket, job ID and recipe step. Missing or
+conflicting evidence stays visible as such. The operator physically checks
+the basket identity and location before choosing one of two outcomes.
+
+- **Resume from step N** records the operator, observations and selected
+  step. Katana obtains fresh status and a fresh arm, then issues a new job
+  ID from that step under the basket's pinned recipe revision. Earlier
+  measurements and the uncertain original job remain in the record. In the
+  simulator the starting hold must be input or park and match the observed
+  basket. Repeating a measured step adds a separate attempt.
+- **Abort basket** records the operator, observations and outcome and flags
+  the basket for inspection. Recording the choice does not unload the basket.
+
+| Fault | Required outcome |
 | --- | --- |
-| Controller restart | Reload the plan revision, basket, pending Stop and outstanding job ID. Compare executor identity, checkpoints and terminal results before advancing the cursor. Reconnection alone grants no motion authority. |
-| Executor restart or power loss | Boot disarmed with a new identity. Mark execution unknown and retain the last location, last intent and unconfirmed effects. Require recovery for a missing or unreadable active record. Reconcile vehicle, arm, gripper, basket and equipment against fresh physical evidence before re-arm. |
-| Wi-Fi loss | Before dispatch, stay at the verified boundary. An accepted visit may finish its authorised leg while local travel checks remain valid. An accepted dip may reach its specified rinse or park while timing, destination and equipment checks remain valid. Hold and disarm at the boundary. If the path fails qualification, alarm locally, inhibit dispatch and record the actual or unknown basket condition for local recovery. |
-| Low battery or stale feedback | The IPC admits work only with valid feedback and measured reserve for the worst case, including transfer and recovery. On a low reading during a job, use the approved stage response and inhibit the next job. Critical cutoff or brownout requires local intervention and reconciliation. |
-| Stop while unreachable | Inhibit dispatch immediately, persist Stop intent and show **Stop unconfirmed**. Deliver it before re-arm or dispatch on reconnect. During a partition, the local physical e-stop is the immediate intervention under site procedure. |
+| Katana restarts during a basket | Recover the basket record and its pinned revision into Operator check, including at a boundary between jobs. Deliver any outstanding Stop before allowing positive controls. |
+| IPC restarts, loses power or reports a different boot | The IPC boots disarmed. Katana retains the last confirmed observations, fences the old authority and requires Operator check. |
+| Wi-Fi or lease loss | Katana freezes dispatch on doubt. The IPC independently holds and disarms on lease loss. An unavailable link cannot confirm a halt. |
+| Low battery or stale device feedback | Refuse admission when reserve or interlock evidence is inadequate. During an active job, hold and disarm, show the observations, and require Operator check. |
+| Stop during link loss | Show **Stop unconfirmed**. Deliver the pending Stop on reconnect before re-arm or dispatch. A physical e-stop remains the immediate site intervention during a partition. |
+| Lost, partial or contradictory physical job reply, or mismatched basket, station or location | Hold and disarm. Preserve the original ID and measurements. Resume or Abort requires the operator's observations. |
+| Power loss during publication or a transient journal write failure | Hold and disarm. When writes work again, require a physical operator check before release. Recover a pending Stop from its durable publication. |
+| Missing, unreadable or altered retained file | Hold and disarm, preserve the remaining history and name the affected file with **call a technician**. |
+| Measured dwell or air-time breach with intact evidence | Record the measured value, raise an alarm and set inspect. Continue under the existing physical interlocks. |
 
 Local faults, Stop and e-stop take precedence over job completion and quality
 limits. Treat the 1 s heartbeat and 3 s expiry as commissioning candidates.
@@ -194,15 +209,63 @@ loopback display port serves cached status to the kiosk. A display-only
 installation can read that display port using `--status-display-port`
 as its source and `--port` as its own listener.
 
-Set `ANODIZING_EXECUTOR_PORT` on the orchestrator to the local forwarded
-control port and `ANODIZING_EXECUTOR_TOKEN_FILE` to its private service
-token file. The orchestrator sends the lease heartbeat independently of
+Set `ANODIZING_EXECUTOR_PORT` to the IPC HTTPS port,
+`ANODIZING_EXECUTOR_CERT_FILE` to the pinned IPC certificate and
+`ANODIZING_EXECUTOR_TOKEN_FILE` to the private Katana service key. Set
+`line_network.ipc_address` in the private site profile. The orchestrator sends the lease heartbeat independently of
 the browser. Its existing AGV page uses the backed-by-executor Wired
 link. In commissioning the executor accepts Connect, a status query,
 software Arm, Disarm and Disconnect. Arm checks fresh stationary status
 and writes no command. Live station visits and dips remain fenced.
 Software Stop can latch even when disarmed. The commissioning transport
 cannot attempt a wire halt. Use the physical e-stop for intervention.
+
+### Katana line-link alert
+
+In Katana's private `site-profile.json`, set `executor_link.route_address`
+to the IPC's line-side IPv4 address used by the tunnel. Katana reads the
+matching interface's carrier or operational state from Linux and samples
+the existing cached executor reachability about every five seconds. If the
+adapter state is unavailable, the diagnosis uses executor reachability.
+The alert adds no tunnel or device requests.
+
+The shared `GET /api/status` response includes `line_link` for Katana. A red
+banner shows when the outage was detected and what to check. The outage time
+stays fixed when the diagnosis changes. A green banner shows when the link
+returns and points to the AGV page for about 30 seconds.
+
+### Supervised manual station calls
+
+The AGV page accepts a separate, time-limited manual station permission. The
+IPC installation sets `ANODIZING_MANUAL_TRAVEL_UNTIL` to an absolute Unix UTC
+timestamp. Omit it to keep live station calls disabled. For a supervised test,
+set the deadline three hours from activation. Restarting the service with the
+same timestamp preserves that deadline. The editable DRAFT battery setting is
+`ANODIZING_MANUAL_TRAVEL_MIN_BATTERY` in percent, initially 20.
+
+Before each call the operator selects the destination and confirms “I am at
+the e-stop, the arm is folded, and the path and tank equipment are clear.”
+Katana records the confirmation time and destination with the job. The IPC
+checks the request against the current lease, boot, Stop generation, fresh
+fault-free status, battery and learned station range. The raw `max_stations` counts learned
+legs. Zero permits no calls, one permits stations 1 and 2, and station
+numbers are capped at 255. The AGV page keeps the software Stop accessible
+during confirmation. The physical e-stop is the emergency stop.
+
+The supervised line tape runs beside the tanks except for the dummy tank.
+The disconnected UR10e stays folded during travel. This installation uses
+`ANODIZING_MANUAL_TRAVEL_ISOLATED_TRACK=1` alongside the existing deadline.
+Tank-clear and equipment-off signals are not connected yet. Before each
+call, check the path and tank equipment by eye and confirm the arm is folded.
+The IPC uses fresh AGV battery percentage for reserve and rechecks the
+confirmation, its destination, the deadline and the latest vehicle report
+at the station write. During travel a lost interlock or expired window
+requests a halt and requires Operator check if the outcome is uncertain.
+No robot pose samples are synthesized.
+
+The ordinary wired manual installation still requires qualified robot pose,
+reserve and clear tank/equipment feedback. Neither installation grants
+programme travel, recipe travel or live dips.
 
 The shipped production role uses only the wired driver. The backup serial
 radio requires a deliberate maintenance changeover to the existing serial
@@ -245,21 +308,20 @@ label, review the current controls and issue a new Start. A delayed,
 previously unseen request with a superseded cursor needs a fresh review.
 Stop can interrupt a pending operation.
 
-The IPC keeps an ordered inventory of accepted job IDs in
-`.executor-accepted.json` and durable pre-admission refusals in
-`.executor-refused.json`. The active marker and individual job files
-provide independent evidence. If either inventory is damaged, inhibit dispatch,
-stop the executor and preserve the damaged bytes. Restore the complete inventory
-from a verified copy covering the last acceptance or refusal before the fault.
-Compare its digest against the frozen copy and verify the latest marker and
-controller history before restarting. An older backup can omit consumed IDs.
-When the latest inventory cannot be established, retain the fence and recover
-the missing evidence before restarting work. Inspect a lost reply using its original
-job ID. A physical effect can occur just before power fails and before
-its confirmation reaches storage. That interval requires reconciliation.
-Only a qualified immersion, PLC completion and confirmed lift on the
-same boot establish a completed dwell. A remaining transfer or rinse
-can stay uncertain while the completed dwell appears in the basket.
+The IPC appends numbered records in `.executor-journal/` and publishes the
+entry count and digest in `.executor-journal-tip.json`. Reopening an ID
+returns its recorded state. Install each Phase 1 release with fresh executor
+and programme state. Keep the prior release's complete evidence read-only
+outside the new state directory. Preserve site configuration and independently
+provisioned setpoints. Close an active basket on the owning release through
+Operator check before switching readers. An operator who resumes can finish
+on that release. The installer rechecks the frozen state before archiving.
+A same-release restart reopens the existing journals.
+
+A power loss can occur after an effect and before its confirmation reaches storage.
+Retain both the intent and the last confirmed observation. A completed
+dwell requires measured immersion, qualified PLC completion and a confirmed
+lift out of that tank on the same boot.
 
 At the first station job the fake executor verifies the input handoff,
 binds the basket to the run and checks that the first dip starts at input.
@@ -270,13 +332,37 @@ blocks the load before station travel.
 
 Start at the reviewed input, inspect the effective draft revision, and
 start the simulated run. The run's revision and result history are durable
-in the orchestrator data directory. Record an explicit disposition for
+in the orchestrator data directory. Use Operator check for
 uncertain execution. A quality flag stays with the basket through completion.
 The operator can reopen an earlier basket by its run ID in the record selector.
 Stop changes dispatch permission independently of the basket outcome.
 The urgent area distinguishes receipt, halt attempt and confirmed halt.
-An outstanding Stop survives reload. Once a successful Arm clears the
-current Stop, the prior confirmation appears as history.
+Katana latches Stop in memory and sends it before writing its witness. After
+the HTTP body is sent, or the send attempt fails, Katana saves the pending
+ID so restart can deliver it again. The send and the disk commit are separate
+operations. A power cut between them can leave the IPC as the only witness.
+Each press of Programme Stop creates a fresh physical ticket and bypasses
+operator-action deduplication. The Stop button stays available while Start
+is awaiting its reply. On a motion-capable
+wired transport, the halt writer shares frame serialization with ordinary
+writers and can transmit during a blocked status read. The IPC checks for a
+Stop again at the point where each physical effect would start.
+
+To confirm Stop, Katana checks the executor boot, disarm, absence of an active
+or unfinished job, and fresh stationary feedback sampled after the applicable
+halt was sent on that same IPC clock. On a serial link the first bytes of a
+status frame determine its sample time. A status-only transport that cannot
+issue a halt leaves Stop unconfirmed. A later successfully halted ticket
+on the current boot can cover an earlier failed attempt. Replies from a
+retired IPC boot cannot clear the pending ticket. Contradictory status puts the ticket
+back into delivery. Once a successful Arm clears the current Stop, the prior
+confirmation appears as history.
+
+Manual recovery names a station only with fresh stopped arrival feedback.
+After a confirmed halt between stations, the operator can record the
+observed location and Abort. Further travel requires a qualified endpoint.
+A transient basket-receipt write failure keeps the worker alive to retry
+storage recovery before allowing an operator decision.
 
 Actual dwell is the interval between confirmed immersion and lift on
 one executor boot. The record keeps the PLC cycle, elapsed time, exact
@@ -284,34 +370,11 @@ simulated done edge and sample time. For anodize, overstay runs from the
 qualified done edge to lift. A late sample therefore cannot hide either
 immersion or post-done time.
 
-The fake executor keeps device state in a separate `.fake-devices.json`
-file. A device effect invalidates the previous snapshot before changing
-state and replaces it after the change. Missing, unreadable and incomplete
-snapshots with a job history leave the simulated state unknown. An intact
-snapshot still has to show a stopped AGV, a released gripper, a verified
-hold and equipment off before disposition. In a recovery exercise, the
-simulated plant needs an independently verified observation of station,
-basket, location, gripper and equipment after an incomplete effect.
-A new executor never supplies this evidence from its default input state.
-For a missing or unreadable simulated device snapshot, keep the simulator
-stopped and preserve the original file if present. Obtain the current
-state from the independent fake plant fixture or an explicitly staged
-offline reset, and record how and when it was verified. In the fake executor
-data directory, prepare a private regular JSON file with these keys:
+The fake executor persists device state separately from the job journal.
+Missing or invalid stored plant evidence leaves the simulator fenced
+with the filename and technician instruction. A default device snapshot
+cannot establish the location of a basket already in progress.
 
-| Keys | Verified observation |
-|---|---|
-| `station`, `stopped` | Station number (0–255) and whether the AGV is stopped |
-| `location`, `gripper`, `basket`, `run_id` | Robot and basket state. Use null for an absent basket or unknown run binding |
-| `cycle`, `equipment_on` | Nonnegative PLC cycle number and whether tank equipment is on |
-| `reserve_s` | Finite nonnegative usable simulated autonomy in seconds, or null if unknown |
-| `recovery_input` | Object with `source`, `observed_utc` (Unix seconds) and `disposition` describing the independent verification |
-
-Move the reviewed file into place as `.fake-devices.json` on the same
-filesystem, restart the simulator and record the controller's disposition.
-The executor re-observes the state and requires a safe hold before release.
-Keep the safe-hold evidence with the original data. This file procedure
-applies only to offline simulation.
 The snapshot's `reserve_s` field records usable simulated autonomy in
 seconds. Unknown or stale readings block admission. An admitted job needs
 the configured fake travel, dwell and transfer durations plus a synthetic
@@ -320,38 +383,22 @@ records the available and required reserve at admission and at each stage.
 A depleted supply stops dispatch and retains the earlier confirmed stages,
 including on executor restart. These values do not establish a physical
 battery budget or brownout response.
-Katana records the new observation with the job ID, executor boot and
-observation times. The original job outcome remains in the basket history.
+At Operator check, Katana looks up the original job ID and checks the IPC's
+measurements against the pending request before recording them. Basket, run,
+station, transfers and final hold must agree. A terminal success must have
+finished every physical intent. Reading the result can add a verified row or
+outcome to the basket record. If the job details still disagree at decision
+time, the record retains the original job ID and the reason that evidence is
+outstanding. Reopening that basket can attach later verified evidence.
+The operator chooses the next programme step.
 
-A missing, unreadable or contradictory journal, job or inventory file
-inhibits motion and names the affected file on the status screen. Call a
-technician. Preserve the files, their verified backups and the original
-identities. An operator disposition cannot replace damaged history.
-The executor retains a by-ID admission refusal and its reason separately
-from accepted jobs. Katana can close a refused first job and retains an
-occupied hold for verified unload. A lost HTTP reply leaves the original
-job ID available for lookup.
+Katana preserves measured dwell and air-time evidence from before a hold.
+An operator observation records who checked the basket, where and which step
+they selected. It supplies no measured immersion, lift or PLC timestamps.
+Earlier job outcomes, measurements and inspection flags remain part of
+the basket history.
 
-Katana compares the programme journal to its independent history digest
-and the operator receipts that reference basket runs. Updating the digest
-before and after atomic journal replacement preserves either complete
-version across power loss. Checkpointed immersion, qualified PLC completion
-and observed departure from the tank establish the dwell row. Katana checks
-the result against those observations before saving or acknowledging it.
-
-For programme recovery, compare both the basket label and the run ID
-with the observed hold. A replacement simulator's initial empty input
-does not establish the previous basket's location. When independent
-evidence identifies an absent or different basket, the operator can
-record the original basket as unaccounted for. Its record then carries
-no final hold. The simulator leaves a different basket in place.
-Closing a verified occupied input or park hold records the disposition
-and verifies the empty input before loading a new basket. If the original basket is
-observed at park during unaccounted confirmation, the run stays open for
-a separate verified unload. A terminal success followed by a missing IPC
-job file keeps the earlier result and raises the technician fence.
-
-At each station leg the IPC checks the current local travel interlocks.
+At each programme station leg the IPC checks the current local travel interlocks.
 A basket in a tank, tank equipment still on, or unknown feedback blocks
 the leg. The commissioning-only wired installation has no travel
 permission. A nonfinal lift with an air limit leaves a local deadline.

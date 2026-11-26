@@ -1,14 +1,19 @@
 """Katana's AGV page adapter. Browser traffic never renews the IPC lease."""
-from concurrent.futures import Future
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
+from hashlib import sha256
 import json
-from threading import Event, Lock, Thread
-from time import monotonic, time, time_ns
+from threading import Event, Lock, RLock, Thread
+from time import monotonic, time
 from uuid import uuid4
 
-from .executor import AdmissionRefused, HEARTBEAT_S, PROTOCOL, finite, heartbeat_interval
+from .executor import (AdmissionRefused, HEARTBEAT_S, PROTOCOL, check_manual_attestation,
+                       check_manual_feedback, heartbeat_interval)
+from .executor_http import (
+    JobEvidenceError, StopEvidenceError, deliver_priority_stop, legacy_display_status, stop_corroborated,
+)
 from .jobs import ID, atomic_json
+from .line_link import LineLink, line_carrier
 
 
 PENDING_STATES = {"accepted", "running", "waiting"}
@@ -16,35 +21,77 @@ NO_STOP_RECEIPT = dict(received=False, halt_attempted=False, confirmed=False)
 
 
 class ExecutorLink:
-    def __init__(self, client, local):
+    def __init__(self, client, local, *, bluetooth=None, route_address=None):
         self.client = client
+        self.job_gateway = getattr(client, 'tls', None) is not None
+        self.calibration_client = client.for_owner('calibration') if self.job_gateway else client
         self.local = local
+        self.bluetooth = bluetooth
+        self.line_link = LineLink(line_carrier(route_address))
+        self.last_rs485_station_count = None
         self.session = uuid4().hex
         self.sequence = self.heartbeat_sequence = self.connection_id = 0
         self.device_identity = self.identity = None
         self.stop_path = local.owner.root / 'executor-stop.json'
-        self.intent_order_path = local.owner.root / 'executor-intent-sequence.json'
-        self.intent_order = self._load(self.intent_order_path) or 0
-        self.intent_order_lock = Lock()
         self.manual_path = local.owner.root / 'executor-manual-visit.json'
+        self.manual_witness = self.manual_path.with_name('executor-manual-active.json')
         self.manual_history_directory = local.owner.root / 'executor-manual-history'
-        self.recovery_path = local.owner.root / 'executor-recovery.json'
-        self.recovery_history_directory = local.owner.root / 'executor-recovery-history'
-        self.recovery_evidence = self._load(self.recovery_path)
-        self.stop_intent = self._load(self.stop_path)
         self.stop_latch = {}
-        if self.stop_intent and not self.stop_intent['report']['confirmed']:
-            self.stop_latch['pending'] = self.stop_intent
+        self.journal_fault = None
+        self.stop_witness = self.stop_path.with_name('executor-stop-witness.json')
+        self.storage_check = None
+        self.stop_intent = self._load_checked(self.stop_path)
+        witness = self._load_checked(self.stop_witness)
+        self.stop_written = witness
+        primary = (self.stop_intent or {}).get('id')
+        if not self.journal_fault and not witness and not self.stop_path.exists():
+            try:
+                atomic_json(self.stop_path, None, sync_directory=True)
+            except OSError as exc:
+                self.storage_check = f'{self.stop_path.name}: {exc}'
+        if witness and witness['id'] != primary:
+            if primary in witness.get('previous', ()) and self.stop_path.is_file():
+                self.storage_check = f'{self.stop_path.name}: Stop publication was interrupted.'
+            else:
+                self.journal_fault = f'{self.stop_path.name} is missing or inconsistent. Please call a technician.'
+            self.stop_latch['pending'] = witness
+        elif self.stop_intent:
+            if not witness:
+                self.journal_fault = f'{self.stop_witness.name} is missing. Please call a technician.'
+            if (not self.stop_intent['report']['confirmed'] or
+                    witness and witness.get('revision') != self.stop_intent.get('revision')):
+                self.stop_latch['pending'] = witness or self.stop_intent
+        if witness and witness['id'] != primary and witness.get('storage_check'):
+            self.storage_check = witness['storage_check']
+        if self.stop_intent and self.stop_intent.get('storage_check'):
+            self.storage_check = self.stop_intent['storage_check']
+        recovery_stop = self._pending_stop() or self.stop_intent or {}
+        self.storage_context = dict(run_id=recovery_stop.get('run_id'), job_id=recovery_stop.get('job_id'))
         self.remote_event_ids = {}
-        self.manual = self._load(self.manual_path)
-        if self.manual_history_directory.is_symlink():
-            raise ValueError('Manual visit history requires a regular directory.')
-        latest = max(self.manual_history_directory.glob('*.json'),
-                     key=lambda path: path.stat().st_mtime_ns, default=None)
-        self.manual_history = self._load(latest) if latest else None
-        self.stop_lock, self.manual_lock = Lock(), Lock()
+        self.manual = self._load_checked(self.manual_path)
+        active = self.manual_marker = self._load_checked(self.manual_witness)
+        self.manual_history = None
+        if active:
+            self._verify_manual_history()
+            archives = active.get('archives', {})
+            if archives:
+                self.manual_history = self._load_checked(self.manual_history_directory / (next(reversed(archives)) + '.json'))
+            if self.manual and any(self.manual.get(key) != active['intent'].get(key)
+                                   for key in ('id', 'station', 'boot', 'session', 'stop_generation', 'request_id',
+                                               'attestation', 'attested_at')):
+                self.journal_fault = f'{self.manual_path.name} conflicts with its intent. Please call a technician.'
+            elif active['id'] not in archives and not active['committed']:
+                self.manual = dict(self.manual or active['intent'], doubt='Station submission was interrupted.')
+            elif active['id'] not in archives and not self.manual:
+                self.journal_fault = f'{self.manual_path.name} is missing or inconsistent. Please call a technician.'
+        elif self.manual or self.manual_history_directory.exists():
+            self.journal_fault = f'{self.manual_witness.name} is missing. Please call a technician.'
+        self.stop_lock, self.stop_receipts, self.manual_lock = Lock(), Lock(), RLock()
         self.closing = Event()
         self.lock = Lock()
+        self.stop_boot_lock = Lock()
+        self.stop_boot = None
+        self.retired_boots = set()
         self.cached = local.commissioning(ports=True)
         self.cached.update(ports=[], serial_available=True, wired_port='IPC executor',
                            executor_link=True, motion_block='Waiting for executor capabilities.')
@@ -59,76 +106,194 @@ class ExecutorLink:
         if path.exists():
             return json.loads(path.read_text())
 
+    def _load_checked(self, path):
+        try:
+            value = self._load(path)
+            if value is not None and (not isinstance(value, dict) or
+                                      not isinstance(value.get('id'), str) or not ID.fullmatch(value['id'])):
+                raise ValueError('The executor journal has no valid ID.')
+            if path in (self.stop_path, self.stop_witness) and value is not None and (
+                    not isinstance(value.get('report'), dict) or any(type(value['report'].get(key)) is not bool
+                    for key in NO_STOP_RECEIPT)):
+                raise ValueError('The Stop journal has no valid report.')
+            if path == self.manual_witness and value is not None and (
+                    type(value.get('committed')) is not bool or not isinstance(value.get('intent'), dict)
+                    or value['intent'].get('id') != value['id']
+                    or not isinstance(value.get('archives'), dict)
+                    or any(not ID.fullmatch(ident) or not isinstance(digest, str) or len(digest) != 64
+                           for ident, digest in value['archives'].items())):
+                raise ValueError('The manual visit witness has no valid intent.')
+            if path == self.manual_path and value is not None and (
+                    'result' not in value or type(value.get('station')) is not int):
+                raise ValueError('The manual visit journal has no valid intent.')
+            return value
+        except (OSError, ValueError):
+            self.journal_fault = f'{path.name} is unreadable. Please call a technician.'
+
     def _pending_stop(self):
         return self.stop_latch.get('pending')
 
+    def _publish_stop(self, intent):
+        intent = dict(intent, storage_check=self.storage_check, revision=uuid4().hex)
+        self.stop_latch['pending'] = intent
+        return intent
+
+    def _persist_stop_witness(self, intent):
+        with self.stop_receipts:
+            current = self._pending_stop()
+            if current is None or current.get('revision') != intent.get('revision'):
+                return
+            if self.stop_written and self.stop_written.get('revision') == intent.get('revision'):
+                return
+            previous = (self.stop_written or {}).get('id'), (self.stop_intent or {}).get('id')
+            witness = dict(intent, previous=list(dict.fromkeys(previous)))
+            try:
+                atomic_json(self.stop_witness, witness, sync_directory=True)
+                self.stop_written = witness
+            except OSError as exc:
+                self._stop_write_error(intent, self.stop_witness, exc)
+
+    def _stop_write_error(self, intent, path, exc):
+        self.flag_storage_failure(f'{path.name}: {exc}', run_id=intent.get('run_id'), job_id=intent.get('job_id'))
+
     def _deliver_stop(self, intent):
         try:
-            report = self.client('stop', {'stop_id': intent['id']})
-            if report.get('stop_id') != intent['id'] or not report.get('received'):
-                raise ValueError('The Stop receipt does not match the pending request.')
+            body = {'stop_id': intent['id']}
+            if self.stop_written and self.stop_written.get('revision') == intent.get('revision'):
+                report = self.client('stop', body)
+            else:
+                report = deliver_priority_stop(self.client, body, lambda: self._persist_stop_witness(intent))
+            if (report.get('stop_id') != intent['id'] or report.get('received') is not True
+                    or not isinstance(report.get('boot'), str) or type(report.get('generation')) is not int
+                    or report['generation'] < 1):
+                raise ValueError('The Stop reply conflicts with the pending request.')
+            if report.get('confirmed'):
+                try:
+                    status = self.client('status')
+                except StopEvidenceError as exc:
+                    status = exc.status
+                if not stop_corroborated(status, report):
+                    report = dict(report, confirmed=False)
         except (OSError, ValueError):
             report = dict(NO_STOP_RECEIPT)
-        with self.stop_lock:
+        with self.stop_receipts:
             current = self._pending_stop()
-            if current and current['id'] == intent['id']:
-                previous = current['report']
-                if previous['received'] and (not report['received'] or
-                        (previous.get('boot') == report.get('boot') and previous['halt_attempted']
-                         and not report['halt_attempted'])):
-                    report = previous
-                updated = dict(current, report=report)
-                if updated != self.stop_intent:
-                    atomic_json(self.stop_path, updated, sync_directory=True)
-                    self.stop_intent = updated
-                if report['confirmed']:
-                    del self.stop_latch['pending']
-                else:
-                    self.stop_latch['pending'] = updated
+            if current is None or current.get('revision') != intent.get('revision'):
+                return dict(report, confirmed=False)
+            if not self.stop_written or self.stop_written.get('revision') != current.get('revision'):
+                return dict(report, confirmed=False)
+            previous = current['report']
+            if previous['received'] and (not report['received'] or
+                    (previous.get('boot') == report.get('boot') and previous['halt_attempted']
+                     and not report['halt_attempted'])):
+                report = dict(previous, confirmed=False)
+            try:
+                # Serialize durable confirmation with boot observation, outside Stop ingress.
+                with self.stop_boot_lock if report['confirmed'] else nullcontext():
+                    if self.stop_boot != report.get('boot'):
+                        report = dict(report, confirmed=False)
+                    updated = dict(current, report=report, storage_check=self.storage_check)
+                    if updated != self.stop_intent:
+                        atomic_json(self.stop_path, updated, sync_directory=True)
+                        self.stop_intent = updated
+                    with self.stop_lock:
+                        if self._pending_stop() is not current:
+                            return dict(report, confirmed=False)
+                        if report['confirmed']:
+                            del self.stop_latch['pending']
+                        else:
+                            self.stop_latch['pending'] = updated
+            except OSError as exc:
+                self._stop_write_error(intent, self.stop_path, exc)
+                return dict(report, confirmed=False)
+        if report['confirmed']:
+            with self.lock:
+                if (self.stop_boot == self.cached.get('executor_boot') == status['boot'] and
+                        self.cached.get('stop_generation', -1) <= status['stop_generation']):
+                    self.cached.update(armed=False, executor_stop=deepcopy(status['stop']),
+                                       stop_generation=status['stop_generation'],
+                                       executor_job=deepcopy(status['job']))
         return report
+
+    def _recheck_stop(self, status):
+        intent = self.stop_intent
+        report = (intent or {}).get('report') or {}
+        current = status.get('stop')
+        # Arm consumes the current receipt. An older unrelated sample does not cover this Stop.
+        if not report.get('confirmed') or not current or status.get('boot') != report.get('boot'):
+            return
+        generation = current.get('generation')
+        if (current.get('stop_id') != report.get('stop_id') and type(generation) is int
+                and type(report.get('generation')) is int and generation < report['generation']):
+            return
+        if stop_corroborated(status, report):
+            return
+        with self.stop_lock:
+            if self.stop_intent is intent and not self._pending_stop():
+                self._publish_stop(dict(intent, report=dict(report, confirmed=False)))
 
     def stop(self, context=None):
         context = context or {}
         key = context.get('stop_id')
-        previous = self.stop_intent
-        if key and previous and previous.get('request') == key and previous['report']['confirmed']:
-            return previous['report']
-        # Concurrent Stops share one retry identity until durable physical confirmation.
-        job = self.cached.get('executor_job') or self.manual or {}
-        proposal = dict(id=uuid4().hex, request=key, boot=self.cached.get('executor_boot'),
-                        run_id=context.get('run_id'), job_id=context.get('job_id') or job.get('job_id') or job.get('id'),
-                        report=dict(NO_STOP_RECEIPT))
-        intent = self.stop_latch.setdefault('pending', proposal)
-        delivery = Future()
-
-        def send():
-            try:
-                delivery.set_result(self._deliver_stop(intent))
-            except Exception as exc:
-                delivery.set_exception(exc)
-
-        Thread(target=send, daemon=True, name='katana-executor-stop').start()
         with self.stop_lock:
-            if self._pending_stop() is intent and self.stop_intent != intent:
-                atomic_json(self.stop_path, intent, sync_directory=True)
-                self.stop_intent = intent
-        return delivery.result()
+            pending = self._pending_stop()
+            if not pending or key and pending['request'] != key:
+                job = self.cached.get('executor_job') or self.manual or {}
+                ident = key if isinstance(key, str) and ID.fullmatch(key) else uuid4().hex
+                pending = self._publish_stop(dict(
+                    id=ident, request=key, boot=self.cached.get('executor_boot'),
+                    run_id=context.get('run_id'), job_id=context.get('job_id') or job.get('job_id') or job.get('id'),
+                    report=dict(NO_STOP_RECEIPT)))
+        return self._deliver_stop(pending)
 
     def pulse(self):
         with self.lock:
             if self.identity is None:
+                if self.cached.get('executor_reachable') is False:
+                    raise ValueError(self.line_link.failure_message())
                 raise ValueError('The executor control lease is unavailable.')
             return dict(self.identity)
 
-    def request(self, operation, body=None):
+    def calibration_request(self, operation, body=None):
+        client = self.client if operation in ('hold', 'operator_check') else self.calibration_client
+        return self.request(operation, body, client=client)
+
+    def request(self, operation, body=None, *, client=None):
         if operation == 'stop':
             return self.stop(body)
+        if self.bluetooth and operation in ('connect', 'arm'):
+            with self.bluetooth.wired_control():
+                return self._request(operation, body, client=client)
+        return self._request(operation, body, client=client)
+
+    def _request(self, operation, body, *, client=None):
         if operation in ('arm', 'submit'):
             if self._pending_stop():
                 raise ValueError('Stop is unconfirmed. Verify a safe halt before arming or submitting.')
-            if self.recovery_evidence and not self.recovery_evidence['acknowledged']:
-                raise ValueError('Acknowledge the executor recovery evidence first.')
-        return self.client(operation, body)
+            with self.manual_lock:
+                if not self.journal_fault:
+                    self._verify_manual_history()
+                    if self.journal_fault:
+                        self.stop()
+            if self.journal_fault or self.storage_check:
+                raise ValueError(self.journal_fault or self.storage_check)
+            if self.manual and self.manual.get('doubt'):
+                raise ValueError('Complete the operator check for the retained station visit.')
+        state = (client or self.client)(operation, body)
+        if (operation == 'operator_check' and self.storage_check and body.get('run_id')
+                and self._decision_applied(state, body)):
+            self._clear_storage_check()
+        return state
+
+    def bluetooth_write_block(self):
+        status = self.client('status')
+        if status.get('armed') is not False or status.get('device', {}).get('connected') is not False:
+            return 'Disconnect and disarm the executor before changing Bluetooth settings.'
+        if (status.get('active_job_id') or status.get('job') or status.get('recovery_required')
+                or status.get('operator_check') or (status.get('stop') or {}).get('confirmed') is False
+                or status.get('evidence_faults') or self._pending_stop() or self.journal_fault or self.manual):
+            return 'Resolve the current executor job or operator check before changing Bluetooth settings.'
+        return None
 
     def _loop(self):
         while not self.closing.is_set():
@@ -140,9 +305,11 @@ class ExecutorLink:
                 if receipt is not None and not receipt['received']:
                     raise OSError('Stop delivery is unconfirmed.')
                 meta = self.client('health')
+                if self.job_gateway and meta.get('gateway_enabled') is not True:
+                    raise ValueError('The IPC HTTPS gateway is not ready.')
                 interval = heartbeat_interval(meta.get('heartbeat_s'), meta.get('lease_s'))
                 identity = None
-                if (meta['protocol'] == PROTOCOL and meta['job_types'].get('station_visit') == 1 and
+                if (not self.journal_fault and meta['protocol'] == PROTOCOL and meta['job_types'].get('station_visit') == 1 and
                         (receipt is None or receipt.get('boot', meta['boot']) == meta['boot'])):
                     binding = dict(boot=meta['boot'], session=self.session, protocol=PROTOCOL)
                     self.heartbeat_sequence += 1
@@ -155,26 +322,65 @@ class ExecutorLink:
                     except ValueError:
                         # A retiring controller's lease still fences this session.
                         pass
-                status = self.client('status')
+                if meta['protocol'] == 1:
+                    read_legacy = getattr(self.client, 'read_legacy_status', None)
+                    status = (read_legacy(meta['boot']) if read_legacy else
+                              legacy_display_status(self.client('status'), meta['boot']))
+                else:
+                    try:
+                        status = self.client('status')
+                    except StopEvidenceError as exc:
+                        status = exc.status
                 if status['boot'] != meta['boot']:
                     raise OSError('The executor boot changed while sampling status.')
                 self._apply(status, identity, meta)
-                self._refresh_manual()
+                if meta['protocol'] == PROTOCOL:
+                    self._sync_storage_check(status, identity)
+                    self._refresh_manual()
+            except JobEvidenceError as exc:
+                with self.manual_lock:
+                    if self.manual and not self.manual.get('doubt'):
+                        try:
+                            self._manual_hold(self.manual, str(exc))
+                        except OSError:
+                            # The write failure already requested Stop and retained the check.
+                            pass
             except (OSError, ValueError):
                 with self.lock:
                     self.identity = None
                     age = self.cached.get('status_age_s')
                     now = monotonic()
-                    self.cached.update(armed=False, stale=True, executor_reachable=False,
+                    self.cached.update(armed=False, armed_for=None, stale=True, executor_reachable=False,
                                        status_age_s=None if age is None else age+now-self.sampled,
                                        executor_session=None,
                                        error='Executor unavailable. Use the AGV e-stop if needed.')
                     self.sampled = now
+            with self.lock:
+                reachable = self.cached.get('executor_reachable')
+            self.line_link.sample(reachable, monotonic())
             self.closing.wait(max(0, interval - (monotonic()-started)))
 
     def _apply(self, status, identity=None, meta=None):
+        boot = status['boot']
+        with self.stop_boot_lock:
+            if boot in self.retired_boots:
+                raise ValueError('The executor boot was retired while sampling status.')
+            if self.stop_boot is not None and self.stop_boot != boot:
+                self.retired_boots.add(self.stop_boot)
+            self.stop_boot = boot
+            self._recheck_stop(status)
+        receipt = status.get('stop')
+        if receipt and receipt.get('confirmed') and not stop_corroborated(status, receipt):
+            status = dict(status, stop=dict(receipt, confirmed=False))
+        manual_id = status.get('latest_manual_job_id')
+        if (not self.journal_fault and manual_id and not self.manual and not
+                (self.manual_history_directory / f'{manual_id}.json').is_file()):
+            self.journal_fault = f'{self.manual_path.name} is missing. Please call a technician.'
+            self.stop()
         device = dict(status['device'])
         with self.lock:
+            if self.stop_boot != boot:
+                raise ValueError('The executor boot was retired while applying status.')
             if meta is not None:
                 self.identity = identity
                 self.cached['executor_health'] = meta
@@ -189,10 +395,19 @@ class ExecutorLink:
                           executor_boot=status['boot'],
                           executor_session=status.get('session') if self.identity else None,
                           executor_job=status['job'], recovery_required=status['recovery_required'],
+                          operator_check=status.get('operator_check'),
                           quality_alarm=status.get('quality_alarm'),
                           evidence_faults=status.get('evidence_faults', {}),
                           recovery_ids=status.get('recovery_ids', []), executor_stop=status.get('stop'),
                           motion_block=self._motion_reason(status))
+            if self.job_gateway:
+                device.update(job_gateway=True, owner=status.get('owner'), armed_for=status.get('armed_for'),
+                              recent_jobs=status.get('recent_jobs', self.cached.get('recent_jobs', [])))
+            station_count = (device.get('status') or {}).get('max_stations')
+            if (type(station_count) is int and device.get('status_time')
+                    and self.cached.get('executor_health', {}).get('simulated') is False):
+                self.last_rs485_station_count = dict(value=station_count, observed_at=device['status_time'],
+                                                    source='IPC executor RS485')
             self.cached.update(device, wired_port='IPC executor', executor_reachable=True,
                                executor_observed_utc=time(), error=device.get('error'))
             self.observed = self.sampled = monotonic()
@@ -220,11 +435,19 @@ class ExecutorLink:
     def _motion_reason(self, status):
         if status.get('evidence_faults'):
             return ' '.join(status['evidence_faults'].values())
+        if self.cached.get('executor_health', {}).get('protocol') != PROTOCOL:
+            return 'The executor protocol is incompatible. Cached status is read-only and local control is unavailable.'
         if self.identity is None or not status['lease_valid']:
             return 'The executor control lease is unavailable.'
         if status['recovery_required']:
-            return 'Reconcile executor job evidence before arming.'
-        if not self.cached.get('executor_health', {}).get('motion_enabled'):
+            return (status.get('operator_check') or {}).get('reason', 'Complete the operator check before arming.')
+        health = self.cached.get('executor_health', {})
+        if health.get('manual_travel_until') is not None:
+            if time() >= health['manual_travel_until']:
+                return 'The manual travel window expired.'
+        elif health.get('manual_travel_missing_evidence'):
+            return 'Manual travel requires qualified robot pose, battery reserve, and clear tank and equipment-off feedback.'
+        elif not health.get('motion_enabled'):
             return 'Phase 1 live travel is disabled.'
         return None
 
@@ -238,10 +461,16 @@ class ExecutorLink:
             state = dict(deepcopy(self.cached), sequence=self.sequence,
                          status_age_s=None if age is None else age+monotonic()-self.sampled,
                          stop_unconfirmed=pending is not None, manual_visit=deepcopy(manual),
-                         manual_visit_history=deepcopy(self.manual_history),
-                         executor_recovery_evidence=deepcopy(self.recovery_evidence))
-        if self.recovery_evidence and not self.recovery_evidence['acknowledged']:
-            state['motion_block'] = 'Finish the recorded executor recovery before arming.'
+                         manual_visit_history=deepcopy(self.manual_history))
+        if self.storage_check and not self.journal_fault:
+            check = state.get('operator_check') or {}
+            state.update(armed=False, motion_block=self.storage_check, operator_check=(
+                dict(check, reason=self.storage_check) if check else dict(reason=self.storage_check,
+                    technician=False, location=None, basket=None, step=None, run_id=self.storage_context['run_id'],
+                    job_id=self.storage_context['job_id'] or (manual or {}).get('id'))))
+        if self.journal_fault:
+            state.update(armed=False, motion_block=self.journal_fault, operator_check=dict(
+                reason=self.journal_fault, technician=True, location=None, basket=None, job_id=None, step=None))
         current = state.get('executor_stop')
         if pending:
             report = pending['report']
@@ -249,17 +478,63 @@ class ExecutorLink:
                 report = dict(current, confirmed=False)
             state.update(armed=False, motion_block='Stop unconfirmed. Verify a safe halt first.',
                          executor_stop=deepcopy(report))
-        else:
-            if (history and history.get('boot') == state.get('executor_boot') and
-                    history['generation'] > state.get('stop_generation', -1)):
-                state.update(armed=False, stop_generation=history['generation'], executor_stop=deepcopy(history))
-            elif not (current and current.get('boot') == state.get('executor_boot') and
-                      current.get('generation') == state.get('stop_generation') and not state.get('armed')):
-                state['executor_stop'] = None
-            elif history and current.get('stop_id') == history.get('stop_id'):
-                state['executor_stop'] = deepcopy(history)
+        elif not (current and current.get('boot') == state.get('executor_boot') and
+                  current.get('generation') <= state.get('stop_generation') and not state.get('armed')
+                  and state.get('executor_reachable')):
+            state['executor_stop'] = None
         state['executor_stop_history'] = deepcopy(history) if history != state['executor_stop'] else None
+        if self.job_gateway and not state.get('armed'):
+            state['armed_for'] = None
         return state
+
+    def flag_storage_failure(self, reason, *, run_id=None, job_id=None):
+        self.storage_context = dict(run_id=run_id, job_id=job_id)
+        self.storage_check = reason
+
+    def storage_failure(self, reason):
+        self.flag_storage_failure(reason)
+        self.stop()
+
+    def _sync_storage_check(self, status, identity):
+        if self.storage_check and identity and not self._pending_stop() and not status.get('operator_check'):
+            run_id = self.storage_context['run_id']
+            job_id = self.storage_context['job_id'] or (self.manual or {}).get('id')
+            self._apply(self.client('hold', dict(identity, reason=self.storage_check, manual=run_id is None,
+                                                run_id=run_id, job_id=job_id, idle=job_id is None,
+                                                stop_generation=status['stop_generation'])))
+
+    def _clear_storage_check(self):
+        with self.stop_receipts:
+            if self.stop_intent:
+                updated = dict(self.stop_intent, storage_check=None)
+                atomic_json(self.stop_path, updated, sync_directory=True)
+                self.stop_intent = updated
+            self.storage_check = None
+            self.storage_context = dict(run_id=None, job_id=None)
+
+    def _verify_manual_history(self):
+        marker = self.manual_marker
+        try:
+            if self.manual_witness.is_symlink() or self._load(self.manual_witness) != marker:
+                raise ValueError(self.manual_witness)
+            if self.manual_history_directory.is_symlink():
+                raise ValueError(self.manual_history_directory)
+            if self.manual and marker and marker['committed'] and not self.manual_path.is_file():
+                raise ValueError(self.manual_path)
+            for ident, digest in (marker or {}).get('archives', {}).items():
+                path = self.manual_history_directory / (ident + '.json')
+                if path.is_symlink() or sha256(path.read_bytes()).hexdigest() != digest:
+                    raise ValueError(path)
+        except (OSError, ValueError) as exc:
+            name = getattr(exc, 'filename', None) or str(exc)
+            self.journal_fault = f'{name}: retained manual evidence is missing or inconsistent. Please call a technician.'
+
+    def _write_manual(self, path, value):
+        try:
+            atomic_json(path, value, sync_directory=True)
+        except OSError as exc:
+            self.storage_failure(f'{path}: {exc}')
+            raise
 
     def _record_manual(self, intent, result):
         if result is None or self.manual is None or self.manual['id'] != intent['id']:
@@ -267,11 +542,6 @@ class ExecutorLink:
         if result.get('job_id') != intent['id']:
             raise ValueError('The returned executor job does not match the manual station visit.')
         previous = self.manual['result']
-        if result['state'] == 'refused':
-            if previous is not None or result.get('outcome') != 'failed' or not result.get('error'):
-                raise ValueError('The refusal contradicts the retained station visit.')
-            self._archive_manual(dict(intent, result=result, admission_refused=True, acknowledged=False))
-            return
         if result['outcome'] in ('succeeded', 'held'):
             terminal = result.get('result') or {}
             hold = terminal.get('hold') or {}
@@ -284,23 +554,27 @@ class ExecutorLink:
                     or not isinstance(observed, dict) or observed.get('station') != intent['station']
                     or observed.get('stopped') is not True):
                 raise ValueError('The terminal station evidence does not confirm the requested visit.')
-        reconciled = result.get('reconciliation') and (not previous or not previous.get('reconciliation'))
-        if previous and previous['state'] not in PENDING_STATES and not reconciled:
-            if not self.manual.get('missing') or result != previous:
-                return
+        if result['state'] not in PENDING_STATES and result['outcome'] != 'succeeded':
+            raise ValueError(result.get('error') or 'The station visit ended in an uncertain hold.')
+        if previous and previous['state'] not in PENDING_STATES:
+            return
         updated = dict(self.manual, result=result)
-        if reconciled and previous and previous['outcome'] != 'unknown':
-            updated['prior_result'] = previous
-        updated.pop('missing', None)
         if result['state'] not in PENDING_STATES:
-            atomic_json(self.manual_path, updated, sync_directory=True)
+            self._write_manual(self.manual_path, updated)
         self.manual = updated
 
-    def _manual_missing(self, intent):
-        if self.manual and self.manual['id'] == intent['id'] and not self.manual.get('missing'):
-            updated = dict(self.manual, missing=True)
-            atomic_json(self.manual_path, updated, sync_directory=True)
-            self.manual = updated
+    def _manual_hold(self, intent, reason):
+        updated = dict(intent, doubt=reason)
+        self.manual = updated
+        try:
+            identity = self.pulse()
+            status = self.client('status')
+            self._apply(self.client('hold', dict(identity, reason=reason, job_id=intent['id'], manual=True,
+                                                stop_generation=status['stop_generation'])))
+        except (OSError, ValueError):
+            self.stop()
+        finally:
+            self._write_manual(self.manual_path, updated)
 
     def manual_request(self, request_id):
         intent = self.manual
@@ -312,24 +586,6 @@ class ExecutorLink:
                 return history['id']
         return None
 
-    def order_intent(self):
-        with self.intent_order_lock:
-            order = self.intent_order + 1
-            atomic_json(self.intent_order_path, order, sync_directory=True)
-            self.intent_order = order
-            return order
-
-    def latest_manual_intent(self):
-        current = self.manual
-        if current:
-            return dict(job_id=current['id'], intent_order=current.get('intent_order', 0),
-                        intent_utc_ns=current.get('intent_utc_ns') or self.manual_path.stat().st_mtime_ns)
-        history = self.manual_history
-        if history:
-            return dict(job_id=history['id'], intent_order=history.get('intent_order', 0), intent_utc_ns=history.get('intent_utc_ns') or (
-                self.manual_history_directory / f"{history['id']}.json").stat().st_mtime_ns)
-        return None
-
     @staticmethod
     def _same_manual_authority(intent, status):
         return all(intent.get(key) == status.get(key) for key in ('boot', 'session', 'stop_generation'))
@@ -339,16 +595,30 @@ class ExecutorLink:
         if intent is None:
             return
         previous = intent['result']
-        if (previous and previous['state'] not in PENDING_STATES and not intent.get('missing')
-                and intent['boot'] == self.status().get('executor_boot')
-                and (previous['outcome'] != 'unknown' or previous.get('reconciliation'))):
+        if intent.get('doubt'):
+            status = self.client('status')
+            if not status.get('operator_check'):
+                self._manual_hold(intent, intent['doubt'])
             return
-        status = self.client('status', {'job_id': intent['id']})
-        result = status['job']
+        if previous and previous['state'] not in PENDING_STATES:
+            return
+        try:
+            status = self.client('status', {'job_id': intent['id']})
+        except JobEvidenceError as exc:
+            with self.manual_lock:
+                if self.manual is intent:
+                    self._manual_hold(intent, str(exc))
+            return
         with self.manual_lock:
-            self._record_manual(intent, result)
-            if result is None and (previous or not self._same_manual_authority(intent, status)):
-                self._manual_missing(intent)
+            if self.manual is not intent:
+                return
+            if not self._same_manual_authority(intent, status) or status['job'] is None:
+                self._manual_hold(intent, 'The station visit outcome is uncertain. Check the AGV station.')
+            else:
+                try:
+                    self._record_manual(intent, status['job'])
+                except ValueError as exc:
+                    self._manual_hold(intent, str(exc))
 
     def _manual_visit(self, body):
         station = body.get('value')
@@ -357,178 +627,140 @@ class ExecutorLink:
         with self.manual_lock:
             intent = self.manual
             if intent:
-                if station != intent['station']:
-                    raise ValueError('Review the previous station visit before requesting a different visit.')
-                result = self.client('status', {'job_id': intent['id']})['job']
-                self._record_manual(intent, result)
-                if result is not None or intent['result'] is not None:
-                    return self.status()
+                raise ValueError('Review the retained station visit before starting another.')
             state = self.status()
+            if self.job_gateway and state.get('armed_for') != 'agv-page':
+                raise ValueError('Select the AGV page as job owner and Arm for it before calling a station.')
             identity = self.pulse()
-            if (not state.get('executor_health', {}).get('motion_enabled') or
-                    not state.get('executor_health', {}).get('simulated')):
-                raise ValueError('Phase 1 live station visits are disabled.')
+            health = state.get('executor_health', {})
+            expires = health.get('manual_travel_until')
+            attestation = None
+            if expires is not None:
+                now = time()
+                if now >= expires:
+                    raise ValueError('The manual travel window expired.')
+                attestation = body.get('attestation')
+                check_manual_attestation(attestation, station, now=now)
+                check_manual_feedback(state, health['manual_travel_min_battery'], station)
+                if (self.manual_history_directory / (attestation['id'] + '.json')).exists():
+                    raise ValueError('This station confirmation has already been used.')
+            elif not health.get('motion_enabled') or not health.get('simulated'):
+                raise ValueError(state['motion_block'] or 'Phase 1 live station visits are disabled.')
             self._reviewed(body, identity)
             generation = body.get('stop_generation')
             if generation != state.get('stop_generation') or not state['armed'] or state['motion_block']:
                 raise ValueError('Review the current executor status and arm before requesting a station.')
-            if intent is None:
-                intent = dict(id=uuid4().hex, station=station, boot=identity['boot'],
-                              session=identity['session'], stop_generation=generation, result=None,
-                              request_id=body.get('request_id'), intent_utc_ns=time_ns(), intent_order=self.order_intent())
-                atomic_json(self.manual_path, intent, sync_directory=True)
-                self.manual = intent
-            elif not self._same_manual_authority(intent, dict(identity, stop_generation=generation)):
-                raise ValueError('Executor authority changed. Reconcile the original station visit.')
+            intent = dict(id=uuid4().hex, station=station, boot=identity['boot'],
+                          session=identity['session'], stop_generation=generation, result=None,
+                          request_id=body.get('request_id'))
+            if attestation is not None:
+                intent.update(id=attestation['id'], attestation=attestation, attested_at=time())
+            witness = dict(id=intent['id'], intent=intent, committed=False,
+                           archives=(self.manual_marker or {}).get('archives', {}))
+            self._write_manual(self.manual_witness, witness)
+            self.manual_marker, self.manual = witness, intent
+            self._write_manual(self.manual_path, intent)
+            committed = dict(witness, committed=True)
+            self._write_manual(self.manual_witness, committed)
+            self.manual_marker = committed
             payload = dict(identity, job_id=intent['id'], stop_generation=generation, type='station_visit',
                            version=1, params={'station': station})
+            if attestation is not None:
+                payload['attestation'] = attestation
             try:
                 result = self.request('submit', payload)
+                self._record_manual(intent, result)
             except AdmissionRefused as exc:
-                self._record_manual(intent, dict(job_id=intent['id'], state='refused', outcome='failed', error=str(exc)))
+                if attestation is not None:
+                    try:
+                        observed = self.request('status')
+                    except (OSError, ValueError):
+                        self._manual_hold(intent, str(exc))
+                        raise
+                    if self._same_manual_authority(intent, observed) and not observed['recovery_required']:
+                        self._archive_manual(dict(intent, refused=str(exc)))
+                    else:
+                        self._manual_hold(intent, str(exc))
+                else:
+                    self._manual_hold(intent, str(exc))
                 raise
-            self._record_manual(intent, result)
+            except (OSError, ValueError) as exc:
+                self._manual_hold(intent, str(exc))
+                raise
             return self.status()
 
-    def _reconcile_manual(self, job_id, note, *, orphan=False, programme_intent=None):
-        if not isinstance(job_id, str) or not ID.fullmatch(job_id):
-            raise ValueError('Supply the original executor job ID.')
-        if not isinstance(note, str) or not note.strip() or len(note) > 500:
-            raise ValueError('Enter the verified station disposition.')
-        note = note.strip()
+    def _operator_check(self, body):
+        identity = self.pulse()
+        self._reviewed(body, identity)
+        if self.journal_fault:
+            raise ValueError(self.journal_fault)
+        payload = {key: body[key] for key in
+                   ('confirmed', 'choice', 'operator', 'location', 'basket', 'job_id', 'step',
+                    'stop_generation') if key in body}
         with self.manual_lock:
             intent = self.manual
-            if (orphan and intent) or (not orphan and (not intent or intent['id'] != job_id)):
-                raise ValueError('Select the original station visit to reconcile.')
-            journal = self.recovery_evidence or {}
-            pending = orphan and journal.get('acknowledged') is False
-            if pending and (journal['job_id'] != job_id or
-                            journal.get('disposition', (journal.get('observation') or
-                                                        journal.get('reconciliation') or {}).get('disposition')) != note):
-                raise ValueError('Retry the original job ID and recorded executor recovery disposition.')
-            latest = max((record for record in (self.latest_manual_intent(), programme_intent) if record),
-                         key=lambda record: (record['intent_order'], record['intent_utc_ns']), default=None)
-            if orphan and not pending and (not latest or latest['job_id'] != job_id):
-                raise ValueError('Supply the latest unresolved controller job ID before reconciliation.')
-            identity = self.pulse()
-            status = self.request('status', {'job_id': job_id})
-            if status.get('evidence_faults'):
-                raise ValueError(' '.join(status['evidence_faults'].values()))
-            result = status['job']
-            missing = result is None
-            recovery_ids = status.get('recovery_ids', [])
-            repair = '.executor-active.json' in recovery_ids
-            if orphan and not pending:
-                if not repair and job_id not in recovery_ids:
-                    raise ValueError('Select an unresolved original executor job.')
-                if any(status.get(key) not in (None, job_id) for key in ('active_job_id', 'latest_job_id')):
-                    raise ValueError('The requested job does not account for the active executor record.')
-            if not orphan and missing and not repair and not intent.get('missing') and self._same_manual_authority(intent, status):
-                raise ValueError('Wait for the original station visit evidence.')
-            observed = bool(orphan and result and result['state'] == 'done'
-                            and result['outcome'] != 'unknown' and result['result'].get('hold'))
-            payload = journal.get('intent') if pending else (intent or {}).get('reconcile_intent')
-            if payload and payload['disposition'] != note:
-                raise ValueError('Retry the original job ID and recorded executor recovery disposition.')
-            if payload is None:
-                if not (missing or observed or
-                        (result['outcome'] == 'unknown' and result['state'] not in PENDING_STATES)):
-                    raise ValueError('Select an uncertain station visit or a terminal hold.')
-                payload = dict(job_id=job_id, missing=missing, disposition=note,
-                               repair_active_marker=repair, observed_only=observed,
-                               observation_id=journal.get('event_id') if pending else uuid4().hex)
-                if intent:
-                    payload.update(intent_boot=intent['boot'], intent_stop_generation=intent['stop_generation'])
-                if latest and latest['job_id'] == job_id and latest.get('run_id') is not None:
-                    payload.update(run_id=latest['run_id'], basket=latest['basket'])
-            event_id = payload['observation_id']
-            key = 'observation' if payload['observed_only'] else 'reconciliation'
-            saved = (result or {}).get(key) or {}
-            if orphan:
-                journal = dict(journal if pending else {}, job_id=job_id, disposition=note,
-                               event_id=event_id, intent=payload, acknowledged=False)
-                atomic_json(self.recovery_path, journal, sync_directory=True)
-                self.recovery_evidence = journal
-            elif not intent.get('reconcile_intent'):
-                intent = dict(intent, reconcile_intent=payload)
-                atomic_json(self.manual_path, intent, sync_directory=True)
-                self.manual = intent
-            if saved.get('observation_id') == event_id and saved.get('boot') == identity['boot']:
-                evidence = result
-            else:
-                evidence = self.request('reconcile', dict(identity, **payload))
-            reconciliation = evidence.get(key) or {}
-            hold = reconciliation.get('hold') or {}
-            if (evidence.get('job_id') != job_id
-                    or (not payload['observed_only'] and evidence.get('outcome') != 'unknown')
-                    or reconciliation.get('boot') != identity['boot'] or reconciliation.get('disposition') != note
-                    or reconciliation.get('observation_id') != event_id
-                    or (payload.get('repair_active_marker') and reconciliation.get('repaired_active_marker') is not True)
-                    or not finite(reconciliation.get('observed_utc')) or not finite(reconciliation.get('observed_mono_s'))
-                    or hold.get('stopped') is not True or hold.get('equipment_on') is not False
-                    or (payload.get('run_id') is not None
-                        and (hold.get('run_id'), hold.get('basket')) != (payload['run_id'], payload['basket']))):
-                raise OSError('The executor did not return verified evidence for this reconciliation.')
-            if intent:
-                self._record_manual(intent, evidence)
-            else:
-                if self.recovery_history_directory.is_symlink():
-                    raise ValueError('Executor recovery history requires a regular directory.')
-                self.recovery_history_directory.mkdir(exist_ok=True)
-                journal = dict(journal, **evidence)
-                journal['acknowledged'] = False
-                atomic_json(self.recovery_path, journal, sync_directory=True)
-                self.recovery_evidence = journal
-                self._acknowledge(job_id)
-                journal = dict(journal, acknowledged=True)
-                atomic_json(self.recovery_history_directory / f'{event_id}.json', journal, sync_directory=True)
-                atomic_json(self.recovery_path, journal, sync_directory=True)
-                self.recovery_evidence = journal
-        return self.status()
+            check = self.request('status').get('operator_check') or {}
+            if (not check or check.get('run_id') is not None or check.get('job_id') != payload.get('job_id')
+                    or (intent and check.get('job_id') is not None and intent['id'] != payload.get('job_id')) or payload.get('choice') != 'abort'
+                    or payload.get('basket') is not None):
+                raise ValueError('Select the retained manual station visit and confirm its disposition.')
+            state = self.request('operator_check', dict(identity, **payload))
+            if not self._decision_applied(state, dict(identity, **payload)):
+                raise ValueError('The executor did not confirm the operator decision.')
+            if intent and intent['id'] == payload.get('job_id'):
+                self._archive_manual(dict(intent, operator_check=payload, acknowledged=True))
+            if self.storage_check:
+                self._clear_storage_check()
+        return self._apply(state)
 
-    def _acknowledge(self, job_id):
-        reply = self.request('acknowledge', dict(self.pulse(), job_id=job_id))
-        if reply != {'acknowledged': True, 'job_id': job_id}:
-            raise OSError('Waiting for acknowledgement of the original executor job.')
+    @staticmethod
+    def _decision_applied(status, request):
+        return (all(status.get(key) == request.get(key) for key in ('boot', 'session', 'stop_generation'))
+                and status.get('lease_valid') is True and status.get('armed') is False
+                and 'operator_check' in status and status['operator_check'] is None
+                and status.get('recovery_required') is False)
 
     def _acknowledge_manual(self, job_id):
         with self.manual_lock:
             intent = self.manual
-            if intent is None and isinstance(job_id, str) and ID.fullmatch(job_id):
-                history = self._load(self.manual_history_directory / f'{job_id}.json')
-                if history and history.get('acknowledged'):
-                    return self.status()
-            if (intent is None or job_id != intent['id'] or not intent['result'] or
-                    intent['result']['state'] in PENDING_STATES):
-                raise ValueError('Review the terminal result of this station visit first.')
-            result = intent['result']
-            if result['outcome'] == 'unknown' and not result.get('reconciliation'):
-                raise ValueError('Reconcile the uncertain executor job first.')
-            status = self.request('status', {'job_id': job_id})
-            if status.get('evidence_faults'):
-                raise ValueError(' '.join(status['evidence_faults'].values()))
-            observed = status['job']
-            if observed is None:
-                self._manual_missing(intent)
-                raise ValueError('The IPC result is missing. Reconcile the original station visit.')
-            if any(observed.get(key) != result.get(key) for key in (
-                    'job_id', 'state', 'outcome', 'checkpoint', 'result', 'error', 'reconciliation')):
-                raise ValueError('The executor reply conflicts with the retained station evidence.')
+            if intent is None and self.manual_history and job_id == self.manual_history['id']:
+                return self.status()
+            result = (intent or {}).get('result') or {}
+            if (not intent or job_id != intent['id'] or intent.get('doubt')
+                    or result.get('state') != 'done' or result['outcome'] != 'succeeded'):
+                raise ValueError('Confirm the outcome of the retained station visit first.')
             try:
-                self._acknowledge(job_id)
-            except ValueError:
-                if self.request('status', {'job_id': job_id})['job'] is None:
-                    self._manual_missing(intent)
+                observed = self.request('status', {'job_id': job_id})
+            except JobEvidenceError as exc:
+                self._manual_hold(intent, str(exc))
                 raise
+            if observed.get('evidence_faults') or observed.get('job') != result:
+                self._manual_hold(intent, 'The saved station result differs from the IPC evidence.')
+                raise ValueError('Check the retained station visit against the IPC evidence.')
             self._archive_manual(dict(intent, acknowledged=True))
         return self.status()
 
     def _archive_manual(self, history):
         if self.manual_history_directory.is_symlink():
             raise ValueError('Manual visit history requires a regular directory.')
-        self.manual_history_directory.mkdir(exist_ok=True)
-        atomic_json(self.manual_history_directory / (history['id'] + '.json'), history, sync_directory=True)
-        atomic_json(self.manual_path, None, sync_directory=True)
+        path = self.manual_history_directory / (history['id'] + '.json')
+        try:
+            self.manual_history_directory.mkdir(exist_ok=True)
+        except OSError as exc:
+            self.storage_failure(f'{self.manual_history_directory}: {exc}')
+            raise
+        self._write_manual(path, history)
+        try:
+            digest = sha256(path.read_bytes()).hexdigest()
+        except OSError as exc:
+            self.storage_failure(f'{path}: {exc}')
+            raise
+        archives = dict((self.manual_marker or {}).get('archives', {}))
+        archives[history['id']] = digest
+        marker = dict(id=history['id'], intent=self.manual, archives=archives, committed=True)
+        self._write_manual(self.manual_witness, marker)
+        self.manual_marker = marker
+        self._write_manual(self.manual_path, None)
         self.manual_history, self.manual = history, None
 
     @staticmethod
@@ -540,16 +772,38 @@ class ExecutorLink:
         if type(body.get('stop_generation')) is not int:
             raise ValueError('Review the Stop generation before arming or submitting.')
 
-    def submit(self, body, *, programme_intent=None):
+    def select_owner(self, body):
+        requested = body.get('owner')
+        built_in = {'agv-page': self.client, 'calibration': self.calibration_client}
+        if not self.job_gateway or requested is not None and (not isinstance(requested, str) or requested not in built_in):
+            raise ValueError('Choose the AGV page or Calibration module as job owner.')
+        if self.manual:
+            raise ValueError('Resolve the retained station visit before changing the job owner.')
+        identity = self.pulse()
+        self._reviewed(body, identity)
+        present = self.client('status')
+        owner = present.get('owner')
+        if body.get('stop_generation') != present['stop_generation'] or body.get('executor_owner') != owner:
+            raise ValueError('The owner or Stop changed. Review the AGV page before selecting an owner.')
+        if owner == requested:
+            return self.status()
+        if owner is not None:
+            if owner not in built_in:
+                raise ValueError(f'{owner} owns the executor. Ask that client to release control or use Stop.')
+            self._apply(built_in[owner]('release', identity))
+        if requested is not None:
+            self._apply(built_in[requested]('claim', identity))
+        return self.status()
+
+    def submit(self, body):
         action, command = body.get('action'), body.get('command')
         if action == 'send' and command == 'stop':
             self.stop({'stop_id': body.get('request_id')})
             return self.status()
         if action == 'acknowledge_station':
             return self._acknowledge_manual(body.get('job_id'))
-        if action in ('reconcile_station', 'repair_executor_marker'):
-            return self._reconcile_manual(body.get('job_id'), body.get('note'),
-                                          orphan=action == 'repair_executor_marker', programme_intent=programme_intent)
+        if action == 'operator_check':
+            return self._operator_check(body)
         with self.lock:
             connection_id = self.connection_id
         if action == 'connect' and body.get('mode') != 'wired':
@@ -564,15 +818,21 @@ class ExecutorLink:
                 raise ValueError('Choose Arm or Disarm.')
             action = 'arm' if body['armed'] else 'disarm'
             if action == 'arm':
-                if self._pending_stop() or (self.recovery_evidence and not self.recovery_evidence['acknowledged']):
-                    raise ValueError('Finish the pending Stop or executor recovery before arming.')
+                if self._pending_stop() or self.journal_fault:
+                    raise ValueError(self.journal_fault or 'Finish the pending Stop before arming.')
                 self._reviewed(body, identity)
+                if self.job_gateway and body.get('executor_owner') != self.status().get('owner'):
+                    raise ValueError('The job owner changed. Review the AGV page before arming.')
                 identity['stop_generation'] = body['stop_generation']
-        if action in ('connect', 'disconnect', 'arm', 'disarm'):
-            return self._apply(self.request(action, identity))
         if action == 'send' and command == 'query_status':
-            return self._apply(self.request('status_read', identity))
-        raise ValueError('Only executor job controls are available on this installation.')
+            action = 'status_read'
+        if action not in ('connect', 'disconnect', 'arm', 'disarm', 'status_read'):
+            raise ValueError('Only executor job controls are available on this installation.')
+        try:
+            status = self.request(action, identity)
+        except OSError as exc:
+            raise ValueError(self.line_link.failure_message()) from exc
+        return self._apply(status)
 
     @contextmanager
     def recording_context(self):

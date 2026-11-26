@@ -11,9 +11,9 @@ const connected = { connected: true, connection_id: 2, settings: mode, armed: tr
 const commandNames = ['read_speed', 'query_status', 'forward'];
 let app;
 
-function open(route, respond) {
+function open(route, respond, { token = 'fixture' } = {}) {
   location.hash = route;
-  document.head.innerHTML = '<meta name="module-token" content="fixture">';
+  document.head.innerHTML = `<meta name="module-token" content="${token}">`;
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
   vi.stubGlobal('fetch', vi.fn(async (path, options) => {
     const body = options.body && JSON.parse(options.body);
@@ -38,6 +38,29 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
   localStorage.clear();
+});
+
+it('offers enrollment and keeps Stop available for a read-only viewer', async () => {
+  const sent = [];
+  let sequence = 0;
+  open('#/agv', async (path, body) => {
+    if (path === '/api/state') return { variables: [] };
+    if (path === '/api/status') return { owner: {}, operator_auth: { required: true, authorized: false } };
+    if (body) sent.push(body);
+    return { ...connected, sequence: ++sequence,
+      commands: commandNames.map(name => ({ name, motion: name === 'forward' })),
+      results: body?.command === 'stop' ? { stop: { tx_id: 9, state: 'confirmed by status' } } : {} };
+  }, { token: '' });
+  await flushPromises();
+  expect(app.get('a[href="/operator-key"]').text()).toBe('Enroll this browser');
+  expect(element('armed').element.disabled).toBe(true);
+  expect(element('pause').element.disabled).toBe(true);
+  expect(element('query_status').element.disabled).toBe(true);
+  expect(element('stop').element.disabled).toBe(false);
+  expect(sent).toEqual([]);
+  await element('stop').trigger('click');
+  expect(sent).toEqual([expect.objectContaining({ action: 'send', command: 'stop' })]);
+  expect(fetch.mock.calls[0][1].headers['X-Module-Token']).toBeUndefined();
 });
 
 it('disarms on opening an armed connection and only dispatches one labelled Esc Stop during a pending read', async () => {
@@ -756,4 +779,38 @@ it('keeps a completed Pick/place job when an older recovery response arrives', a
   reply({ id, state: 'running', auto_action: 'STEP' });
   await flushPromises();
   expect(app.get('.pick-operation strong').text()).toContain('Completed');
+});
+
+it('shows line loss across pages, then shows recovery for 30 seconds', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'Date', 'performance'] });
+  const lostAt = new Date('2026-11-26T06:20:00Z');
+  vi.setSystemTime(lostAt);
+  let link = { state: 'ok', since: null };
+  open('#/', path => {
+    if (path === '/api/status') return { owner: {}, line_link: link };
+    if (path === '/api/state') return { variables: [] };
+    return { connected: false, executor_link: true, sequence: 1, commands: [] };
+  });
+  await flushPromises();
+  expect(app.find('.line-link-alert').exists()).toBe(false);
+
+  link = { state: 'lost', since: lostAt.toISOString(), cause: 'adapter_no_link',
+    hint: 'Unplug the USB Wi-Fi dongle and plug it back in.' };
+  await vi.advanceTimersByTimeAsync(1500);
+  const alert = () => app.get('.line-link-alert');
+  expect(alert().attributes('role')).toBe('alert');
+  expect(alert().text()).toMatch(/AGV link lost since.*\(1 s\).*USB Wi-Fi dongle/);
+
+  location.hash = '#/agv';
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+  await flushPromises();
+  expect(app.get('h1').text()).toBe('AGV commissioning');
+  expect(alert().text()).toContain('Unplug the USB Wi-Fi dongle');
+
+  link = { state: 'ok', since: new Date().toISOString() };
+  await vi.advanceTimersByTimeAsync(1500);
+  expect(alert().attributes('role')).toBe('status');
+  expect(alert().text()).toMatch(/Link back at.*reconnect on the AGV page/);
+  await vi.advanceTimersByTimeAsync(30000);
+  expect(app.find('.line-link-alert').exists()).toBe(false);
 });

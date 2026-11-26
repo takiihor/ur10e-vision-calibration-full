@@ -62,8 +62,9 @@ def connect_parked(link):
     (0, 1, False), (1, 0, False), (1, 1, True), (1, 2, True), (1, 3, False),
     (255, 255, True), (255, 256, False),
 ])
-def test_recipe_checks_the_learned_station_range(count, station, allowed):
-    visit = StationVisit(None, None)
+@pytest.mark.parametrize('allow_wired', [False, True])
+def test_recipe_checks_the_learned_station_range(count, station, allowed, allow_wired):
+    visit = StationVisit(None, None, allow_wired=allow_wired)
     visit.status = dict(mode=2, max_stations=count, set_speed_m_h=500)
     if allowed:
         visit.check_route([station], 500)

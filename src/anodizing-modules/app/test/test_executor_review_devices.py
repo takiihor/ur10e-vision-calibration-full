@@ -7,7 +7,7 @@ from urllib.request import urlopen
 import pytest
 
 from anodizing_web import agv, operator_state
-from anodizing_web.executor import Executor, FakeDevices
+from anodizing_web.executor import PROTOCOL, Executor, FakeDevices
 from anodizing_web.executor_http import display_listener
 from anodizing_web.executor_link import ExecutorLink
 
@@ -16,7 +16,7 @@ from test_executor_phase1 import FAKE_TANK_SETPOINTS, Clock, pair, running, term
 
 
 def arm(executor):
-    identity = dict(boot=executor.boot, protocol=1, session='review-controller')
+    identity = dict(boot=executor.boot, protocol=PROTOCOL, session='review-controller')
     executor.heartbeat(dict(identity, sequence=1))
     executor.control('connect', identity)
     identity['stop_generation'] = executor.status()['stop_generation']
@@ -407,7 +407,7 @@ def test_fault_after_first_lift_fences_transfer_and_keeps_the_confirmed_dwell(tm
             assert status['recovery_required']
             assert [step['id'] for step in status['job']['result']['steps']] == ['step-2']
             with pytest.raises(ValueError, match='[Ss]afe hold|reserve'):
-                replacement.devices.observe_recovery_hold()
+                replacement.devices.hold()
         finally:
             replacement.close()
 

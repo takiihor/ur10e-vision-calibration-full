@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+bundle_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="$bundle_root/app"
+exec "${ANODIZING_PYTHON:-python3}" -P -s -B -m anodizing_web.module_tokens "$@"

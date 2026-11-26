@@ -44,7 +44,7 @@ class JobOwner:
     record_event = None
 
     def __init__(self, root, *, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False,
-                 allow_agv_in_recipe=False, robot_read_access=False, recover_saved_jobs=True):
+                 allow_agv_in_recipe=False, robot_read_access=False, load_saved_jobs=True):
         self.directory = Path(root) / '.jobs'
         if self.directory.is_symlink():
             raise ValueError('Job directory must not be a symbolic link.')
@@ -74,6 +74,8 @@ class JobOwner:
         self.teacher_service = None
         self.active_stop = None
         self.teacher_job = self.teacher_project = self.teacher_settings = None
+        if not load_saved_jobs:
+            return
         for path in self.directory.glob('*.json'):
             try:
                 if path.is_symlink():
@@ -81,7 +83,7 @@ class JobOwner:
                 job = json.loads(path.read_text())
                 if not ID.fullmatch(job['id']) or path.stem != job['id']:
                     continue
-                if recover_saved_jobs and job['state'] in ('running', 'waiting'):
+                if job['state'] in ('running', 'waiting'):
                     job.update(state='interrupted', pending=None, error='Service restarted. Review the saved artifacts.')
                     if job.get('calibration_motion_approved') or job['module'] == 'executor':
                         job['execution_uncertain'] = True

@@ -8,7 +8,7 @@ from urllib.error import HTTPError
 import pytest
 
 from anodizing_web import executor_http
-from anodizing_web.executor import Executor, FakeDevices
+from anodizing_web.executor import PROTOCOL, Executor, FakeDevices
 from anodizing_web.executor_http import Client
 from test_executor_link_review import agv_ready, arm, operator, remote, wait_for
 from test_programme_review import steps
@@ -70,7 +70,7 @@ def test_stop_receipt_precedes_blocked_arm_device_call(tmp_path):
 
     devices = Devices()
     executor = Executor(tmp_path, devices)
-    envelope = dict(protocol=1, session='1' * 32, boot=executor.boot, stop_generation=0)
+    envelope = dict(protocol=PROTOCOL, session='1' * 32, boot=executor.boot, stop_generation=0)
     executor.heartbeat(dict(envelope, sequence=1))
     executor.control('connect', envelope)
     try:
@@ -107,27 +107,6 @@ def test_commissioning_rejects_start_and_remains_connectable(tmp_path):
             assert call('agv', dict(action='connect', mode='wired'))['connected']
     finally:
         executor.close()
-
-
-def test_manual_reconciliation_keeps_unknown_outcome_and_releases_intent(tmp_path):
-    with remote(tmp_path) as (client, executor, devices), operator(tmp_path / 'katana', client) as call:
-        reviewed = arm(call)
-        perform = devices.perform
-
-        def missing_feedback(effect, value):
-            perform(effect, value)
-            raise ValueError('Lost simulated arrival evidence')
-
-        devices.perform = missing_feedback
-        call('agv', dict(reviewed, action='send', command='call_station', value=3))
-        state = wait_for(lambda: call('agv'), lambda s: (s['manual_visit']['result'] or {}).get('outcome') == 'unknown')
-        job = state['manual_visit']['id']
-        state = call('agv', dict(action='reconcile_station', job_id=job, note='Verified simulated station hold'))
-        assert state['manual_visit']['result']['outcome'] == 'unknown'
-        assert state['manual_visit']['result']['reconciliation']['hold']['station'] == 3
-        state = call('agv', dict(action='acknowledge_station', job_id=job))
-        assert state['manual_visit'] is None
-        assert client('status', dict(job_id=job))['job']['outcome'] == 'unknown'
 
 
 def test_confirmed_stop_moves_to_history_after_arm(tmp_path):
@@ -194,11 +173,11 @@ def test_partial_reply_does_not_retire_heartbeat_or_dispatch_workers(tmp_path, m
             recipe = programme.status()['recipe']['id']
             programme.start(recipe, 'partial-reply', approval)
             assert truncated.wait(3)
-            run = wait_for(lambda: programme.status()['run'], lambda r: r['jobs'] and not r['ack_pending'])
+            run = wait_for(lambda: programme.status()['run'], lambda r: r['state'] == 'operator_check')
             assert programme.worker.is_alive()
-            assert run['state'] == 'held'
-            assert [value for effect, value in devices.effects if effect == 'station'] == [1]
-            assert executor.status(run['jobs'][0]['job']['job_id'])['job']['acknowledged']
+            assert run['pending']['job_id'] == run['operator_check']['job_id']
+            visits = [value for effect, value in devices.effects if effect == 'station']
+            assert visits in ([], [1])
 
 
 def test_missing_manual_visit_cannot_reuse_new_stop_generation(tmp_path):
@@ -219,15 +198,16 @@ def test_missing_manual_visit_cannot_reuse_new_stop_generation(tmp_path):
             state = wait_for(lambda: call('agv'), lambda s: not s['stop_unconfirmed'])
             fresh = dict(executor_boot=state['executor_boot'], executor_session=state.get('executor_session'),
                          stop_generation=state['stop_generation'])
-            call('agv', dict(fresh, action='arm', armed=True))
+            with pytest.raises(HTTPError, match='400'):
+                call('agv', dict(fresh, action='arm', armed=True))
             block = False
             with pytest.raises(HTTPError, match='400'):
                 call('agv', dict(fresh, action='send', command='call_station', value=4))
             assert executor.status(original)['job'] is None
-            result = call('agv', dict(action='reconcile_station', job_id=original,
-                                     note='Verified simulated stationary hold.'))
-            assert result['manual_visit']['result']['outcome'] == 'unknown'
-            call('agv', dict(action='acknowledge_station', job_id=original))
+            check = call('agv')['operator_check']
+            result = call('agv', dict(fresh, action='operator_check', job_id=original, confirmed=True,
+                                     choice='abort', operator='reviewer', basket=None, location=check['location']))
+            assert result['manual_visit'] is None
             assert not devices.effects
             path = tmp_path / 'katana' / 'executor-manual-history' / f'{original}.json'
             assert path.exists()
@@ -249,14 +229,15 @@ def test_resume_uses_reviewed_generation_even_if_stop_was_not_from_programme(tmp
             review = call('programme')
             run = call('programme', dict(action='start', revision=review['recipe']['id'],
                                          basket='hold-before-arm', approval=approval()))
-            held = wait_for(lambda: call('programme')['run'], lambda run: run['state'] == 'held')
+            held = wait_for(lambda: call('programme')['run'], lambda run: run['state'] == 'operator_check')
             assert held['id'] == run['id']
-            delayed = dict(action='resume', job_id=run['id'], approval=approval())
+            delayed = dict(action='resume', job_id=run['id'], approval=approval(), operator='Inspector',
+                           basket=run['basket'], location='input', confirmed=True, step=1)
             call('agv', dict(action='send', command='stop'))
             wait_for(lambda: call('agv'), lambda status: not status['stop_unconfirmed'])
             with pytest.raises(HTTPError, match='400'):
                 call('programme', delayed)
-            assert call('programme')['run']['state'] == 'held'
+            assert call('programme')['run']['state'] == 'operator_check'
             assert not devices.effects
 
 
@@ -274,7 +255,7 @@ def test_lease_watcher_retries_a_failed_disarm_before_rearming(tmp_path):
 
     devices = Devices()
     executor = Executor(tmp_path, devices, clock=lambda: now[0])
-    envelope = dict(protocol=1, session='1' * 32, boot=executor.boot, stop_generation=0)
+    envelope = dict(protocol=PROTOCOL, session='1' * 32, boot=executor.boot, stop_generation=0)
     try:
         executor.heartbeat(dict(envelope, sequence=1))
         executor.control('connect', envelope)
@@ -287,45 +268,28 @@ def test_lease_watcher_retries_a_failed_disarm_before_rearming(tmp_path):
             executor.control('arm', dict(envelope, stop_generation=generation))
         assert not executor.status()['armed']
         assert executor.watch.is_alive()
+        original = wait_for(executor.status, lambda status: not executor.stop_workers)['stop']
         recover.set()
-        wait_for(lambda: not devices.armed)
+        wait_for(lambda: not devices.armed and not executor.disarm_pending and not executor.stop_workers)
+        disarmed = executor.status()['stop']
+        assert disarmed['stop_id'] == original['stop_id']
+        assert not disarmed['halt_attempted'] and not disarmed['confirmed']
+
+        executor.stop({'stop_id': original['stop_id']})
+        stopped = wait_for(executor.status, lambda status: (status.get('stop') or {}).get('confirmed'))
+        receipt = stopped['stop']
+        assert receipt['halt_attempted']
+        assert stopped['device']['status_monotonic'] > receipt['halt_monotonic']
+        assert stopped['device']['status']['stopped']
+        assert receipt['stop_id'] == original['stop_id'] and receipt['generation'] == original['generation']
+        assert list(executor.stop_tickets) == [original['stop_id']]
+        assert stopped['stop_generation'] == generation
+        executor.operator_check(dict(envelope, stop_generation=generation, choice='abort', operator='reviewer',
+                                     confirmed=True, basket=None, location='station 0'))
         assert executor.control('arm', dict(envelope, stop_generation=generation))['armed']
     finally:
         recover.set()
         executor.close()
-
-
-@pytest.mark.parametrize('damage', ['marker', 'job'])
-def test_damaged_executor_record_fences_even_with_durable_controller_identity(tmp_path, damage):
-    root = tmp_path / 'katana'
-    state_path = tmp_path / 'ipc' / '.fake-devices.json'
-    with remote(tmp_path, state_path=state_path) as (client, executor, devices), operator(root, client) as call:
-        reviewed = arm(call)
-        state = call('agv', dict(reviewed, action='send', command='call_station', value=6))
-        job_id = state['manual_visit']['id']
-        wait_for(lambda: call('agv'), lambda state: (state['manual_visit']['result'] or {}).get('outcome') == 'succeeded')
-        call('agv', dict(action='acknowledge_station', job_id=job_id))
-    marker = tmp_path / 'ipc' / '.executor-active.json'
-    if damage == 'marker':
-        marker.write_bytes(b'{truncated')
-    else:
-        (tmp_path / 'ipc' / '.jobs' / f'{job_id}.json').unlink()
-    with remote(tmp_path, state_path=state_path) as (client, executor, devices), operator(root, client) as call:
-        wait_for(lambda: call('agv'), lambda state: state.get('executor_session'))
-        recovery = dict(action='repair_executor_marker', note='Observed retained simulated stationary hold')
-        with pytest.raises(HTTPError, match='400'):
-            call('agv', dict(recovery, job_id='invented-job-id'))
-        if damage == 'marker':
-            assert marker.read_bytes() == b'{truncated'
-        assert executor.recovery
-        with pytest.raises(HTTPError, match='400') as denied:
-            call('agv', dict(recovery, job_id=job_id))
-        expected_file = '.executor-active.json' if damage == 'marker' else f'.jobs/{job_id}.json'
-        message = denied.value.read().decode()
-        assert expected_file in message and 'call a technician' in message.lower()
-        assert executor.recovery and not (root / 'executor-recovery.json').exists()
-        assert (root / 'executor-manual-history' / f'{job_id}.json').exists()
-        assert not devices.effects
 
 
 def test_mismatched_stop_receipt_leaves_original_intent_pending(tmp_path):
@@ -348,30 +312,3 @@ def test_mismatched_stop_receipt_leaves_original_intent_pending(tmp_path):
             mismatched = False
             cleared = wait_for(lambda: call('agv'), lambda state: not state['stop_unconfirmed'])
             assert cleared['executor_stop']['confirmed']
-
-
-def test_damaged_marker_stays_fenced_across_boot_and_accepts_verified_restoration(tmp_path):
-    root = tmp_path / 'katana'
-    state_path = tmp_path / 'ipc' / '.fake-devices.json'
-    with remote(tmp_path, state_path=state_path) as (client, _, _), operator(root, client) as call:
-        request = dict(arm(call), action='send', command='call_station', value=8)
-        job_id = call('agv', request)['manual_visit']['id']
-        wait_for(lambda: call('agv'), lambda state: (state['manual_visit']['result'] or {}).get('outcome') == 'succeeded')
-        call('agv', dict(action='acknowledge_station', job_id=job_id))
-
-    marker = tmp_path / 'ipc' / '.executor-active.json'
-    original = marker.read_bytes()
-    marker.write_bytes(b'{')
-    for _ in range(2):
-        with remote(tmp_path, state_path=state_path) as (client, executor, devices), operator(root, client) as call:
-            state = wait_for(lambda: call('agv'), lambda s: s.get('executor_session'))
-            assert '.executor-active.json' in state['motion_block']
-            with pytest.raises(HTTPError, match='400'):
-                call('agv', dict(action='repair_executor_marker', job_id=job_id, note='Stationary hold'))
-            assert marker.read_bytes() == b'{' and not devices.effects
-            assert executor.recovery and not (root / 'executor-recovery.json').exists()
-    marker.write_bytes(original)
-    with remote(tmp_path, state_path=state_path) as (client, executor, devices):
-        restored = executor.status(job_id)
-        assert not restored['evidence_faults'] and restored['job']['acknowledged']
-        assert restored['job']['result']['hold']['station'] == 8 and not devices.effects

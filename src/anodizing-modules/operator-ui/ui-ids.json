@@ -1,13 +1,103 @@
 [
   {
+    "id": "agv.bluetooth.cancel",
+    "component": "AgvBluetooth.vue",
+    "description": "Cancel the reviewed change"
+  },
+  {
+    "id": "agv.bluetooth.confirm",
+    "component": "AgvBluetooth.vue",
+    "description": "Confirm a reviewed setting write or undo"
+  },
+  {
+    "id": "agv.bluetooth.connect",
+    "component": "AgvBluetooth.vue",
+    "description": "Scan for and connect to the configured AGV"
+  },
+  {
+    "id": "agv.bluetooth.disconnect",
+    "component": "AgvBluetooth.vue",
+    "description": "Disconnect the Bluetooth maintenance session"
+  },
+  {
+    "id": "agv.bluetooth.field",
+    "component": "AgvBluetooth.vue",
+    "description": "Choose a supported setting"
+  },
+  {
+    "id": "agv.bluetooth.page",
+    "component": "AgvBluetooth.vue",
+    "description": "Bluetooth maintenance page"
+  },
+  {
+    "id": "agv.bluetooth.read",
+    "component": "AgvBluetooth.vue",
+    "description": "Read all Bluetooth settings"
+  },
+  {
+    "id": "agv.bluetooth.review",
+    "component": "AgvBluetooth.vue",
+    "description": "Old and new settings values for confirmation"
+  },
+  {
+    "id": "agv.bluetooth.reviewundo",
+    "component": "AgvBluetooth.vue",
+    "description": "Review restoring the previous setting value"
+  },
+  {
+    "id": "agv.bluetooth.reviewwrite",
+    "component": "AgvBluetooth.vue",
+    "description": "Review the old and new values before writing"
+  },
+  {
+    "id": "agv.bluetooth.row",
+    "component": "AgvBluetooth.vue",
+    "description": "A field in the Bluetooth settings map"
+  },
+  {
+    "id": "agv.bluetooth.tab",
+    "component": "AgvPage.vue",
+    "description": "Open the Bluetooth maintenance tab"
+  },
+  {
+    "id": "agv.bluetooth.tabs",
+    "component": "AgvPage.vue",
+    "description": "AGV control and Bluetooth tab navigation"
+  },
+  {
+    "id": "agv.bluetooth.value",
+    "component": "AgvBluetooth.vue",
+    "description": "Enter the new setting value"
+  },
+  {
+    "id": "agv.bluetooth.wiredtab",
+    "component": "AgvPage.vue",
+    "description": "Open the RS485 control tab"
+  },
+  {
+    "id": "agv.bluetooth.write",
+    "component": "AgvBluetooth.vue",
+    "description": "Review changes to one Bluetooth setting"
+  },
+  {
     "id": "agv.call.acknowledge",
     "component": "AgvPage.vue",
     "description": "Acknowledge the terminal manual station visit result"
   },
   {
-    "id": "agv.call.disposition",
+    "id": "agv.call.attestation",
     "component": "AgvPage.vue",
-    "description": "Verified manual station visit disposition"
+    "description": "Review the station and confirm e-stop, folded arm, clear path and clear tank equipment"
+  },
+  {
+    "id": "agv.call.cancel",
+    "component": "AgvPage.vue",
+    "description": "Close the station confirmation without calling"
+  },
+  {
+    "id": "agv.call.confirm",
+    "component": "AgvPage.vue",
+    "description": "Confirm the attestation and call the selected station"
   },
   {
     "id": "agv.call.grid",
@@ -30,14 +120,14 @@
     "description": "Call the configured parking station"
   },
   {
+    "id": "agv.call.range.warning",
+    "component": "AgvPage.vue",
+    "description": "Route learning guidance"
+  },
+  {
     "id": "agv.call.reason",
     "component": "AgvPage.vue",
     "description": "Shared reason station calls are disabled"
-  },
-  {
-    "id": "agv.call.reconcile",
-    "component": "AgvPage.vue",
-    "description": "Reconcile the original station visit"
   },
   {
     "id": "agv.call.station",
@@ -50,9 +140,54 @@
     "description": "Call station"
   },
   {
+    "id": "agv.call.window",
+    "component": "AgvPage.vue",
+    "description": "Supervised travel deadline and draft battery floor"
+  },
+  {
+    "id": "agv.check.abort",
+    "component": "AgvPage.vue",
+    "description": "Record the decision and abort the original station visit"
+  },
+  {
+    "id": "agv.check.confirmed",
+    "component": "AgvPage.vue",
+    "description": "Confirm the station was physically checked"
+  },
+  {
+    "id": "agv.check.location",
+    "component": "AgvPage.vue",
+    "description": "Physically observed AGV location"
+  },
+  {
+    "id": "agv.check.operator",
+    "component": "AgvPage.vue",
+    "description": "Name of the operator checking the station"
+  },
+  {
+    "id": "agv.check.panel",
+    "component": "AgvPage.vue",
+    "description": "Review an uncertain station visit"
+  },
+  {
     "id": "agv.controls.panel",
     "component": "AgvPage.vue",
     "description": "Connection and commands"
+  },
+  {
+    "id": "agv.jobs.item",
+    "component": "AgvPage.vue",
+    "description": "Origin, job ID and status for one IPC job"
+  },
+  {
+    "id": "agv.jobs.recent",
+    "component": "AgvPage.vue",
+    "description": "Recent IPC client jobs"
+  },
+  {
+    "id": "agv.jobs.toggle",
+    "component": "AgvPage.vue",
+    "description": "Show recent IPC client jobs"
   },
   {
     "id": "agv.link.address",
@@ -120,21 +255,6 @@
     "description": "Link transport"
   },
   {
-    "id": "agv.marker.disposition",
-    "component": "AgvPage.vue",
-    "description": "Verified executor marker disposition"
-  },
-  {
-    "id": "agv.marker.job",
-    "component": "AgvPage.vue",
-    "description": "Original executor job ID"
-  },
-  {
-    "id": "agv.marker.reconcile",
-    "component": "AgvPage.vue",
-    "description": "Reconcile the unreadable executor marker"
-  },
-  {
     "id": "agv.movement.arm",
     "component": "AgvPage.vue",
     "description": "Arm or disarm manual AGV commands"
@@ -163,6 +283,26 @@
     "id": "agv.movement.panel",
     "component": "AgvPage.vue",
     "description": "Movement panel"
+  },
+  {
+    "id": "agv.owner.calibration",
+    "component": "AgvPage.vue",
+    "description": "Select the Calibration module owner"
+  },
+  {
+    "id": "agv.owner.manual",
+    "component": "AgvPage.vue",
+    "description": "Select the AGV page owner"
+  },
+  {
+    "id": "agv.owner.panel",
+    "component": "AgvPage.vue",
+    "description": "Current executor owner and Arm binding"
+  },
+  {
+    "id": "agv.owner.release",
+    "component": "AgvPage.vue",
+    "description": "Release the current built-in owner"
   },
   {
     "id": "agv.page",
@@ -715,6 +855,11 @@
     "description": "Save human result"
   },
   {
+    "id": "line.link.reconnect",
+    "description": "Open AGV commissioning after the line link returns",
+    "component": "App.vue"
+  },
+  {
     "id": "line.log.csv",
     "component": "LinePage.vue",
     "description": "Download log CSV"
@@ -888,6 +1033,16 @@
     "id": "nav.teaching",
     "component": "layout/AppMenu.vue",
     "description": "Open Teaching"
+  },
+  {
+    "id": "operator.enroll",
+    "component": "App.vue",
+    "description": "Open browser key enrollment"
+  },
+  {
+    "id": "operator.readonly",
+    "component": "App.vue",
+    "description": "Read-only operator mode notice"
   },
   {
     "id": "pick.agv.open",
@@ -1200,23 +1355,43 @@
     "component": "ProgrammePanel.vue"
   },
   {
+    "id": "programme.check.basket",
+    "component": "ProgrammePanel.vue",
+    "description": "Physically observed basket ID"
+  },
+  {
+    "id": "programme.check.confirmed",
+    "component": "ProgrammePanel.vue",
+    "description": "Confirm the basket identity and location"
+  },
+  {
+    "id": "programme.check.location",
+    "component": "ProgrammePanel.vue",
+    "description": "Physically observed basket location"
+  },
+  {
+    "id": "programme.check.operator",
+    "component": "ProgrammePanel.vue",
+    "description": "Name of the operator checking the basket"
+  },
+  {
+    "id": "programme.check.panel",
+    "component": "ProgrammePanel.vue",
+    "description": "Review uncertain basket and job evidence"
+  },
+  {
+    "id": "programme.check.step",
+    "component": "ProgrammePanel.vue",
+    "description": "Select the recipe step to resume"
+  },
+  {
+    "id": "programme.check.technician",
+    "component": "ProgrammePanel.vue",
+    "description": "Show the named storage fault that requires a technician"
+  },
+  {
     "id": "programme.draft.save",
     "description": "Save a new draft recipe revision",
-    "component": "ProgrammePanel.vue"
-  },
-  {
-    "id": "programme.inspection.note",
-    "description": "Enter the inspection disposition",
-    "component": "ProgrammePanel.vue"
-  },
-  {
-    "id": "programme.inspection.record",
-    "description": "Record the inspection disposition",
-    "component": "ProgrammePanel.vue"
-  },
-  {
-    "id": "programme.inspection.unaccounted",
-    "description": "Confirm that the original basket is unaccounted for",
     "component": "ProgrammePanel.vue"
   },
   {
@@ -1230,8 +1405,18 @@
     "component": "ProgrammePanel.vue"
   },
   {
+    "id": "programme.record.choice",
+    "component": "ProgrammePanel.vue",
+    "description": "Recorded operator decision and physical observations"
+  },
+  {
     "id": "programme.record.panel",
     "description": "Show recovered basket record",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.record.refresh",
+    "description": "Read and validate unresolved job evidence for the selected basket",
     "component": "ProgrammePanel.vue"
   },
   {
@@ -1265,8 +1450,13 @@
     "description": "Reviewed PLC cycle and timing evidence"
   },
   {
+    "id": "programme.run.abort",
+    "component": "ProgrammePanel.vue",
+    "description": "Abort the basket and flag it for inspection"
+  },
+  {
     "id": "programme.run.resume",
-    "description": "Resume the reviewed simulation",
+    "description": "Resume the checked basket from the selected step",
     "component": "ProgrammePanel.vue"
   },
   {

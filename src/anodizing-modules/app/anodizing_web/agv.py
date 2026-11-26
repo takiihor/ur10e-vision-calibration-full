@@ -10,6 +10,7 @@ from itertools import pairwise
 import random
 import re
 from statistics import median
+from queue import Queue
 from threading import Event, Lock, Thread
 from time import monotonic, sleep
 
@@ -73,7 +74,10 @@ STATION_CALL_REQUIRED = ('Station call needs the station-call function, set in t
 
 def station_limit(learned_legs):
     # The start counts as a station, and the target occupies one byte.
-    return min(learned_legs + 1, ARGUMENTS['call_station']['max']) if learned_legs else 0
+    maximum = ARGUMENTS['call_station']['max']
+    if type(learned_legs) is not int or not 1 <= learned_legs <= maximum:
+        return 0
+    return min(learned_legs + 1, maximum)
 
 
 def arrived_station(status):
@@ -146,8 +150,9 @@ class Splitter:
         self.prefixed_headers = (prefix + HEADER, reply_prefix(prefix) + HEADER) if prefix else ()
         self.buffer = b''
 
-    def feed(self, chunk):
+    def feed(self, chunk, *, offsets=False):
         self.buffer += chunk
+        length_before_parse = len(self.buffer)
         frames = []
         while self.buffer:
             start = self.buffer.find(HEADER)
@@ -174,7 +179,8 @@ class Splitter:
                 end = next_header if next_header >= 0 else len(self.buffer)
                 if next_header >= 3 and self.buffer.startswith(self.prefixed_headers, next_header - 3):
                     end -= 3
-                frames.append((self.buffer[:end], 'Invalid frame length (LEN is out of range).'))
+                frame = (self.buffer[:end], 'Invalid frame length (LEN is out of range).')
+                frames.append((*frame, length_before_parse - len(self.buffer)) if offsets else frame)
                 self.buffer = self.buffer[end:]
                 continue
             end = offset + length
@@ -191,7 +197,8 @@ class Splitter:
                     end = next_header
                     if next_header >= 3 and raw.startswith(self.prefixed_headers, next_header - 3):
                         end -= 3
-            frames.append((raw, error))
+            frame = (raw, error)
+            frames.append((*frame, length_before_parse - len(self.buffer)) if offsets else frame)
             self.buffer = self.buffer[end:]
         return frames
 
@@ -420,6 +427,7 @@ class Resend:
     recipe_check: object = None
     tries: int = 1
     interlocks: object = None
+    single_attempt: bool = False
 
     @property
     def interval(self):
@@ -433,7 +441,7 @@ class Resend:
     def limit(self):
         if self.name in URGENT:
             return 5
-        return 4 if self.name in REPEATABLE else 1
+        return 4 if self.name in REPEATABLE and not self.single_attempt else 1
 
 
 class Connection:
@@ -444,7 +452,14 @@ class Connection:
     def __init__(self, owner, *, commissioning_arm=False, wire_trace=None, wired_station_jobs=False):
         self.owner = owner
         self.commissioning_arm = commissioning_arm
-        self.wire_trace = wire_trace
+        self.wire_trace_error = self.wire_trace_failure = None
+        self.wire_closing = Event()
+        self.wire_frames = Queue() if wire_trace is not None else None
+        self.wire_worker = None
+        if self.wire_frames is not None:
+            self.wire_worker = Thread(target=self._flush_wire_trace, args=(wire_trace,), daemon=True,
+                                      name='agv-wire-trace')
+            self.wire_worker.start()
         self.wired_station_jobs = wired_station_jobs
         root = getattr(owner, 'root', None)
         profile = section(root, 'agv') if root is not None else {}
@@ -476,18 +491,21 @@ class Connection:
         self.recipe_statuses = deque(maxlen=64)
         self.motion_poll_at = 0
         self.status_iso = None
+        self.bluetooth = self.last_rs485_station_count = None
         self.last_confirmed_station = None
         self.stop_generation = 0
         self.teaching_generation = 0
         self.urgent_waiters = 0
         self.lock = Lock()
         self.send_lock = Lock()
+        self.frame_lock = Lock()
         self.transport = None
         self.id = self.sequence = 0
         self.connected_at = self.connected_iso = None
         self.settings = None
         self.armed = False
         self.status = self.status_at = self.status_hex = None
+        self.partial_frame_at = None
         self.results = {}
         self.pending = {}
         self.replaced = deque(maxlen=20)
@@ -511,6 +529,39 @@ class Connection:
         self.log = deque(maxlen=200)
         self.log_id = 0
         self.error = None
+
+    def _flush_wire_trace(self, trace):
+        while True:
+            frame = self.wire_frames.get()
+            try:
+                if frame is None:
+                    return
+                while True:
+                    try:
+                        trace(*frame)
+                    except Exception as exc:
+                        permanent = not isinstance(exc, OSError) or isinstance(exc, FileNotFoundError)
+                        if (self.wire_trace_failure is None or (permanent and
+                                not isinstance(self.wire_trace_failure, FileNotFoundError))):
+                            self.wire_trace_failure = exc
+                        self.wire_trace_error = exc
+                        if permanent or self.wire_closing.wait(.1):
+                            break
+                    else:
+                        self.wire_trace_error = None
+                        break
+            finally:
+                self.wire_frames.task_done()
+
+    def drain_wire_trace(self, *, final=False):
+        if self.wire_worker is not None:
+            if final:
+                self.wire_closing.set()
+                self.wire_frames.put(None)
+                self.wire_worker.join()
+                self.wire_worker = None
+            else:
+                self.wire_frames.join()
 
     def _capture(self, event, **detail):
         if self.record_event is not None:
@@ -681,13 +732,13 @@ class Connection:
                 return False
             sleep(.01)
 
-    def _status_received(self, decoded, raw):
+    def _status_received(self, decoded, raw, observed_at=None):
         previous = self.status or {}
         for field in EVENT_FIELDS:
             before = previous.get(field, False if field == 'obstacle_stop' else 0 if field == 'fault_code' else None)
             if field in decoded and before is not None and decoded[field] != before:
                 self._event(field, before, decoded[field])
-        now = monotonic()
+        now = monotonic() if observed_at is None else observed_at
         station = arrived_station(decoded)
         if (self.status_at is None or now - self.status_at >= RECIPE_STALE_S
                 or station != arrived_station(previous)):
@@ -695,6 +746,9 @@ class Connection:
         self.status, self.status_hex, self.status_at = decoded, hex_bytes(raw), now
         self._passive_report(self.status_at)
         self.status_iso = timestamp()
+        station_count = decoded.get('max_stations')
+        if type(station_count) is int and not isinstance(self.transport, Simulator):
+            self.last_rs485_station_count = dict(value=station_count, observed_at=self.status_iso, source='RS485')
         if station is not None:
             self.last_confirmed_station = (station, self.status_iso)
         if self.recipe_active:
@@ -715,6 +769,8 @@ class Connection:
                     if pending.travelling and self.resend is not None and self.resend.name == name:
                         self.resend = None
             elif name in URGENT:
+                if now <= pending.sent_at:
+                    continue
                 if pending.earlier_query:
                     pending.earlier_query = False
                     continue
@@ -748,13 +804,19 @@ class Connection:
         self._expire()
 
     def _receive(self):
+        # A completed frame can start in an earlier read before a concurrent halt.
+        read_at = monotonic()
         try:
             chunk = self.transport.read(min(4096, self.transport.in_waiting))
         except OSError as exc:
             raise ReceiveError(str(exc)) from exc
-        if chunk and self.wire_trace is not None:
-            self.wire_trace('RX', chunk)
-        for raw, error in self.splitter.feed(chunk):
+        if chunk and self.wire_frames is not None:
+            self.wire_frames.put(('RX', chunk))
+        carried = len(self.splitter.buffer)
+        carried_at = self.partial_frame_at if carried else read_at
+        frames = self.splitter.feed(chunk, offsets=True)
+        self.partial_frame_at = carried_at if len(self.splitter.buffer) > len(chunk) else read_at
+        for raw, error, frame_offset in frames:
             if error:
                 self._record('RX', raw, {'error': error})
                 continue
@@ -785,7 +847,7 @@ class Connection:
                 fault = decoded['fault_code']
                 decoded['fault_description'] = self.fault_descriptions.get(str(fault), 'Unknown fault') if fault else 'No fault'
                 self._record('RX', raw, decoded)
-                self._status_received(decoded, raw)
+                self._status_received(decoded, raw, carried_at if frame_offset < carried else read_at)
                 if self.reading == 'query_status':
                     self._finish_read('status received')
             else:
@@ -818,6 +880,7 @@ class Connection:
                     wired_port=self.wired_port, status=self.status,
                     motion_block=STATUS_ONLY if self.wired_port else motion_block(self.owner),
                     status_hex=self.status_hex, status_age_s=age, status_time=self.status_iso,
+                    status_monotonic=self.status_at,
                     last_confirmed_station=self.last_confirmed_station,
                     connection_age_s=None if self.connected_at is None else now - self.connected_at,
                     stale=self.stale, events=list(self.events),
@@ -974,6 +1037,7 @@ class Connection:
                 raise ValueError(self.error) from exc
         self.transport = transport
         self.splitter = Splitter(prefix)
+        self.partial_frame_at = None
         self.id += 1
         self.connected_at = monotonic()
         self.connected_iso = timestamp()
@@ -1006,7 +1070,8 @@ class Connection:
             raise ValueError('The AGV connection changed. Refresh before sending another command.')
 
     def _close(self):
-        transport, self.transport = self.transport, None
+        with self.frame_lock:
+            transport, self.transport = self.transport, None
         self.armed = False
         if self.reading is not None:
             self._finish_read('no reply')
@@ -1049,7 +1114,23 @@ class Connection:
     def _tx_prefix(self):
         return b'' if (self.settings or {}).get('mode') == 'wired' else self.splitter.prefix
 
-    def _write(self, name, raw, value, attempt, background=False, *, tx_id=None, requested_halt=None):
+    def _write_frame(self, transport, raw):
+        try:
+            written = transport.write(raw)
+        except OSError:
+            if self.wire_frames is not None:
+                self.wire_frames.put(('TX?', raw))
+            raise
+        finally:
+            self.last_write_at = monotonic()
+        if written and self.wire_frames is not None:
+            self.wire_frames.put(('TX', raw[:written]))
+        if written != len(raw):
+            raise OSError('Incomplete write. The command may have reached the AGV.')
+        return self.last_write_at
+
+    def _write(self, name, raw, value, attempt, background=False, *, tx_id=None, requested_halt=None,
+               sent_at=None, generation=None, frame_check=None):
         if self.wired_port:
             allowed = READS
             if self.wired_station_jobs:
@@ -1060,19 +1141,13 @@ class Connection:
                 raise ValueError(STATUS_ONLY)
         if name not in READS and name not in URGENT and name != 'set_speed':
             self.teaching_generation += 1
-        try:
-            written = self.transport.write(raw)
-        except OSError:
-            if self.wire_trace is not None:
-                self.wire_trace('TX?', raw)
-            raise
-        finally:
-            self.last_write_at = monotonic()
-        if written and self.wire_trace is not None:
-            self.wire_trace('TX', raw[:written])
-        if written != len(raw):
-            raise OSError('Incomplete write. The command may have reached the AGV.')
-        sent_at = self.last_write_at
+        if sent_at is None:
+            with self.frame_lock:
+                if generation is not None:
+                    self._check_stop_generation(generation)
+                if frame_check:
+                    frame_check()
+                sent_at = self._write_frame(self.transport, raw)
         self.recent_tx = {wire: at for wire, at in self.recent_tx.items() if sent_at - at <= 4 * REPLY_TIMEOUT}
         self.recent_tx[raw] = sent_at
         detail = {'command': name, 'label': COMMANDS[name][0], 'try': attempt}
@@ -1086,19 +1161,24 @@ class Connection:
         return sent_at, self._record('TX', raw, detail, tx_id=tx_id, **halt)
 
     def _send(self, name, value, *, background=False, prewrite=None, recipe_check=None,
-              status_hold_s=None, requested_halt=None, mode_unverified=False, interlocks=None):
+              status_hold_s=None, requested_halt=None, mode_unverified=False, interlocks=None,
+              sent_at=None):
+        generation = self.stop_generation
         frame = command_frame(name, value, self._tx_prefix())
         if name in URGENT:
             self._cancel_resend()
         else:
             self._receive()
         before = self.status or {}
-        if prewrite:
+        if prewrite and recipe_check is None:
             prewrite()
         if name not in READS and name not in URGENT:
             self._check_motion_status(name, value)
         raw = frame.encode()
-        sent_at, entry = self._write(name, raw, value, 1, background, requested_halt=requested_halt)
+        sent_at, entry = self._write(
+            name, raw, value, 1, background, requested_halt=requested_halt, sent_at=sent_at,
+            generation=generation if name not in READS and name not in URGENT else None,
+            frame_check=prewrite if recipe_check is not None else None)
         result = {'tx_id': entry['id'], 'sent_at': entry['timestamp'], 'value': value, 'tries': 1}
         if name in READS:
             if name == 'query_status':
@@ -1131,14 +1211,17 @@ class Connection:
         self.pending[name] = Confirmation(expected_status(name, value), before, sent_at,
                                           earlier_query=name in URGENT and self.unanswered_query,
                                           pre_halt_query=name in URGENT and self.query_at is not None)
-        self.resend = Resend(name, raw, sent_at, recipe_check, interlocks=interlocks)
+        single_attempt = (name == 'call_station' and recipe_check is not None and self.wired_station_jobs
+                          and self.settings['mode'] == 'wired')
+        self.resend = Resend(name, raw, sent_at, recipe_check,
+                             interlocks=None if single_attempt else interlocks, single_attempt=single_attempt)
         if recipe_check is None and self.settings is not None and self.retry_worker is None:
             self._start_worker()
         return sent_at
 
     def _fresh_mode(self):
         if self.status_at is not None and monotonic() - self.status_at < STALE_AFTER:
-            return self.status.get('mode')
+            return (self.status or {}).get('mode')
         return None
 
     @staticmethod
@@ -1148,7 +1231,31 @@ class Connection:
     def _halt_command(self, *, recipe=False):
         return self._wire_halt(self._fresh_mode()) or ('pause' if recipe else 'stop')
 
+    def _send_wired_halt(self, *, external):
+        # The serial transport permits one writer alongside the ordinary reader.
+        with self.frame_lock:
+            transport = self.transport
+            if not external and (not self.recipe_active or transport is not self.recipe_transport):
+                return self.recipe_active and self.recipe_halt_sent
+            if transport is None:
+                raise ValueError('Connect an AGV transport first.')
+            self.stop_generation += 1
+            mode = self._wire_halt(self._fresh_mode())
+            halt = mode or 'pause'
+            try:
+                sent_at = self._write_frame(transport, command_frame(halt, None, b'').encode())
+            except OSError:
+                return False
+        with self.lock:
+            if self.transport is not transport:
+                return False
+            self._send(halt, None, requested_halt='stop', mode_unverified=mode is None, sent_at=sent_at)
+            self.recipe_halt_sent = True
+        return True
+
     def _send_urgent(self, name, *, recipe=False, external=False, connection_id=None):
+        if recipe and self.wired_station_jobs and self.wired_port:
+            return self._send_wired_halt(external=external)
         with self.lock:
             if connection_id is not None:
                 self._check_connection(connection_id)
@@ -1269,6 +1376,7 @@ class Connection:
         return now >= retry.sent_at + retry.interval
 
     def _retry(self, retry):
+        generation = self.stop_generation
         if self.resend is not retry or not self._due(retry):
             return False
         name = retry.name
@@ -1323,7 +1431,8 @@ class Connection:
             raw = command_frame(wire_name, None, self._tx_prefix()).encode()
         retry.sent_at, entry = self._write(
             wire_name, raw, result['value'], attempt, tx_id=result['tx_id'],
-            requested_halt=result.get('requested_command'))
+            requested_halt=result.get('requested_command'),
+            generation=generation if name not in URGENT else None)
         retry.tries = result['tries'] = attempt
         if name in URGENT:
             result['sent_mono_s'] = retry.sent_at
@@ -1417,6 +1526,13 @@ class Connection:
             sleep(min(.01, remaining))
 
     def submit(self, body):
+        if self.bluetooth and (body.get('action') == 'connect'
+                               or (body.get('action') == 'arm' and body.get('armed') is True)):
+            with self.bluetooth.wired_control():
+                return self._submit_action(body)
+        return self._submit_action(body)
+
+    def _submit_action(self, body):
         action, name = body.get('action'), body.get('command')
         if action == 'send' and (not isinstance(name, str) or name not in COMMANDS):
             raise ValueError('Select a known AGV command.')
@@ -1521,7 +1637,8 @@ class Connection:
                                 return self._snapshot()
                         if not self._send_slot():
                             return None
-                        sent_at = self._send(name, body.get('value'), background=background)
+                        sent_at = self._send(name, body.get('value'), background=background,
+                                             prewrite=lambda: self._check_manual_motion(body) if motion else None)
                     else:
                         self._check_connection(body.get('connection_id'))
                         if action == 'disconnect':
@@ -1661,6 +1778,7 @@ class Connection:
             self.recipe_call_waiting = False
 
             def prewrite():
+                self._recipe_check_link()
                 validate(self.status, self.status_at, self.recipe_statuses)
                 if self.resend is not None:
                     raise ValueError('An earlier AGV command is awaiting acknowledgement. Check the AGV and try again.')

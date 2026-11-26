@@ -7,21 +7,48 @@ Use the ID when requesting a UI change, for example “make `agv.stop` bigger”
 Select one item in a repeated control by its key, for example `[data-ui="agv.call.station"][data-ui-key="2"]`.
 Some keys identify records or choices from the current data. Native HTML select choices use the parent select’s ID and the option value.
 
-359 registered IDs.
+397 registered IDs.
 
 | ID | Description | Source |
 | --- | --- | --- |
+| `agv.bluetooth.cancel` | Cancel the reviewed change | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.confirm` | Confirm a reviewed setting write or undo | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.connect` | Scan for and connect to the configured AGV | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.disconnect` | Disconnect the Bluetooth maintenance session | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.field` | Choose a supported setting | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.page` | Bluetooth maintenance page | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.read` | Read all Bluetooth settings | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.review` | Old and new settings values for confirmation | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.reviewundo` | Review restoring the previous setting value | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.reviewwrite` | Review the old and new values before writing | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.row` | A field in the Bluetooth settings map | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.tab` | Open the Bluetooth maintenance tab | [AgvPage.vue](AgvPage.vue) |
+| `agv.bluetooth.tabs` | AGV control and Bluetooth tab navigation | [AgvPage.vue](AgvPage.vue) |
+| `agv.bluetooth.value` | Enter the new setting value | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.wiredtab` | Open the RS485 control tab | [AgvPage.vue](AgvPage.vue) |
+| `agv.bluetooth.write` | Review changes to one Bluetooth setting | [AgvBluetooth.vue](AgvBluetooth.vue) |
 | `agv.call.acknowledge` | Acknowledge the terminal manual station visit result | [AgvPage.vue](AgvPage.vue) |
-| `agv.call.disposition` | Verified manual station visit disposition | [AgvPage.vue](AgvPage.vue) |
+| `agv.call.attestation` | Review the station and confirm e-stop, folded arm, clear path and clear tank equipment | [AgvPage.vue](AgvPage.vue) |
+| `agv.call.cancel` | Close the station confirmation without calling | [AgvPage.vue](AgvPage.vue) |
+| `agv.call.confirm` | Confirm the attestation and call the selected station | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.grid` | Station call grid | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.number` | Manual station number | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.panel` | Station and parking calls | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.parking` | Call the configured parking station | [AgvPage.vue](AgvPage.vue) |
+| `agv.call.range.warning` | Route learning guidance | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.reason` | Shared reason station calls are disabled | [AgvPage.vue](AgvPage.vue) |
-| `agv.call.reconcile` | Reconcile the original station visit | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.station` | Station call button keyed by station number | [AgvPage.vue](AgvPage.vue) |
 | `agv.call.submit` | Call station | [AgvPage.vue](AgvPage.vue) |
+| `agv.call.window` | Supervised travel deadline and draft battery floor | [AgvPage.vue](AgvPage.vue) |
+| `agv.check.abort` | Record the decision and abort the original station visit | [AgvPage.vue](AgvPage.vue) |
+| `agv.check.confirmed` | Confirm the station was physically checked | [AgvPage.vue](AgvPage.vue) |
+| `agv.check.location` | Physically observed AGV location | [AgvPage.vue](AgvPage.vue) |
+| `agv.check.operator` | Name of the operator checking the station | [AgvPage.vue](AgvPage.vue) |
+| `agv.check.panel` | Review an uncertain station visit | [AgvPage.vue](AgvPage.vue) |
 | `agv.controls.panel` | Connection and commands | [AgvPage.vue](AgvPage.vue) |
+| `agv.jobs.item` | Origin, job ID and status for one IPC job | [AgvPage.vue](AgvPage.vue) |
+| `agv.jobs.recent` | Recent IPC client jobs | [AgvPage.vue](AgvPage.vue) |
+| `agv.jobs.toggle` | Show recent IPC client jobs | [AgvPage.vue](AgvPage.vue) |
 | `agv.link.address` | Link address | [AgvPage.vue](AgvPage.vue) |
 | `agv.link.channel` | Link channel | [AgvPage.vue](AgvPage.vue) |
 | `agv.link.connect` | Connect | [AgvPage.vue](AgvPage.vue) |
@@ -35,15 +62,16 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `agv.link.simulator.stations` | Simulator learned-station count | [AgvPage.vue](AgvPage.vue) |
 | `agv.link.sound` | Link sound | [AgvPage.vue](AgvPage.vue) |
 | `agv.link.transport` | Link transport | [AgvPage.vue](AgvPage.vue) |
-| `agv.marker.disposition` | Verified executor marker disposition | [AgvPage.vue](AgvPage.vue) |
-| `agv.marker.job` | Original executor job ID | [AgvPage.vue](AgvPage.vue) |
-| `agv.marker.reconcile` | Reconcile the unreadable executor marker | [AgvPage.vue](AgvPage.vue) |
 | `agv.movement.arm` | Arm or disarm manual AGV commands | [AgvPage.vue](AgvPage.vue) |
 | `agv.movement.command` | Movement command | [AgvPage.vue](AgvPage.vue) |
 | `agv.movement.extra` | Additional AGV movement commands | [AgvPage.vue](AgvPage.vue) |
 | `agv.movement.extra.command` | One additional AGV command | [AgvPage.vue](AgvPage.vue) |
 | `agv.movement.extra.toggle` | More commands | [AgvPage.vue](AgvPage.vue) |
 | `agv.movement.panel` | Movement panel | [AgvPage.vue](AgvPage.vue) |
+| `agv.owner.calibration` | Select the Calibration module owner | [AgvPage.vue](AgvPage.vue) |
+| `agv.owner.manual` | Select the AGV page owner | [AgvPage.vue](AgvPage.vue) |
+| `agv.owner.panel` | Current executor owner and Arm binding | [AgvPage.vue](AgvPage.vue) |
+| `agv.owner.release` | Release the current built-in owner | [AgvPage.vue](AgvPage.vue) |
 | `agv.page` | AGV commissioning workspace | [AgvPage.vue](AgvPage.vue) |
 | `agv.pause` | AGV Pause (station-call mode) | [StopBar.vue](StopBar.vue) |
 | `agv.read.command` | Status or speed inquiry keyed by command | [AgvPage.vue](AgvPage.vue) |
@@ -154,6 +182,7 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `line.history.result` | Human judgment for the selected test run | [LineTestPanel.vue](LineTestPanel.vue) |
 | `line.history.run` | Select a saved simulator test run | [LineTestPanel.vue](LineTestPanel.vue) |
 | `line.history.save` | Save human result | [LineTestPanel.vue](LineTestPanel.vue) |
+| `line.link.reconnect` | Open AGV commissioning after the line link returns | [App.vue](App.vue) |
 | `line.log.csv` | Download log CSV | [LinePage.vue](LinePage.vue) |
 | `line.log.json` | Download log JSON | [LinePage.vue](LinePage.vue) |
 | `line.log.refresh` | Refresh log | [LinePage.vue](LinePage.vue) |
@@ -189,6 +218,8 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `nav.recorder` | Open Recorder | [layout/AppMenu.vue](layout/AppMenu.vue) |
 | `nav.scene` | Open Scene | [layout/AppMenu.vue](layout/AppMenu.vue) |
 | `nav.teaching` | Open Teaching | [layout/AppMenu.vue](layout/AppMenu.vue) |
+| `operator.enroll` | Open browser key enrollment | [App.vue](App.vue) |
+| `operator.readonly` | Read-only operator mode notice | [App.vue](App.vue) |
 | `pick.agv.open` | AGV commissioning | [PickPlacePage.vue](PickPlacePage.vue) |
 | `pick.legacy.open` | Legacy Pick/place | [PickPlacePage.vue](PickPlacePage.vue) |
 | `pick.motion.field` | Motion field | [PickPlacePage.vue](PickPlacePage.vue) |
@@ -251,20 +282,27 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `pick.tools.toggle` | Open MCU commands or tool power | [PickPlaceTools.vue](PickPlaceTools.vue) |
 | `programme.basket.id` | Enter basket identifier | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.basket.ready` | Confirm the reviewed basket at input | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.check.basket` | Physically observed basket ID | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.check.confirmed` | Confirm the basket identity and location | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.check.location` | Physically observed basket location | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.check.operator` | Name of the operator checking the basket | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.check.panel` | Review uncertain basket and job evidence | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.check.step` | Select the recipe step to resume | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.check.technician` | Show the named storage fault that requires a technician | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.draft.save` | Save a new draft recipe revision | [ProgrammePanel.vue](ProgrammePanel.vue) |
-| `programme.inspection.note` | Enter the inspection disposition | [ProgrammePanel.vue](ProgrammePanel.vue) |
-| `programme.inspection.record` | Record the inspection disposition | [ProgrammePanel.vue](ProgrammePanel.vue) |
-| `programme.inspection.unaccounted` | Confirm that the original basket is unaccounted for | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.limit.input` | Editable limit in seconds | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.panel` | Basket programme and recipe limit editor | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.record.choice` | Recorded operator decision and physical observations | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.record.panel` | Show recovered basket record | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.record.refresh` | Read and validate unresolved job evidence for the selected basket | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.record.select` | Choose a retained basket record | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.record.step` | Recorded basket dwell and transfer | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.record.summary` | Open the basket record | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.revision.finalize` | Finalize reviewed recipe limits | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.revision.terminal` | Reviewed terminal basket handling | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.revision.timing` | Reviewed PLC cycle and timing evidence | [ProgrammePanel.vue](ProgrammePanel.vue) |
-| `programme.run.resume` | Resume the reviewed simulation | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.run.abort` | Abort the basket and flag it for inspection | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.run.resume` | Resume the checked basket from the selected step | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.run.start` | Start the simulated programme | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.run.stop` | Request programme Stop | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.step.row` | Recipe step and effective limits | [ProgrammePanel.vue](ProgrammePanel.vue) |

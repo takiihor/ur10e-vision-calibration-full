@@ -82,7 +82,7 @@ const flow = computed(() => project.value?.flow || {});
 const validation = computed(() => native.value?.project?.validation);
 const history = computed(() => project.value?.validation_history || []);
 const alignment = computed(() => native.value?.descent_alignment);
-const ownerBlock = computed(() => ownerReason(owner.value));
+const ownerBlock = computed(() => props.agv.operatorKeyReason || ownerReason(owner.value));
 const busy = computed(() => running.value ? 'Wait for the current request.' : pendingId.value
   ? 'Inspect the unconfirmed request before sending another.' : ownerBlock.value);
 const allow = computed(() => props.service?.allow_teaching ? '' : 'Teaching is disabled. Start the service with reviewed Teaching access.');
@@ -498,6 +498,7 @@ async function inspectManual(id) {
   }
 }
 function confirmManual(id, prompt) {
+  if (props.agv.operatorReadOnly) return;
   void feedback('pick-confirm', 8, async () => {
     await request('/api/manual-control', { action: 'confirm', job_id: id, prompt, value: true });
     await inspectManual(id);

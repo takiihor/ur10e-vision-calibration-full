@@ -17,7 +17,16 @@ function motionText(status, unknown = 'Unknown') {
 
 function stationLimit(status) {
   const legs = status?.max_stations;
+  if (!Number.isInteger(legs) || legs < 0 || legs > 255) return undefined;
   return legs > 0 ? Math.min(legs + 1, 255) : legs;
+}
+
+function stationRangeText(status) {
+  const maximum = stationLimit(status);
+  if (maximum === undefined) return '';
+  if (maximum === 0) return 'The AGV has learned 0 legs. No stations are available.';
+  const legs = status.max_stations;
+  return `The AGV has learned ${legs} ${legs === 1 ? 'leg' : 'legs'}: stations 1 to ${maximum}.`;
 }
 
 const emptyJournal = () => ({log: [], events: [], commands: {}, transports: {}, link_quality: {}, cursors: {}, log_gap: false});
@@ -256,7 +265,7 @@ function markdown(record, commands) {
 }
 
 export { connectionKey, sessionKey, journalKey, urgent, reads, linkLost, badFrame, motionText, pauseStationOnly, mergeJournal,
-  stationCallRequired, stationLimit, emptyJournal, isoNow, localTime, seconds, speedText, load, save, newSession,
+  stationCallRequired, stationLimit, stationRangeText, emptyJournal, isoNow, localTime, seconds, speedText, load, save, newSession,
   fieldLabels, modes, outcomesList, checklist, checklistCommands, foundFields, faultText,
   linkQualityText, resultText, eventText, connectionKeyFor, exportRecord, markdown,
   radioOverrides, savedRadioFields, rememberRadioOverrides, radioRouteError, radioPlaceholder };

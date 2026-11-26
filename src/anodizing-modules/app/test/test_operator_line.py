@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 import json
+import secrets
 import re
 from threading import Event, Thread
 from types import SimpleNamespace
@@ -294,7 +295,7 @@ def test_catalog_and_state_are_cache_only_during_stalled_single_worker(service):
 
 
 def test_read_client_only_uses_configured_origin_and_never_follows_redirect(monkeypatch):
-    key = 'fixture-only-secret'
+    key = secrets.token_urlsafe(32)
     seen = []
 
     class Connection:
@@ -368,7 +369,7 @@ def test_changed_catalog_cannot_apply_the_cached_row_to_the_new_tag_identity():
 
 def test_supplied_credentials_are_redacted_even_in_escaped_supplier_payloads(monkeypatch):
     from io import BytesIO
-    key = 'fixture-"echoed"-secret'
+    key = f'{secrets.token_urlsafe(32)}"echoed"'
     raw = json.dumps({'unexpected': key}).encode()
     response = BytesIO(raw)
     response.status = 200
@@ -381,7 +382,7 @@ def test_supplied_credentials_are_redacted_even_in_escaped_supplier_payloads(mon
 @pytest.mark.parametrize('routes', [None, {}, {'list': '//other.invalid', 'read': '/sample'},
                                    {'list': '/catalog', 'read': '/sa\r\nmple'}])
 def test_live_setup_without_valid_private_routes_stays_disconnected(tmp_path, monkeypatch, routes):
-    monkeypatch.setenv('PLC_API_KEY', 'example-key')
+    monkeypatch.setenv('PLC_API_KEY', secrets.token_urlsafe(32))
     profile = dict(origin='http://line.invalid', routes=routes)
     (tmp_path / 'site-profile.json').write_text(json.dumps({'line': profile}))
     line = Line.configured(tmp_path, 'live')

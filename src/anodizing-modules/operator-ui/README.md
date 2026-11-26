@@ -31,7 +31,7 @@ Vite writes `../app/anodizing_web/operator_dist/`, including the hashed assets a
 
 The AGV commissioning page follows the [operator page HCI guide](../docs/operator-page-hci.md).
 
-The app sends the injected `X-Module-Token` header on same-origin API requests. The entry is served fresh with a per-response PrimeVue style nonce. A service restart requires a reload and a deliberate new connection. AGV status reads use `/api/state` and `/api/agv?cached=1`. `/api/agv?ports=1` refreshes the port list and command capabilities. AGV operations use the existing `POST /api/agv`.
+On Katana, an enrolled browser uses its operator cookie on same-origin API requests. An unenrolled browser has read-only access and software Stop. Standalone mode retains its local page token. The entry is served fresh with a per-response PrimeVue style nonce. A service restart requires a reload and a deliberate new connection. AGV status reads use `/api/state` and `/api/agv?cached=1`. `/api/agv?ports=1` refreshes the port list and command capabilities. AGV operations use the existing `POST /api/agv`.
 
 The commissioning view uses the same connection, checklist, notes and record storage keys as the legacy AGV page. Open the AGV route to use the simulator, then choose **Simulator** and **Connect**. The fixed StopBar stays above the Sakai sidebar and overlays. Escape requests one AGV software Stop. Movement requests carry the current server Stop generation. The UI follows the returned urgent command result and reports stopped only when the server confirms zero speed. Robot stops for active Manual and Teacher sessions display their own buttons and use their own bound job IDs. Opening the AGV route on a directly connected armed link requests disarm. On a configured IPC executor link, the page shows the executor’s current Arm state. A manual visit keeps its job ID across a lost reply and browser or service restart. Acknowledge its terminal result before starting another visit. Inspect the link before issuing any new request after a failure.
 
@@ -43,6 +43,25 @@ available on a connected link with a stale report.
 The AGV reports learned legs. Station calls include the start as station 1, up to station 255. A report of zero learned legs disables station calls. The simulator input counts physical stations, so setting it to two produces a report of one learned leg.
 
 The Sakai follow-up was verified with fake ports, software tests and the in-process simulator. Field serial, radio timing, physical e-stop and site acceptance require hardware verification.
+
+## Bluetooth maintenance
+
+Open AGV commissioning, select **Bluetooth**, then **Connect** and **Read settings**.
+Katana uses BlueZ and the app environment's optional `anodizing-web[bluetooth]`
+dependency. Add an `agv_bluetooth` object with `name` or `address` in the private
+`<data-dir>/site-profile.json`, then restart the service. If both are configured,
+the advertisement must match both. The page shows all 78 mapped BLE words and
+the latest learned station count observed on RS485, with its observation time.
+If the Bluetooth service has no count, the page uses the AGV page's cached
+wired report. Bluetooth cannot read the stored route.
+
+Bluetooth settings are read-only while RS485 is connected or armed. Disconnect
+RS485, review the old and new values for a supported field and confirm before
+writing. **Review undo** restores the previous value from the private snapshot.
+The service saves snapshots and raw Bluetooth frames under
+`<data-dir>/agv-bluetooth/`. RS485 Connect and Arm are blocked until the Bluetooth
+session closes. Leaving the tab disconnects it. The server also closes an
+unattended session after its 15-second heartbeat lease expires.
 
 ## Local Scene configuration
 

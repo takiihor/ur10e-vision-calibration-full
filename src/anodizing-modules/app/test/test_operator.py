@@ -2,6 +2,7 @@
 from email.parser import BytesParser
 from io import BytesIO
 import json
+import secrets
 import re
 from types import SimpleNamespace
 
@@ -11,7 +12,9 @@ from anodizing_web import agv, server
 from anodizing_web.jobs import JobOwner
 
 
-def request(service, path, token='secret', host='127.0.0.1:8870', origin=None, method='GET', etag=None, body=None):
+def request(service, path, token=..., host='127.0.0.1:8870', origin=None, method='GET', etag=None, body=None):
+    if token is ...:
+        token = service.token
     handler = server.Handler.__new__(server.Handler)
     handler.server = service
     handler.client_address = ('127.0.0.1', 1234)
@@ -33,7 +36,7 @@ def request(service, path, token='secret', host='127.0.0.1:8870', origin=None, m
 @pytest.fixture
 def service(tmp_path):
     owner = JobOwner(tmp_path)
-    instance = SimpleNamespace(owner=owner, agv=agv.Connection(owner), token='secret',
+    instance = SimpleNamespace(owner=owner, agv=agv.Connection(owner), bluetooth=SimpleNamespace(reason=None), token=secrets.token_urlsafe(32),
                                hosts={'127.0.0.1:8870', 'localhost:8870'}, asset_cache={})
     instance.cached_asset = lambda path: server.Server.cached_asset(instance, path)
     return instance
@@ -49,13 +52,13 @@ def test_operator_entry_refreshes_nonce_and_uses_a_static_allowlist(service, tmp
                                         '<meta name="style-nonce" content="__STYLE_NONCE__">')
     code, headers, body = request(service, '/operator/')
     assert code == 200 and headers['Cache-Control'] == 'no-store'
-    assert b'content="secret"' in body
+    assert f'content="{service.token}"'.encode() in body
     nonce = re.search(r"'nonce-([^']+)'", headers['Content-Security-Policy'])[1]
     assert nonce.encode() in body and "script-src 'self';" in headers['Content-Security-Policy']
     assert "frame-ancestors 'none'" in headers['Content-Security-Policy']
-    service.token = 'restarted'
+    service.token = secrets.token_urlsafe(32)
     _, later, body = request(service, '/operator/')
-    assert nonce not in later['Content-Security-Policy'] and b'content="restarted"' in body
+    assert nonce not in later['Content-Security-Policy'] and f'content="{service.token}"'.encode() in body
     assert request(service, '/operator/assets/main-a1.js')[1]['Content-Type'].startswith('text/javascript')
     for path in ('/operator/assets/private.js', '/operator/asset-allowlist.json', '/operator/index.html',
                  '/operator/../agv'):
