@@ -1,6 +1,6 @@
 # Module navigation
 
-The landing page links to the Calibration, Teaching and Pick/place workspaces.
+The landing page links to the Calibration, Teaching, Pick/place and AGV workspaces.
 
 ## Sub-features
 
@@ -19,8 +19,8 @@ Preconditions:
 
 - Use the isolated baseline in [the map](README.md).
 
-- **Open each module.** Run `.agents/skills/verify-anodizing/scripts/verify navigation`. The driver finds the landing links and GETs `/calibration`, `/teaching` and `/pick-place`. Each returns 200 with its own title.
-- **Proof.** Compare `requests.jsonl`, `index.html`, `calibration.html`, `teaching.html` and `pick-place.html`.
+- **Open each module.** Run `.agents/skills/verify-anodizing/scripts/verify navigation`. The driver finds the landing links and GETs `/calibration`, `/teaching`, `/pick-place` and `/agv`. Each returns 200 with its own title.
+- **Proof.** Compare `requests.jsonl`, `index.html`, `calibration.html`, `teaching.html`, `pick-place.html` and `agv.html`.
 
 ## Gotchas
 

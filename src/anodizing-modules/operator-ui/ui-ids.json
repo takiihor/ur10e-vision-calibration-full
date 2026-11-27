@@ -1,0 +1,1987 @@
+[
+  {
+    "id": "agv.bluetooth.cancel",
+    "component": "AgvBluetooth.vue",
+    "description": "Cancel the reviewed change"
+  },
+  {
+    "id": "agv.bluetooth.confirm",
+    "component": "AgvBluetooth.vue",
+    "description": "Confirm a reviewed setting write or undo"
+  },
+  {
+    "id": "agv.bluetooth.connect",
+    "component": "AgvBluetooth.vue",
+    "description": "Scan for and connect to the configured AGV"
+  },
+  {
+    "id": "agv.bluetooth.disconnect",
+    "component": "AgvBluetooth.vue",
+    "description": "Disconnect the Bluetooth maintenance session"
+  },
+  {
+    "id": "agv.bluetooth.field",
+    "component": "AgvBluetooth.vue",
+    "description": "Choose a supported setting"
+  },
+  {
+    "id": "agv.bluetooth.page",
+    "component": "AgvBluetooth.vue",
+    "description": "Bluetooth maintenance page"
+  },
+  {
+    "id": "agv.bluetooth.read",
+    "component": "AgvBluetooth.vue",
+    "description": "Read all Bluetooth settings"
+  },
+  {
+    "id": "agv.bluetooth.review",
+    "component": "AgvBluetooth.vue",
+    "description": "Old and new settings values for confirmation"
+  },
+  {
+    "id": "agv.bluetooth.reviewundo",
+    "component": "AgvBluetooth.vue",
+    "description": "Review restoring the previous setting value"
+  },
+  {
+    "id": "agv.bluetooth.reviewwrite",
+    "component": "AgvBluetooth.vue",
+    "description": "Review the old and new values before writing"
+  },
+  {
+    "id": "agv.bluetooth.row",
+    "component": "AgvBluetooth.vue",
+    "description": "A field in the Bluetooth settings map"
+  },
+  {
+    "id": "agv.bluetooth.tab",
+    "component": "AgvPage.vue",
+    "description": "Open the Bluetooth maintenance tab"
+  },
+  {
+    "id": "agv.bluetooth.tabs",
+    "component": "AgvPage.vue",
+    "description": "AGV control and Bluetooth tab navigation"
+  },
+  {
+    "id": "agv.bluetooth.value",
+    "component": "AgvBluetooth.vue",
+    "description": "Enter the new setting value"
+  },
+  {
+    "id": "agv.bluetooth.wiredtab",
+    "component": "AgvPage.vue",
+    "description": "Open the RS485 control tab"
+  },
+  {
+    "id": "agv.bluetooth.write",
+    "component": "AgvBluetooth.vue",
+    "description": "Review changes to one Bluetooth setting"
+  },
+  {
+    "id": "agv.call.acknowledge",
+    "component": "AgvPage.vue",
+    "description": "Acknowledge the terminal manual station visit result"
+  },
+  {
+    "id": "agv.call.attestation",
+    "component": "AgvPage.vue",
+    "description": "Review the station and confirm e-stop, folded arm, clear path and clear tank equipment"
+  },
+  {
+    "id": "agv.call.cancel",
+    "component": "AgvPage.vue",
+    "description": "Close the station confirmation without calling"
+  },
+  {
+    "id": "agv.call.confirm",
+    "component": "AgvPage.vue",
+    "description": "Confirm the attestation and call the selected station"
+  },
+  {
+    "id": "agv.call.grid",
+    "component": "AgvPage.vue",
+    "description": "Station call grid"
+  },
+  {
+    "id": "agv.call.number",
+    "component": "AgvPage.vue",
+    "description": "Manual station number"
+  },
+  {
+    "id": "agv.call.panel",
+    "component": "AgvPage.vue",
+    "description": "Station and parking calls"
+  },
+  {
+    "id": "agv.call.parking",
+    "component": "AgvPage.vue",
+    "description": "Call the configured parking station"
+  },
+  {
+    "id": "agv.call.range.warning",
+    "component": "AgvPage.vue",
+    "description": "Route learning guidance"
+  },
+  {
+    "id": "agv.call.reason",
+    "component": "AgvPage.vue",
+    "description": "Shared reason station calls are disabled"
+  },
+  {
+    "id": "agv.call.station",
+    "component": "AgvPage.vue",
+    "description": "Station call button keyed by station number"
+  },
+  {
+    "id": "agv.call.submit",
+    "component": "AgvPage.vue",
+    "description": "Call station"
+  },
+  {
+    "id": "agv.call.window",
+    "component": "AgvPage.vue",
+    "description": "Supervised travel deadline and draft battery floor"
+  },
+  {
+    "id": "agv.check.abort",
+    "component": "AgvPage.vue",
+    "description": "Record the decision and abort the original station visit"
+  },
+  {
+    "id": "agv.check.confirmed",
+    "component": "AgvPage.vue",
+    "description": "Confirm the station was physically checked"
+  },
+  {
+    "id": "agv.check.location",
+    "component": "AgvPage.vue",
+    "description": "Physically observed AGV location"
+  },
+  {
+    "id": "agv.check.operator",
+    "component": "AgvPage.vue",
+    "description": "Name of the operator checking the station"
+  },
+  {
+    "id": "agv.check.panel",
+    "component": "AgvPage.vue",
+    "description": "Review an uncertain station visit"
+  },
+  {
+    "id": "agv.controls.panel",
+    "component": "AgvPage.vue",
+    "description": "Connection and commands"
+  },
+  {
+    "id": "agv.jobs.item",
+    "component": "AgvPage.vue",
+    "description": "Origin, job ID and status for one IPC job"
+  },
+  {
+    "id": "agv.jobs.recent",
+    "component": "AgvPage.vue",
+    "description": "Recent IPC client jobs"
+  },
+  {
+    "id": "agv.jobs.toggle",
+    "component": "AgvPage.vue",
+    "description": "Show recent IPC client jobs"
+  },
+  {
+    "id": "agv.link.address",
+    "component": "AgvPage.vue",
+    "description": "Link address"
+  },
+  {
+    "id": "agv.link.channel",
+    "component": "AgvPage.vue",
+    "description": "Link channel"
+  },
+  {
+    "id": "agv.link.connect",
+    "component": "AgvPage.vue",
+    "description": "Connect"
+  },
+  {
+    "id": "agv.link.disconnect",
+    "component": "AgvPage.vue",
+    "description": "Disconnect"
+  },
+  {
+    "id": "agv.link.panel",
+    "component": "AgvPage.vue",
+    "description": "Link panel"
+  },
+  {
+    "id": "agv.link.port",
+    "component": "AgvPage.vue",
+    "description": "Link port"
+  },
+  {
+    "id": "agv.link.ports.refresh",
+    "component": "AgvPage.vue",
+    "description": "Refresh ports"
+  },
+  {
+    "id": "agv.link.settings",
+    "component": "AgvPage.vue",
+    "description": "Link settings"
+  },
+  {
+    "id": "agv.link.settings.toggle",
+    "component": "AgvPage.vue",
+    "description": "Link settings"
+  },
+  {
+    "id": "agv.link.silence",
+    "component": "AgvPage.vue",
+    "description": "Link silence"
+  },
+  {
+    "id": "agv.link.simulator.stations",
+    "component": "AgvPage.vue",
+    "description": "Simulator learned-station count"
+  },
+  {
+    "id": "agv.link.sound",
+    "component": "AgvPage.vue",
+    "description": "Link sound"
+  },
+  {
+    "id": "agv.link.transport",
+    "component": "AgvPage.vue",
+    "description": "Link transport"
+  },
+  {
+    "id": "agv.movement.arm",
+    "component": "AgvPage.vue",
+    "description": "Arm or disarm manual AGV commands"
+  },
+  {
+    "id": "agv.movement.command",
+    "component": "AgvPage.vue",
+    "description": "Movement command"
+  },
+  {
+    "id": "agv.movement.extra",
+    "component": "AgvPage.vue",
+    "description": "Additional AGV movement commands"
+  },
+  {
+    "id": "agv.movement.extra.command",
+    "component": "AgvPage.vue",
+    "description": "One additional AGV command"
+  },
+  {
+    "id": "agv.movement.extra.toggle",
+    "component": "AgvPage.vue",
+    "description": "More commands"
+  },
+  {
+    "id": "agv.movement.panel",
+    "component": "AgvPage.vue",
+    "description": "Movement panel"
+  },
+  {
+    "id": "agv.owner.calibration",
+    "component": "AgvPage.vue",
+    "description": "Select the Calibration module owner"
+  },
+  {
+    "id": "agv.owner.manual",
+    "component": "AgvPage.vue",
+    "description": "Select the AGV page owner"
+  },
+  {
+    "id": "agv.owner.panel",
+    "component": "AgvPage.vue",
+    "description": "Current executor owner and Arm binding"
+  },
+  {
+    "id": "agv.owner.release",
+    "component": "AgvPage.vue",
+    "description": "Release the current built-in owner"
+  },
+  {
+    "id": "agv.page",
+    "component": "AgvPage.vue",
+    "description": "AGV commissioning workspace"
+  },
+  {
+    "id": "agv.pause",
+    "component": "StopBar.vue",
+    "description": "AGV Pause (station-call mode)"
+  },
+  {
+    "id": "agv.read.command",
+    "component": "AgvPage.vue",
+    "description": "Status or speed inquiry keyed by command"
+  },
+  {
+    "id": "agv.record.checklist",
+    "component": "AgvRecord.vue",
+    "description": "Record checklist"
+  },
+  {
+    "id": "agv.record.checklist.notes",
+    "component": "AgvRecord.vue",
+    "description": "Record checklist notes"
+  },
+  {
+    "id": "agv.record.checklist.result",
+    "component": "AgvRecord.vue",
+    "description": "Record checklist result"
+  },
+  {
+    "id": "agv.record.checklist.row",
+    "component": "AgvRecord.vue",
+    "description": "Record checklist row"
+  },
+  {
+    "id": "agv.record.checklist.toggle",
+    "component": "AgvRecord.vue",
+    "description": "Record checklist toggle"
+  },
+  {
+    "id": "agv.record.commands",
+    "component": "AgvRecord.vue",
+    "description": "Record commands"
+  },
+  {
+    "id": "agv.record.commands.row",
+    "component": "AgvRecord.vue",
+    "description": "One command result"
+  },
+  {
+    "id": "agv.record.commands.table",
+    "component": "AgvRecord.vue",
+    "description": "Record commands table"
+  },
+  {
+    "id": "agv.record.commands.toggle",
+    "component": "AgvRecord.vue",
+    "description": "Recent command results"
+  },
+  {
+    "id": "agv.record.event.add",
+    "component": "AgvRecord.vue",
+    "description": "Mark event"
+  },
+  {
+    "id": "agv.record.event.form",
+    "component": "AgvRecord.vue",
+    "description": "Record event form"
+  },
+  {
+    "id": "agv.record.event.row",
+    "component": "AgvRecord.vue",
+    "description": "Record event row"
+  },
+  {
+    "id": "agv.record.event.text",
+    "component": "AgvRecord.vue",
+    "description": "Operator observation to add to the record"
+  },
+  {
+    "id": "agv.record.events",
+    "component": "AgvRecord.vue",
+    "description": "Record events"
+  },
+  {
+    "id": "agv.record.export.json",
+    "component": "AgvRecord.vue",
+    "description": "Download JSON record"
+  },
+  {
+    "id": "agv.record.export.markdown",
+    "component": "AgvRecord.vue",
+    "description": "Download readable report"
+  },
+  {
+    "id": "agv.record.exports",
+    "component": "AgvRecord.vue",
+    "description": "Record exports"
+  },
+  {
+    "id": "agv.record.frames",
+    "component": "AgvRecord.vue",
+    "description": "Record frames"
+  },
+  {
+    "id": "agv.record.frames.row",
+    "component": "AgvRecord.vue",
+    "description": "One transmitted or received frame"
+  },
+  {
+    "id": "agv.record.frames.table",
+    "component": "AgvRecord.vue",
+    "description": "Record frames table"
+  },
+  {
+    "id": "agv.record.frames.toggle",
+    "component": "AgvRecord.vue",
+    "description": "Raw TX/RX log"
+  },
+  {
+    "id": "agv.record.reset",
+    "component": "AgvRecord.vue",
+    "description": "New test session"
+  },
+  {
+    "id": "agv.record.reset.accept",
+    "component": "AgvRecord.vue",
+    "description": "Confirm a new test session"
+  },
+  {
+    "id": "agv.record.reset.cancel",
+    "component": "AgvRecord.vue",
+    "description": "Cancel the new test session"
+  },
+  {
+    "id": "agv.record.reset.close",
+    "component": "AgvRecord.vue",
+    "description": "Close the new-session dialog"
+  },
+  {
+    "id": "agv.record.reset.dialog",
+    "component": "AgvRecord.vue",
+    "description": "Record reset dialog"
+  },
+  {
+    "id": "agv.record.settings",
+    "component": "AgvRecord.vue",
+    "description": "Record settings"
+  },
+  {
+    "id": "agv.record.settings.field",
+    "component": "AgvRecord.vue",
+    "description": "One confirmed as-found setting"
+  },
+  {
+    "id": "agv.record.settings.toggle",
+    "component": "AgvRecord.vue",
+    "description": "Settings as found"
+  },
+  {
+    "id": "agv.record.workspace",
+    "component": "AgvRecord.vue",
+    "description": "Record workspace"
+  },
+  {
+    "id": "agv.speed.input",
+    "component": "AgvPage.vue",
+    "description": "Speed input"
+  },
+  {
+    "id": "agv.speed.preset",
+    "component": "AgvPage.vue",
+    "description": "Speed preset"
+  },
+  {
+    "id": "agv.speed.set",
+    "component": "AgvPage.vue",
+    "description": "Set speed"
+  },
+  {
+    "id": "agv.status.detail.row",
+    "component": "AgvPage.vue",
+    "description": "Status detail row"
+  },
+  {
+    "id": "agv.status.details",
+    "component": "AgvPage.vue",
+    "description": "Status details"
+  },
+  {
+    "id": "agv.status.details.toggle",
+    "component": "AgvPage.vue",
+    "description": "Machine details"
+  },
+  {
+    "id": "agv.status.metric",
+    "component": "AgvPage.vue",
+    "description": "One glanceable AGV status metric"
+  },
+  {
+    "id": "agv.status.panel",
+    "component": "AgvPage.vue",
+    "description": "Reported AGV status"
+  },
+  {
+    "id": "agv.stop",
+    "component": "StopBar.vue",
+    "description": "AGV Stop (software)"
+  },
+  {
+    "id": "calibration.action",
+    "component": "CalibrationPage.vue",
+    "description": "Start a Calibration step action"
+  },
+  {
+    "id": "calibration.camera.field",
+    "component": "CalibrationPage.vue",
+    "description": "Camera field"
+  },
+  {
+    "id": "calibration.camera.intrinsics",
+    "component": "CalibrationPage.vue",
+    "description": "Camera intrinsics"
+  },
+  {
+    "id": "calibration.camera.provider",
+    "component": "CalibrationPage.vue",
+    "description": "Camera provider"
+  },
+  {
+    "id": "calibration.history.inspect",
+    "component": "CalibrationPage.vue",
+    "description": "Show job"
+  },
+  {
+    "id": "calibration.history.job",
+    "component": "CalibrationPage.vue",
+    "description": "Saved Calibration job ID"
+  },
+  {
+    "id": "calibration.history.panel",
+    "component": "CalibrationPage.vue",
+    "description": "History panel"
+  },
+  {
+    "id": "calibration.history.toggle",
+    "component": "CalibrationPage.vue",
+    "description": "Saved job details"
+  },
+  {
+    "id": "calibration.legacy.open",
+    "component": "CalibrationPage.vue",
+    "description": "Legacy Calibration"
+  },
+  {
+    "id": "calibration.messages.panel",
+    "component": "CalibrationPage.vue",
+    "description": "Messages panel"
+  },
+  {
+    "id": "calibration.messages.toggle",
+    "component": "CalibrationPage.vue",
+    "description": "Recent messages"
+  },
+  {
+    "id": "calibration.motion.agv.off",
+    "component": "CalibrationPage.vue",
+    "description": "Confirm the AGV is switched off for Calibration"
+  },
+  {
+    "id": "calibration.operation.approve",
+    "component": "CalibrationPage.vue",
+    "description": "Approve phase"
+  },
+  {
+    "id": "calibration.operation.cancel",
+    "component": "CalibrationPage.vue",
+    "description": "Cancel phase"
+  },
+  {
+    "id": "calibration.operation.capture",
+    "component": "CalibrationPage.vue",
+    "description": "Capture view"
+  },
+  {
+    "id": "calibration.operation.finish",
+    "component": "CalibrationPage.vue",
+    "description": "Finish collection"
+  },
+  {
+    "id": "calibration.operation.image",
+    "component": "CalibrationPage.vue",
+    "description": "Board observation"
+  },
+  {
+    "id": "calibration.operation.panel",
+    "component": "CalibrationPage.vue",
+    "description": "Operation panel"
+  },
+  {
+    "id": "calibration.page",
+    "component": "CalibrationPage.vue",
+    "description": "Calibration workspace"
+  },
+  {
+    "id": "calibration.robot.open",
+    "component": "CalibrationPage.vue",
+    "description": "Open Robot steps"
+  },
+  {
+    "id": "calibration.scene.editor",
+    "component": "CalibrationPage.vue",
+    "description": "Tool box and collision scene editor"
+  },
+  {
+    "id": "calibration.scene.open",
+    "component": "CalibrationPage.vue",
+    "description": "Open full collision editor"
+  },
+  {
+    "id": "calibration.setup.check",
+    "component": "CalibrationPage.vue",
+    "description": "Setup check"
+  },
+  {
+    "id": "calibration.setup.field",
+    "component": "CalibrationPage.vue",
+    "description": "Setup field"
+  },
+  {
+    "id": "calibration.setup.profile",
+    "component": "CalibrationPage.vue",
+    "description": "Load IPC calibration profile"
+  },
+  {
+    "id": "calibration.step.panel",
+    "component": "CalibrationPage.vue",
+    "description": "Current Calibration step"
+  },
+  {
+    "id": "calibration.step.select",
+    "component": "CalibrationPage.vue",
+    "description": "Choose a Calibration step"
+  },
+  {
+    "id": "calibration.steps",
+    "component": "CalibrationPage.vue",
+    "description": "Calibration steps"
+  },
+  {
+    "id": "calibration.teaching.open",
+    "component": "CalibrationPage.vue",
+    "description": "Continue to Teaching"
+  },
+  {
+    "id": "home.agv.open",
+    "component": "App.vue",
+    "description": "Open AGV commissioning"
+  },
+  {
+    "id": "home.agv.panel",
+    "component": "App.vue",
+    "description": "AGV summary on Home"
+  },
+  {
+    "id": "home.calibration.open",
+    "component": "App.vue",
+    "description": "Open current Calibration operation"
+  },
+  {
+    "id": "home.page",
+    "component": "App.vue",
+    "description": "Operator Home overview"
+  },
+  {
+    "id": "home.service.panel",
+    "component": "App.vue",
+    "description": "Service panel"
+  },
+  {
+    "id": "layout.header",
+    "component": "layout/AppTopbar.vue",
+    "description": "Header"
+  },
+  {
+    "id": "layout.home",
+    "component": "layout/AppTopbar.vue",
+    "description": "Operator app"
+  },
+  {
+    "id": "layout.main",
+    "component": "layout/AppLayout.vue",
+    "description": "Main"
+  },
+  {
+    "id": "layout.navigation.dismiss",
+    "component": "layout/AppLayout.vue",
+    "description": "Dismiss the mobile navigation backdrop"
+  },
+  {
+    "id": "layout.navigation.toggle",
+    "component": "layout/AppTopbar.vue",
+    "description": "Toggle navigation"
+  },
+  {
+    "id": "layout.sidebar",
+    "component": "layout/AppSidebar.vue",
+    "description": "Sidebar"
+  },
+  {
+    "id": "line.archive.download",
+    "component": "LineTestPanel.vue",
+    "description": "Download one original archived file"
+  },
+  {
+    "id": "line.archive.file.row",
+    "component": "LineTestPanel.vue",
+    "description": "Archive file row"
+  },
+  {
+    "id": "line.archive.files",
+    "component": "LineTestPanel.vue",
+    "description": "Archive files"
+  },
+  {
+    "id": "line.archive.files.toggle",
+    "component": "LineTestPanel.vue",
+    "description": "Original files"
+  },
+  {
+    "id": "line.archive.filter",
+    "component": "LineTestPanel.vue",
+    "description": "Archive filter"
+  },
+  {
+    "id": "line.archive.provenance",
+    "component": "LineTestPanel.vue",
+    "description": "Archive provenance"
+  },
+  {
+    "id": "line.archive.provenance.row",
+    "component": "LineTestPanel.vue",
+    "description": "Archive provenance row"
+  },
+  {
+    "id": "line.archive.provenance.toggle",
+    "component": "LineTestPanel.vue",
+    "description": "Historical labels and provenance"
+  },
+  {
+    "id": "line.archive.select",
+    "component": "LineTestPanel.vue",
+    "description": "Select a historical test archive"
+  },
+  {
+    "id": "line.catalog.refresh",
+    "component": "LinePage.vue",
+    "description": "Refresh catalog"
+  },
+  {
+    "id": "line.filter.access",
+    "component": "LinePage.vue",
+    "description": "Filter access"
+  },
+  {
+    "id": "line.filter.group",
+    "component": "LinePage.vue",
+    "description": "Filter group"
+  },
+  {
+    "id": "line.filter.metadata",
+    "component": "LinePage.vue",
+    "description": "Show advanced catalog metadata"
+  },
+  {
+    "id": "line.filter.search",
+    "component": "LinePage.vue",
+    "description": "Filter search"
+  },
+  {
+    "id": "line.filter.tank",
+    "component": "LinePage.vue",
+    "description": "Filter tank"
+  },
+  {
+    "id": "line.filter.type",
+    "component": "LinePage.vue",
+    "description": "Filter type"
+  },
+  {
+    "id": "line.filter.view",
+    "component": "LinePage.vue",
+    "description": "Filter view"
+  },
+  {
+    "id": "line.health.panel",
+    "component": "LinePage.vue",
+    "description": "Line API reachability and PLC sample quality"
+  },
+  {
+    "id": "line.history.download",
+    "component": "LineTestPanel.vue",
+    "description": "Download a saved test run by format"
+  },
+  {
+    "id": "line.history.filter",
+    "component": "LineTestPanel.vue",
+    "description": "History filter"
+  },
+  {
+    "id": "line.history.judgment.row",
+    "component": "LineTestPanel.vue",
+    "description": "History judgment row"
+  },
+  {
+    "id": "line.history.notes",
+    "component": "LineTestPanel.vue",
+    "description": "History notes"
+  },
+  {
+    "id": "line.history.panel",
+    "component": "LineTestPanel.vue",
+    "description": "History panel"
+  },
+  {
+    "id": "line.history.receipts",
+    "component": "LineTestPanel.vue",
+    "description": "History receipts"
+  },
+  {
+    "id": "line.history.receipts.toggle",
+    "component": "LineTestPanel.vue",
+    "description": "Baseline, receipts and readback"
+  },
+  {
+    "id": "line.history.result",
+    "component": "LineTestPanel.vue",
+    "description": "Human judgment for the selected test run"
+  },
+  {
+    "id": "line.history.run",
+    "component": "LineTestPanel.vue",
+    "description": "Select a saved simulator test run"
+  },
+  {
+    "id": "line.history.save",
+    "component": "LineTestPanel.vue",
+    "description": "Save human result"
+  },
+  {
+    "id": "line.link.reconnect",
+    "description": "Open AGV commissioning after the line link returns",
+    "component": "App.vue"
+  },
+  {
+    "id": "line.log.csv",
+    "component": "LinePage.vue",
+    "description": "Download log CSV"
+  },
+  {
+    "id": "line.log.json",
+    "component": "LinePage.vue",
+    "description": "Download log JSON"
+  },
+  {
+    "id": "line.log.refresh",
+    "component": "LinePage.vue",
+    "description": "Refresh log"
+  },
+  {
+    "id": "line.log.row",
+    "component": "LinePage.vue",
+    "description": "Log row"
+  },
+  {
+    "id": "line.mode.switch",
+    "component": "LinePage.vue",
+    "description": "Switch between Line reads and Unified line test"
+  },
+  {
+    "id": "line.readings.last.panel",
+    "component": "LinePage.vue",
+    "description": "Recorded last read for a signal"
+  },
+  {
+    "id": "line.readings.last.toggle",
+    "component": "LinePage.vue",
+    "description": "Last read"
+  },
+  {
+    "id": "line.readings.panel",
+    "component": "LinePage.vue",
+    "description": "Readings panel"
+  },
+  {
+    "id": "line.readings.row",
+    "component": "LinePage.vue",
+    "description": "Readings row"
+  },
+  {
+    "id": "line.stop",
+    "component": "StopBar.vue",
+    "description": "Line Stop · clear command"
+  },
+  {
+    "id": "line.test.active",
+    "component": "LineTestPanel.vue",
+    "description": "Active simulator write test status"
+  },
+  {
+    "id": "line.test.approval",
+    "component": "LineTestPanel.vue",
+    "description": "Test approval"
+  },
+  {
+    "id": "line.test.approve",
+    "component": "LineTestPanel.vue",
+    "description": "Approve and send 1"
+  },
+  {
+    "id": "line.test.arm",
+    "component": "LineTestPanel.vue",
+    "description": "Arm simulator writes"
+  },
+  {
+    "id": "line.test.cancel",
+    "component": "LineTestPanel.vue",
+    "description": "Cancel approval"
+  },
+  {
+    "id": "line.test.case",
+    "component": "LineTestPanel.vue",
+    "description": "Test case"
+  },
+  {
+    "id": "line.test.command",
+    "component": "LineTestPanel.vue",
+    "description": "Test command"
+  },
+  {
+    "id": "line.test.disarm",
+    "component": "LineTestPanel.vue",
+    "description": "Disarm simulator writes"
+  },
+  {
+    "id": "line.test.group",
+    "component": "LineTestPanel.vue",
+    "description": "Test group"
+  },
+  {
+    "id": "line.test.panel",
+    "component": "LineTestPanel.vue",
+    "description": "Test panel"
+  },
+  {
+    "id": "line.test.review",
+    "component": "LineTestPanel.vue",
+    "description": "Review 0→1→0 test"
+  },
+  {
+    "id": "line.test.search",
+    "component": "LineTestPanel.vue",
+    "description": "Test search"
+  },
+  {
+    "id": "line.test.unresolved.row",
+    "component": "LineTestPanel.vue",
+    "description": "Test unresolved row"
+  },
+  {
+    "id": "line.warnings.panel",
+    "component": "LinePage.vue",
+    "description": "Warnings panel"
+  },
+  {
+    "id": "line.warnings.row",
+    "component": "LinePage.vue",
+    "description": "Warnings row"
+  },
+  {
+    "id": "line.warnings.toggle",
+    "component": "LinePage.vue",
+    "description": "Catalog and mapping warnings"
+  },
+  {
+    "id": "nav.agv",
+    "component": "layout/AppMenu.vue",
+    "description": "Open AGV commissioning"
+  },
+  {
+    "id": "nav.calibration",
+    "component": "layout/AppMenu.vue",
+    "description": "Open Calibration"
+  },
+  {
+    "id": "nav.home",
+    "component": "layout/AppMenu.vue",
+    "description": "Open Home"
+  },
+  {
+    "id": "nav.line",
+    "component": "layout/AppMenu.vue",
+    "description": "Open Line reads"
+  },
+  {
+    "id": "nav.panel",
+    "component": "layout/AppMenu.vue",
+    "description": "Modules"
+  },
+  {
+    "id": "nav.pick.place",
+    "component": "layout/AppMenu.vue",
+    "description": "Open Pick/place"
+  },
+  {
+    "id": "nav.recorder",
+    "component": "layout/AppMenu.vue",
+    "description": "Open Recorder"
+  },
+  {
+    "id": "nav.scene",
+    "component": "layout/AppMenu.vue",
+    "description": "Open Scene"
+  },
+  {
+    "id": "nav.teaching",
+    "component": "layout/AppMenu.vue",
+    "description": "Open Teaching"
+  },
+  {
+    "id": "operator.enroll",
+    "component": "App.vue",
+    "description": "Open browser key enrollment"
+  },
+  {
+    "id": "operator.readonly",
+    "component": "App.vue",
+    "description": "Read-only operator mode notice"
+  },
+  {
+    "id": "pick.agv.open",
+    "component": "PickPlacePage.vue",
+    "description": "AGV commissioning"
+  },
+  {
+    "id": "pick.legacy.open",
+    "component": "PickPlacePage.vue",
+    "description": "Legacy Pick/place"
+  },
+  {
+    "id": "pick.motion.field",
+    "component": "PickPlacePage.vue",
+    "description": "Motion field"
+  },
+  {
+    "id": "pick.motion.panel",
+    "component": "PickPlacePage.vue",
+    "description": "Motion panel"
+  },
+  {
+    "id": "pick.motion.toggle",
+    "component": "PickPlacePage.vue",
+    "description": "Motion settings"
+  },
+  {
+    "id": "pick.operation.approval",
+    "component": "PickPlaceJob.vue",
+    "description": "Operation approval"
+  },
+  {
+    "id": "pick.operation.confirm",
+    "component": "PickPlaceJob.vue",
+    "description": "Operation confirm"
+  },
+  {
+    "id": "pick.operation.evidence",
+    "component": "PickPlaceJob.vue",
+    "description": "Operation evidence"
+  },
+  {
+    "id": "pick.operation.evidence.toggle",
+    "component": "PickPlaceJob.vue",
+    "description": "Inspect operation and evidence"
+  },
+  {
+    "id": "pick.operation.follow",
+    "component": "PickPlaceJob.vue",
+    "description": "Follow active operation"
+  },
+  {
+    "id": "pick.operation.id",
+    "component": "PickPlaceJob.vue",
+    "description": "Operation ID"
+  },
+  {
+    "id": "pick.operation.inspect",
+    "component": "PickPlaceJob.vue",
+    "description": "Inspect status"
+  },
+  {
+    "id": "pick.operation.panel",
+    "component": "PickPlaceJob.vue",
+    "description": "Operation panel"
+  },
+  {
+    "id": "pick.page",
+    "component": "PickPlacePage.vue",
+    "description": "Pick/place workspace"
+  },
+  {
+    "id": "pick.recipe.agv.off",
+    "component": "PickPlacePage.vue",
+    "description": "Confirm the AGV is switched off for a recipe"
+  },
+  {
+    "id": "pick.recipe.approval",
+    "component": "PickPlacePage.vue",
+    "description": "Recipe approval"
+  },
+  {
+    "id": "pick.recipe.endpoint.row",
+    "component": "PickPlacePage.vue",
+    "description": "Recipe endpoint row"
+  },
+  {
+    "id": "pick.recipe.field",
+    "component": "PickPlacePage.vue",
+    "description": "Recipe field"
+  },
+  {
+    "id": "pick.recipe.limit",
+    "component": "PickPlacePage.vue",
+    "description": "Recipe limit"
+  },
+  {
+    "id": "pick.recipe.panel",
+    "component": "PickPlacePage.vue",
+    "description": "Recipe panel"
+  },
+  {
+    "id": "pick.recipe.review",
+    "component": "PickPlacePage.vue",
+    "description": "Review bounded recipe"
+  },
+  {
+    "id": "pick.recipe.reviewed",
+    "component": "PickPlacePage.vue",
+    "description": "Reviewed recipe"
+  },
+  {
+    "id": "pick.recipe.sequence",
+    "component": "PickPlacePage.vue",
+    "description": "Recipe sequence"
+  },
+  {
+    "id": "pick.recipe.sequence.toggle",
+    "component": "PickPlacePage.vue",
+    "description": "Motion sequence"
+  },
+  {
+    "id": "pick.recipe.start",
+    "component": "PickPlacePage.vue",
+    "description": "Start automatic test"
+  },
+  {
+    "id": "pick.recipe.station",
+    "component": "PickPlacePage.vue",
+    "description": "Recipe station"
+  },
+  {
+    "id": "pick.recipe.travel",
+    "component": "PickPlacePage.vue",
+    "description": "Recipe travel"
+  },
+  {
+    "id": "pick.recipe.travel.approval",
+    "component": "PickPlacePage.vue",
+    "description": "Recipe travel approval"
+  },
+  {
+    "id": "pick.recipe.travel.check",
+    "component": "PickPlacePage.vue",
+    "description": "Check live travel pose"
+  },
+  {
+    "id": "pick.recipe.travel.teaching",
+    "component": "PickPlacePage.vue",
+    "description": "Change travel pose in Teaching"
+  },
+  {
+    "id": "pick.recipe.travel.toggle",
+    "component": "PickPlacePage.vue",
+    "description": "Travel pose and recipe limits"
+  },
+  {
+    "id": "pick.request.cancel",
+    "component": "PickPlacePage.vue",
+    "description": "Cancel unaccepted request"
+  },
+  {
+    "id": "pick.robot.agv.off",
+    "component": "PickPlacePage.vue",
+    "description": "Confirm the AGV is switched off for Robot steps"
+  },
+  {
+    "id": "pick.robot.field",
+    "component": "PickPlacePage.vue",
+    "description": "Robot field"
+  },
+  {
+    "id": "pick.robot.panel",
+    "component": "PickPlacePage.vue",
+    "description": "Robot panel"
+  },
+  {
+    "id": "pick.robot.rotation",
+    "component": "PickPlacePage.vue",
+    "description": "Cartesian rotation per step"
+  },
+  {
+    "id": "pick.robot.step",
+    "component": "PickPlacePage.vue",
+    "description": "Prepare a signed step on a robot axis"
+  },
+  {
+    "id": "pick.robot.toggle",
+    "component": "PickPlacePage.vue",
+    "description": "Robot steps"
+  },
+  {
+    "id": "pick.robot.translation",
+    "component": "PickPlacePage.vue",
+    "description": "Cartesian translation per step"
+  },
+  {
+    "id": "pick.setup.field",
+    "component": "PickPlacePage.vue",
+    "description": "Setup field"
+  },
+  {
+    "id": "pick.setup.panel",
+    "component": "PickPlacePage.vue",
+    "description": "Setup panel"
+  },
+  {
+    "id": "pick.single.action",
+    "component": "PickPlacePage.vue",
+    "description": "Single action"
+  },
+  {
+    "id": "pick.single.agv.off",
+    "component": "PickPlacePage.vue",
+    "description": "Confirm the AGV is switched off for a single operation"
+  },
+  {
+    "id": "pick.single.evidence",
+    "component": "PickPlacePage.vue",
+    "description": "Single evidence"
+  },
+  {
+    "id": "pick.single.evidence.toggle",
+    "component": "PickPlacePage.vue",
+    "description": "Saved role evidence"
+  },
+  {
+    "id": "pick.single.field",
+    "component": "PickPlacePage.vue",
+    "description": "Single field"
+  },
+  {
+    "id": "pick.single.item",
+    "component": "PickPlacePage.vue",
+    "description": "Single item"
+  },
+  {
+    "id": "pick.single.panel",
+    "component": "PickPlacePage.vue",
+    "description": "Single PICK or PLACE workspace"
+  },
+  {
+    "id": "pick.single.prepare",
+    "component": "PickPlacePage.vue",
+    "description": "Check saved role inputs (read only)"
+  },
+  {
+    "id": "pick.single.setup",
+    "component": "PickPlacePage.vue",
+    "description": "Confirm the taught setup for a single operation"
+  },
+  {
+    "id": "pick.single.toggle",
+    "component": "PickPlacePage.vue",
+    "description": "Single PICK / PLACE"
+  },
+  {
+    "id": "pick.status.panel",
+    "component": "PickPlacePage.vue",
+    "description": "Status panel"
+  },
+  {
+    "id": "pick.tools.agv.off",
+    "component": "PickPlaceTools.vue",
+    "description": "Confirm the AGV is switched off for an MCU command"
+  },
+  {
+    "id": "pick.tools.check",
+    "component": "PickPlaceTools.vue",
+    "description": "Check request"
+  },
+  {
+    "id": "pick.tools.command",
+    "component": "PickPlaceTools.vue",
+    "description": "One MCU or tool power command"
+  },
+  {
+    "id": "pick.tools.evidence",
+    "component": "PickPlaceTools.vue",
+    "description": "Tools evidence"
+  },
+  {
+    "id": "pick.tools.evidence.toggle",
+    "component": "PickPlaceTools.vue",
+    "description": "Recorded request and reply"
+  },
+  {
+    "id": "pick.tools.item",
+    "component": "PickPlaceTools.vue",
+    "description": "Held-item state for tool power"
+  },
+  {
+    "id": "pick.tools.panel",
+    "component": "PickPlaceTools.vue",
+    "description": "MCU commands or tool power workspace"
+  },
+  {
+    "id": "pick.tools.toggle",
+    "component": "PickPlaceTools.vue",
+    "description": "Open MCU commands or tool power"
+  },
+  {
+    "id": "programme.basket.id",
+    "description": "Enter basket identifier",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.basket.ready",
+    "description": "Confirm the reviewed basket at input",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.check.basket",
+    "component": "ProgrammePanel.vue",
+    "description": "Physically observed basket ID"
+  },
+  {
+    "id": "programme.check.confirmed",
+    "component": "ProgrammePanel.vue",
+    "description": "Confirm the basket identity and location"
+  },
+  {
+    "id": "programme.check.location",
+    "component": "ProgrammePanel.vue",
+    "description": "Physically observed basket location"
+  },
+  {
+    "id": "programme.check.operator",
+    "component": "ProgrammePanel.vue",
+    "description": "Name of the operator checking the basket"
+  },
+  {
+    "id": "programme.check.panel",
+    "component": "ProgrammePanel.vue",
+    "description": "Review uncertain basket and job evidence"
+  },
+  {
+    "id": "programme.check.step",
+    "component": "ProgrammePanel.vue",
+    "description": "Select the recipe step to resume"
+  },
+  {
+    "id": "programme.check.technician",
+    "component": "ProgrammePanel.vue",
+    "description": "Show the named storage fault that requires a technician"
+  },
+  {
+    "id": "programme.draft.save",
+    "description": "Save a new draft recipe revision",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.limit.input",
+    "description": "Editable limit in seconds",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.panel",
+    "description": "Basket programme and recipe limit editor",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.record.choice",
+    "component": "ProgrammePanel.vue",
+    "description": "Recorded operator decision and physical observations"
+  },
+  {
+    "id": "programme.record.panel",
+    "description": "Show recovered basket record",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.record.refresh",
+    "description": "Read and validate unresolved job evidence for the selected basket",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.record.select",
+    "component": "ProgrammePanel.vue",
+    "description": "Choose a retained basket record"
+  },
+  {
+    "id": "programme.record.step",
+    "description": "Recorded basket dwell and transfer",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.record.summary",
+    "description": "Open the basket record",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.revision.finalize",
+    "description": "Finalize reviewed recipe limits",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.revision.terminal",
+    "component": "ProgrammePanel.vue",
+    "description": "Reviewed terminal basket handling"
+  },
+  {
+    "id": "programme.revision.timing",
+    "component": "ProgrammePanel.vue",
+    "description": "Reviewed PLC cycle and timing evidence"
+  },
+  {
+    "id": "programme.run.abort",
+    "component": "ProgrammePanel.vue",
+    "description": "Abort the basket and flag it for inspection"
+  },
+  {
+    "id": "programme.run.resume",
+    "description": "Resume the checked basket from the selected step",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.run.start",
+    "description": "Start the simulated programme",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.run.stop",
+    "description": "Request programme Stop",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.step.row",
+    "description": "Recipe step and effective limits",
+    "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "recorder.agv.checklist",
+    "component": "RecordsPage.vue",
+    "description": "AGV checklist and test exports"
+  },
+  {
+    "id": "recorder.agv.legacy",
+    "component": "RecordsPage.vue",
+    "description": "Open legacy AGV page"
+  },
+  {
+    "id": "recorder.current.panel",
+    "component": "RecordsPage.vue",
+    "description": "Current recording status"
+  },
+  {
+    "id": "recorder.current.stop",
+    "component": "RecordsPage.vue",
+    "description": "Stop recording"
+  },
+  {
+    "id": "recorder.history.download",
+    "component": "RecordsPage.vue",
+    "description": "Download one recording in the selected format"
+  },
+  {
+    "id": "recorder.history.panel",
+    "component": "RecordsPage.vue",
+    "description": "History panel"
+  },
+  {
+    "id": "recorder.history.row",
+    "component": "RecordsPage.vue",
+    "description": "History row"
+  },
+  {
+    "id": "recorder.history.unreadable.row",
+    "component": "RecordsPage.vue",
+    "description": "History unreadable row"
+  },
+  {
+    "id": "recorder.new.devices",
+    "component": "RecordsPage.vue",
+    "description": "Recording devices field"
+  },
+  {
+    "id": "recorder.new.form",
+    "component": "RecordsPage.vue",
+    "description": "New form"
+  },
+  {
+    "id": "recorder.new.metadata",
+    "component": "RecordsPage.vue",
+    "description": "New metadata"
+  },
+  {
+    "id": "recorder.new.metadata.toggle",
+    "component": "RecordsPage.vue",
+    "description": "Session details and notes"
+  },
+  {
+    "id": "recorder.new.notes",
+    "component": "RecordsPage.vue",
+    "description": "Recording session notes"
+  },
+  {
+    "id": "recorder.new.operator",
+    "component": "RecordsPage.vue",
+    "description": "Recording operator name"
+  },
+  {
+    "id": "recorder.new.panel",
+    "component": "RecordsPage.vue",
+    "description": "Start a new recording"
+  },
+  {
+    "id": "recorder.new.rate",
+    "component": "RecordsPage.vue",
+    "description": "Recording sample rate"
+  },
+  {
+    "id": "recorder.new.site",
+    "component": "RecordsPage.vue",
+    "description": "Recording site field"
+  },
+  {
+    "id": "recorder.new.start",
+    "component": "RecordsPage.vue",
+    "description": "Start recording"
+  },
+  {
+    "id": "recorder.new.variable",
+    "component": "RecordsPage.vue",
+    "description": "Include one available status variable"
+  },
+  {
+    "id": "recorder.page",
+    "component": "RecordsPage.vue",
+    "description": "Recorder workspace"
+  },
+  {
+    "id": "safety.module.stop",
+    "component": "StopBar.vue",
+    "description": "Software Stop for an active module job"
+  },
+  {
+    "id": "safety.panel",
+    "component": "StopBar.vue",
+    "description": "Urgent controls"
+  },
+  {
+    "id": "scene.labels.panel",
+    "component": "ScenePage.vue",
+    "description": "Labels panel"
+  },
+  {
+    "id": "scene.labels.row",
+    "component": "ScenePage.vue",
+    "description": "One Scene label in the text fallback"
+  },
+  {
+    "id": "scene.legacy.open",
+    "component": "ScenePage.vue",
+    "description": "Open Legacy tool and collision preview"
+  },
+  {
+    "id": "scene.page",
+    "component": "ScenePage.vue",
+    "description": "Scene workspace"
+  },
+  {
+    "id": "scene.project.form",
+    "component": "ScenePage.vue",
+    "description": "Project form"
+  },
+  {
+    "id": "scene.project.load",
+    "component": "ScenePage.vue",
+    "description": "Load project"
+  },
+  {
+    "id": "scene.project.path",
+    "component": "ScenePage.vue",
+    "description": "Project path"
+  },
+  {
+    "id": "scene.view.canvas",
+    "component": "SceneCanvas.vue",
+    "description": "3D display of the line"
+  },
+  {
+    "id": "scene.view.controls",
+    "component": "SceneCanvas.vue",
+    "description": "View controls"
+  },
+  {
+    "id": "scene.view.fit",
+    "component": "SceneCanvas.vue",
+    "description": "Fit view"
+  },
+  {
+    "id": "scene.view.label.row",
+    "component": "SceneCanvas.vue",
+    "description": "One rendered Scene label"
+  },
+  {
+    "id": "scene.view.panel",
+    "component": "ScenePage.vue",
+    "description": "3D Scene panel"
+  },
+  {
+    "id": "select.option",
+    "component": "main.js",
+    "description": "One option in an open PrimeVue selection list"
+  },
+  {
+    "id": "teaching.advanced.field",
+    "component": "TeacherPage.vue",
+    "description": "Advanced field"
+  },
+  {
+    "id": "teaching.advanced.model",
+    "component": "TeacherPage.vue",
+    "description": "Advanced model"
+  },
+  {
+    "id": "teaching.advanced.panel",
+    "component": "TeacherPage.vue",
+    "description": "Advanced panel"
+  },
+  {
+    "id": "teaching.advanced.refine",
+    "component": "TeacherPage.vue",
+    "description": "Enable refinement for the simulated project"
+  },
+  {
+    "id": "teaching.advanced.toggle",
+    "component": "TeacherPage.vue",
+    "description": "Advanced setup and simulation"
+  },
+  {
+    "id": "teaching.inspect.id",
+    "component": "TeacherPage.vue",
+    "description": "Saved Teaching request ID"
+  },
+  {
+    "id": "teaching.inspect.open",
+    "component": "TeacherPage.vue",
+    "description": "Inspect without resuming"
+  },
+  {
+    "id": "teaching.inspect.panel",
+    "component": "TeacherPage.vue",
+    "description": "Inspect panel"
+  },
+  {
+    "id": "teaching.inspect.toggle",
+    "component": "TeacherPage.vue",
+    "description": "Inspect Teacher request and details"
+  },
+  {
+    "id": "teaching.legacy.open",
+    "component": "TeacherPage.vue",
+    "description": "Legacy Teaching"
+  },
+  {
+    "id": "teaching.motion.agv.off",
+    "component": "TeacherPage.vue",
+    "description": "Confirm the AGV is switched off for a Teaching motion"
+  },
+  {
+    "id": "teaching.motion.approval",
+    "component": "TeacherPage.vue",
+    "description": "Motion approval"
+  },
+  {
+    "id": "teaching.motion.field",
+    "component": "TeacherPage.vue",
+    "description": "Motion field"
+  },
+  {
+    "id": "teaching.motion.panel",
+    "component": "TeacherPage.vue",
+    "description": "Motion panel"
+  },
+  {
+    "id": "teaching.motion.settings",
+    "component": "TeacherPage.vue",
+    "description": "Motion settings"
+  },
+  {
+    "id": "teaching.motion.settings.toggle",
+    "component": "TeacherPage.vue",
+    "description": "Reviewed motion settings"
+  },
+  {
+    "id": "teaching.motion.start",
+    "component": "TeacherPage.vue",
+    "description": "Start the reviewed Teaching motion"
+  },
+  {
+    "id": "teaching.motion.toggle",
+    "component": "TeacherPage.vue",
+    "description": "Open the review for a Teaching motion"
+  },
+  {
+    "id": "teaching.operation.panel",
+    "component": "TeacherPage.vue",
+    "description": "Operation panel"
+  },
+  {
+    "id": "teaching.page",
+    "component": "TeacherPage.vue",
+    "description": "Teaching workspace"
+  },
+  {
+    "id": "teaching.pick.download",
+    "component": "TeacherPage.vue",
+    "description": "Download a Teaching project artifact"
+  },
+  {
+    "id": "teaching.pick.export",
+    "component": "TeacherPage.vue",
+    "description": "Read marker and export poses"
+  },
+  {
+    "id": "teaching.pick.handoff",
+    "component": "TeacherPage.vue",
+    "description": "Continue to Pick/place"
+  },
+  {
+    "id": "teaching.pick.image",
+    "component": "TeacherPage.vue",
+    "description": "Export image"
+  },
+  {
+    "id": "teaching.pick.marker",
+    "component": "TeacherPage.vue",
+    "description": "Confirm the reference marker is fixed"
+  },
+  {
+    "id": "teaching.pick.panel",
+    "component": "TeacherPage.vue",
+    "description": "Pick panel"
+  },
+  {
+    "id": "teaching.pick.save",
+    "component": "TeacherPage.vue",
+    "description": "Read TCP and save pick"
+  },
+  {
+    "id": "teaching.reference.capture",
+    "component": "TeacherPage.vue",
+    "description": "Capture marker"
+  },
+  {
+    "id": "teaching.reference.image",
+    "component": "TeacherPage.vue",
+    "description": "Reference image"
+  },
+  {
+    "id": "teaching.reference.panel",
+    "component": "TeacherPage.vue",
+    "description": "Reference panel"
+  },
+  {
+    "id": "teaching.reference.station",
+    "component": "TeacherPage.vue",
+    "description": "Reference station"
+  },
+  {
+    "id": "teaching.reference.tank.mode",
+    "component": "TeacherPage.vue",
+    "description": "Choose how to update the saved tank reference"
+  },
+  {
+    "id": "teaching.reference.tank.number",
+    "component": "TeacherPage.vue",
+    "description": "Reference tank number"
+  },
+  {
+    "id": "teaching.reference.tank.select",
+    "component": "TeacherPage.vue",
+    "description": "Reference tank select"
+  },
+  {
+    "id": "teaching.scene.open",
+    "component": "TeacherPage.vue",
+    "description": "Open the tool envelope preview"
+  },
+  {
+    "id": "teaching.setup.board",
+    "component": "TeacherPage.vue",
+    "description": "Setup board"
+  },
+  {
+    "id": "teaching.setup.calibration",
+    "component": "TeacherPage.vue",
+    "description": "Setup calibration"
+  },
+  {
+    "id": "teaching.setup.camera",
+    "component": "TeacherPage.vue",
+    "description": "Setup camera"
+  },
+  {
+    "id": "teaching.setup.check",
+    "component": "TeacherPage.vue",
+    "description": "Check setup"
+  },
+  {
+    "id": "teaching.setup.manifest",
+    "component": "TeacherPage.vue",
+    "description": "Setup manifest"
+  },
+  {
+    "id": "teaching.setup.marker",
+    "component": "TeacherPage.vue",
+    "description": "Setup marker"
+  },
+  {
+    "id": "teaching.setup.open",
+    "component": "TeacherPage.vue",
+    "description": "Open saved project"
+  },
+  {
+    "id": "teaching.setup.panel",
+    "component": "TeacherPage.vue",
+    "description": "Setup panel"
+  },
+  {
+    "id": "teaching.setup.printed.board",
+    "component": "TeacherPage.vue",
+    "description": "Select a printed board for Teaching"
+  },
+  {
+    "id": "teaching.setup.project",
+    "component": "TeacherPage.vue",
+    "description": "Setup project"
+  },
+  {
+    "id": "teaching.setup.robot",
+    "component": "TeacherPage.vue",
+    "description": "Setup robot"
+  },
+  {
+    "id": "teaching.setup.target",
+    "component": "TeacherPage.vue",
+    "description": "Setup target"
+  },
+  {
+    "id": "teaching.setup.tcp",
+    "component": "TeacherPage.vue",
+    "description": "Tool center point offset"
+  },
+  {
+    "id": "teaching.setup.tcp.confirm",
+    "component": "TeacherPage.vue",
+    "description": "Confirm the configured TCP"
+  },
+  {
+    "id": "teaching.simulate",
+    "component": "TeacherPage.vue",
+    "description": "Create simulated project"
+  },
+  {
+    "id": "teaching.status.panel",
+    "component": "TeacherPage.vue",
+    "description": "Status panel"
+  },
+  {
+    "id": "teaching.travel.check",
+    "component": "TeacherPage.vue",
+    "description": "Check live travel pose"
+  },
+  {
+    "id": "teaching.travel.folded",
+    "component": "TeacherPage.vue",
+    "description": "Confirm a folded travel pose"
+  },
+  {
+    "id": "teaching.travel.panel",
+    "component": "TeacherPage.vue",
+    "description": "Travel panel"
+  },
+  {
+    "id": "teaching.travel.save",
+    "component": "TeacherPage.vue",
+    "description": "Save current joints as travel pose"
+  },
+  {
+    "id": "teaching.validation.aligned",
+    "component": "TeacherPage.vue",
+    "description": "Alignment looks correct"
+  },
+  {
+    "id": "teaching.validation.capture",
+    "component": "TeacherPage.vue",
+    "description": "Capture for validation"
+  },
+  {
+    "id": "teaching.validation.history",
+    "component": "TeacherPage.vue",
+    "description": "Validation history"
+  },
+  {
+    "id": "teaching.validation.history.row",
+    "component": "TeacherPage.vue",
+    "description": "Validation history row"
+  },
+  {
+    "id": "teaching.validation.history.toggle",
+    "component": "TeacherPage.vue",
+    "description": "Saved validation history"
+  },
+  {
+    "id": "teaching.validation.image",
+    "component": "TeacherPage.vue",
+    "description": "Validation image"
+  },
+  {
+    "id": "teaching.validation.measurement",
+    "component": "TeacherPage.vue",
+    "description": "Validation measurement"
+  },
+  {
+    "id": "teaching.validation.misaligned",
+    "component": "TeacherPage.vue",
+    "description": "Alignment needs adjustment"
+  },
+  {
+    "id": "teaching.validation.panel",
+    "component": "TeacherPage.vue",
+    "description": "Validation panel"
+  },
+  {
+    "id": "teaching.validation.saved",
+    "component": "TeacherPage.vue",
+    "description": "Saved validation image disclosure"
+  },
+  {
+    "id": "teaching.validation.saved.image",
+    "component": "TeacherPage.vue",
+    "description": "Past validation image"
+  },
+  {
+    "id": "teaching.validation.saved.toggle",
+    "component": "TeacherPage.vue",
+    "description": "View saved image"
+  }
+]

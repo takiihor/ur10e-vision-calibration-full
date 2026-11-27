@@ -19,6 +19,7 @@ import cv2
 from . import cli
 from .dataset import load_result
 from .shutdown import stop_on_termination
+from .vision import snapshot_evidence
 
 
 class Channel:
@@ -84,6 +85,8 @@ class Channel:
         self.emit(
             "observation",
             image=image,
+            snapshot=snapshot_evidence(observation.image_frame, observation.image_camera,
+                                       "Burst pose detected" if observation.pose else "No pose") if image else None,
             corners=len(observation.charuco_ids),
             jitter_px=observation.jitter_px,
             rmse_px=observation.pose["reprojection_rmse_px"] if observation.pose else None,
@@ -117,18 +120,23 @@ def run(argv, channel):
     if args.command == "collect":
         if args.yes or args.freedrive:
             raise ValueError("The UI requires motion approval and pendant jogging for manual captures")
-        code = cli.cmd_collect(
-            args,
-            confirm=lambda summary: channel.request("motion", summary),
-            read_line=lambda summary: channel.request("manual", summary),
-            on_capture=lambda record, observation: channel.observation(observation, record),
-        )
+        cleanup_errors = []
+        try:
+            code = cli.cmd_collect(
+                args,
+                confirm=lambda summary: channel.request("motion", summary),
+                read_line=lambda summary: channel.request("manual", summary),
+                on_capture=lambda record, observation: channel.observation(observation, record),
+                on_cleanup_failure=cleanup_errors.append,
+            )
+        finally:
+            channel.emit("calibration_cleanup", errors=cleanup_errors)
     elif args.command == "check":
         code = cli.cmd_check(args, on_observation=channel.observation)
     elif args.command == "simulate":
         code = cli.cmd_simulate(args, on_capture=lambda record, obs: channel.observation(obs, record))
     elif args.command == "verify":
-        code = cli.cmd_verify(args, on_report=lambda report: channel.emit("verification", report=report))
+        code = cli.cmd_verify(args, on_report=lambda report: channel.emit("verification", report=report, path=args.output))
     elif args.command == "intrinsics":
         code = cli.cmd_intrinsics(
             args, on_result=lambda model, path: channel.emit("intrinsics", model=model, path=path))
@@ -171,7 +179,7 @@ def main(argv=None):
             channel.emit("log", message="Operation interrupted; hardware cleanup requested. Check the robot state.")
             return 130
         except Exception as exc:
-            channel.emit("log", message=f"error: {exc}")
+            channel.emit("error", message=str(exc))
             return 2
         finally:
             channel.closed.set()

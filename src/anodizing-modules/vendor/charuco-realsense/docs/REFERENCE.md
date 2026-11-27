@@ -198,7 +198,7 @@ for example with `~/.config/autostart/charuco-monitor.desktop`:
 [Desktop Entry]
 Type=Application
 Name=ChArUco monitor
-Exec=/home/USER/development/charuco-realsense/start_camera.sh gui --board front --auto-record
+Exec=/path/to/charuco-realsense gui --board front --auto-record
 ```
 
 ### Host checklist
@@ -338,19 +338,19 @@ still use a different base projection. Use a matching
 OpenCV calibration or rectify images with their actual model before offline use.
 
 To override factory intrinsics, pass `--calibration calibration.json`. This is
-also required for offline `detect --image ... --pose`. Example format (the values
-below are illustrative; replace them with a calibration for your camera):
+also required for offline `detect --image ... --pose`. This synthetic pinhole
+example shows the file format. Supply the calibration for your camera.
 
 ```json
 {
-  "width": 1280,
-  "height": 720,
-  "fx": 904.3,
-  "fy": 903.2,
-  "ppx": 657.7,
-  "ppy": 363.9,
+  "width": 800,
+  "height": 600,
+  "fx": 700.0,
+  "fy": 700.0,
+  "ppx": 400.0,
+  "ppy": 300.0,
   "model": "opencv",
-  "coeffs": [-0.1, 0.02, 0.0, 0.0, 0.0]
+  "coeffs": [0.0, 0.0, 0.0, 0.0, 0.0]
 }
 ```
 
@@ -431,8 +431,7 @@ The camera first tries the requested profile (default 1280x720@30), then
 profiles are respectively 640x480@15, 640x480@30, and 848x480@10. Startup verifies
 that a frame arrives before accepting a profile; a five-second timeout releases
 that profile and tries the next fallback. The actual profile
-is recorded. The tested USB 2.1 connection negotiates color 1280x720@15; USB 3.0
-provides more bandwidth. Frame-number gaps should be considered when comparing
+is recorded. Check the negotiated USB link and frame-number gaps when comparing
 runs with different capture or image-saving settings.
 
 ## Python API

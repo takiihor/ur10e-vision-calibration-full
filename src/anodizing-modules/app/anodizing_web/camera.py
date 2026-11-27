@@ -22,7 +22,7 @@ def board_preview(manifest, board, serial, *, enabled=False, camera_provider='re
     if not isinstance(serial, str) or not serial.strip():
         raise ValueError('Select a camera serial number.')
     import cv2
-    from ur_handeye.vision import BoardObserver, BoardTarget
+    from ur_handeye.vision import BoardObserver, BoardTarget, snapshot_evidence
 
     if camera_provider not in ('realsense', 'basler'):
         raise ValueError('Select RealSense or Basler as the camera provider.')
@@ -55,8 +55,10 @@ def board_preview(manifest, board, serial, *, enabled=False, camera_provider='re
             if not ok:
                 raise ValueError('Could not encode the camera image.')
             encoded = base64.b64encode(jpeg).decode('ascii')
-        return {'camera': camera.metadata, 'board': target.describe(),
-                'observation': observation.to_record(), 'usable': usable,
+        record = observation.to_record()
+        metadata = camera.metadata
+        return {'camera': metadata, 'board': target.describe(), 'observation': record, 'usable': usable,
+                'snapshot': snapshot_evidence(observation.image_frame, metadata, 'Burst pose detected' if record.get('pose') else 'No pose') if encoded else None,
                 'reasons': reasons, 'image_jpeg_base64': encoded}
     finally:
         camera.close()
@@ -74,7 +76,7 @@ def camera_preview(manifest, board, serial, *, enabled=False, camera_provider='b
     import cv2
     import numpy as np
     from charuco_realsense.detect import CharucoDetector
-    from ur_handeye.vision import BoardTarget
+    from ur_handeye.vision import BoardTarget, frame_evidence, snapshot_evidence
 
     target = BoardTarget(manifest, board)
     detector = CharucoDetector(target.board, target.border_bits, refine=False)
@@ -93,11 +95,12 @@ def camera_preview(manifest, board, serial, *, enabled=False, camera_provider='b
         best = None
         for _ in range(3):
             frame = camera.read()
+            evidence = frame_evidence(frame)
             gray = cv2.cvtColor(frame.bgr, cv2.COLOR_BGR2GRAY)
             detection = detector.detect(gray, frame.intrinsics)
             if best is None or len(detection.charuco_ids) > len(best[1].charuco_ids):
-                best = (frame, detection)
-        frame, detection = best
+                best = (frame, detection, evidence)
+        frame, detection, evidence = best
         image = frame.bgr.copy()
         if detection.marker_ids:
             cv2.aruco.drawDetectedMarkers(image, detection.marker_corners.reshape(-1, 1, 4, 2),
@@ -114,7 +117,9 @@ def camera_preview(manifest, board, serial, *, enabled=False, camera_provider='b
             raise ValueError('Could not encode the camera image.')
         reasons = [] if detection.charuco_ids else (
             ['no_markers'] if not detection.marker_ids else ['no_charuco_corners'])
-        return {'camera': camera.metadata, 'board': target.describe(), 'preview_only': True,
+        metadata = camera.metadata
+        return {'camera': metadata, 'board': target.describe(), 'preview_only': True,
+                'snapshot': snapshot_evidence(evidence, metadata, 'No pose · camera preview'),
                 'marker_ids': list(detection.marker_ids), 'charuco_ids': list(detection.charuco_ids),
                 'charuco_count': len(detection.charuco_ids), 'usable': bool(detection.charuco_ids),
                 'reasons': reasons, 'image_jpeg_base64': base64.b64encode(jpeg).decode('ascii')}

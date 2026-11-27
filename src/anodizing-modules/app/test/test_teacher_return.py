@@ -33,7 +33,7 @@ class ReturnTests(unittest.TestCase):
         self.observation_path.write_text(json.dumps(self.project.observation.to_json()))
         self.observation_sha = digest(self.observation_path)
         self.public_server()
-        self.body = dict(self.return_body,action='return_observation',project='project',
+        self.body = dict(self.return_body,action='return_observation',project='project',agv_off=True,
             request_id='checked-return-001',collision_scene='selected-scene.json')
         self.project.validation = None  # Return needs no successful marker validation.
 

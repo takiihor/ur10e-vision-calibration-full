@@ -28,6 +28,7 @@ from .targets import same_target, target_from_config
 from .transforms import matrix_to_pose
 
 VERSION = '0.3.1'
+SNAPSHOT_KINDS = ('reference', 'locate', 'validation')
 
 
 def digest(path):
@@ -110,6 +111,7 @@ class PreviewCamera:
 
     def read(self):
         frame = self.camera.read()
+        self.acquired_at = datetime.now(timezone.utc).isoformat()
         self.last = frame.bgr.copy()
         return frame
 
@@ -173,6 +175,13 @@ class TeachingProject:
         self.validation = None
         history = self.directory / 'validation_history.json'
         self.validation_history = read_json(history) if history.exists() else []
+        self.agv = self.tank = None
+        self.snapshots = {}
+        for kind in SNAPSHOT_KINDS:
+            try:
+                self.snapshots[kind] = read_json(self.directory / f'{kind}-snapshot.json')
+            except FileNotFoundError:
+                self.snapshots[kind] = None
         path = self.directory / 'project.json'
         if path.exists():
             saved = read_json(path)
@@ -186,6 +195,8 @@ class TeachingProject:
                 raise ValueError('This folder belongs to different settings or changed input files. '
                                  'Choose a new project folder to teach again.')
             self.flow = saved['flow']
+            self.agv = saved.get('agv')
+            self.tank = saved.get('tank')
             if self.flow['captured']:
                 self.observation = Observation.from_json(read_json(self.directory / 'observation.json'))
                 if self.observation.calibration_sha256 != self.calibration.sha256 or not same_target(self.observation.target, self.target):
@@ -202,8 +213,13 @@ class TeachingProject:
         config = asdict(self.config)
         config.pop('base_dir')
         atomic_json(self.directory / 'vision.json', config)
-        atomic_json(self.directory / 'project.json', {'schema_version': 1, 'type': 'marker_pick_project',
-                    'software_version': VERSION, 'settings': self.settings, 'inputs': self.inputs, 'flow': self.flow})
+        record = {'schema_version': 1, 'type': 'marker_pick_project',
+                  'software_version': VERSION, 'settings': self.settings, 'inputs': self.inputs, 'flow': self.flow}
+        if self.agv is not None:
+            record['agv'] = self.agv
+        if self.tank is not None:
+            record['tank'] = self.tank
+        atomic_json(self.directory / 'project.json', record)
 
     def check_inputs(self):
         if digest(self.settings['calibration']) != self.inputs['calibration']:
@@ -221,9 +237,14 @@ class TeachingProject:
         finally:
             _close(receive)
 
-    def _look(self, image_name='capture.jpg', *, reference=False):
+    def snapshot(self, kind):
+        return self.snapshots[kind]
+
+    def _look(self, kind):
+        self.snapshots[kind] = None
+        (self.directory / f'{kind}-snapshot.json').unlink(missing_ok=True)
         config = self.config
-        if reference:
+        if kind == 'reference':
             config = replace(config, quality=replace(config.quality,
                 min_pixels_per_module=max(4.0, config.quality.min_pixels_per_module)))
         with self.receiver() as source:
@@ -247,7 +268,21 @@ class TeachingProject:
                         cv2.drawFrameAxes(image, k, distortion, np.asarray(pose[3:]), np.asarray(pose[:3]), 0.03)
                     ok, encoded = cv2.imencode('.jpg', image)
                     if ok:
-                        (self.directory / image_name).write_bytes(encoded.tobytes())
+                        content = encoded.tobytes()
+                        stamp = {'id': uuid.uuid4().hex, 'kind': kind, 'acquired_at': preview.acquired_at,
+                                 'provider': self.config.camera.provider, 'camera': self.calibration.camera_serial,
+                                 'detection': 'Pose detected' if observation is not None else 'No pose',
+                                 'sha256': hashlib.sha256(content).hexdigest()}
+                        with (self.directory / f"{kind}-{stamp['id']}.jpg").open('xb') as image_file:
+                            image_file.write(content)
+                        atomic_json(self.directory / f'{kind}-snapshot.json', stamp)
+                        self.snapshots[kind] = stamp
+                        # The standalone/legacy image URLs use the latest image for this step.
+                        name = {'reference': 'capture', 'validation': 'validation'}.get(kind)
+                        if name:
+                            temporary = self.directory / f".{stamp['id']}.jpg"
+                            temporary.write_bytes(content)
+                            temporary.replace(self.directory / f'{name}.jpg')
 
     def _invalidate_export(self):
         self.validation = None
@@ -263,21 +298,29 @@ class TeachingProject:
             archive.mkdir(exist_ok=True)
             grasp.replace(archive / (str(time.time_ns()) + '-grasp_pick.json'))
 
-    def capture(self):
+    def capture(self, *, agv=None, tank_edit=None, defer=False):
         self._invalidate_export()
         self._archive_grasp()
         # Re-capturing replaces the teaching reference and invalidates its taught offset.
         self.flow = {'captured': False, 'taught': False, 'exported': False}
-        self.observation = self.taught = self.exported = None
+        self.observation = self.taught = self.exported = self.agv = None
         self._persist()
-        observation = self._look(reference=True)
+        observation = self._look('reference')
         self.check_inputs()
-        self.observation = observation
-        self.config.pick.observe_joints = list(observation.robot['joints_rad'])
         atomic_json(self.directory / 'observation.json', observation.to_json())
-        self.flow['captured'] = True
-        self._persist()
+        if not defer:
+            self.finish_capture(agv=agv, tank_edit=tank_edit)
         return observation.summary()
+
+    def finish_capture(self, *, agv, tank_edit=None):
+        self.check_inputs()
+        self.observation = Observation.from_json(read_json(self.directory / 'observation.json'))
+        self.config.pick.observe_joints = list(self.observation.robot['joints_rad'])
+        self.flow['captured'] = True
+        self.agv = agv
+        if tank_edit and 'tank' in tank_edit:
+            self.tank = tank_edit['tank']
+        self._persist()
 
     def save_pick(self, *, marker_unchanged=False):
         if self.observation is None or not self.flow['captured']:
@@ -308,7 +351,7 @@ class TeachingProject:
             raise ValueError('Save a picking position first')
         self._invalidate_export()
         self._persist()
-        observation = self._look()
+        observation = self._look('locate')
         self.check_inputs()
         exported = self._target(observation)
         pick, approach = exported['pick_tcp_pose_m_rad'], exported['approach_tcp_pose_m_rad']
@@ -327,9 +370,9 @@ class TeachingProject:
             raise ValueError('Save a picking position first')
         self.validation = None
         (self.directory / 'validation_capture.json').unlink(missing_ok=True)
-        observation = self._look('validation.jpg')
+        observation = self._look('validation')
         self.check_inputs()
-        record = dict(self._target(observation), id=uuid.uuid4().hex, status='captured',
+        record = dict(self._target(observation), id=uuid.uuid4().hex, status='captured', snapshot=self.snapshot('validation'),
                       marker_tcp_pose_m_rad=matrix_to_pose(observation.base_target),
                       capture_robot=observation.robot, grasp_sha256=digest(self.directory / 'grasp_pick.json'))
         # Full-pose projects validate the actual pick, including Z and tilt. Keep
@@ -387,7 +430,8 @@ class TeachingProject:
         return {'project': str(self.directory), 'settings': self.settings, 'flow': self.flow,
                 'calibration': dict(self.calibration.summary(), camera_serial=self.calibration.camera_serial), 'target': self.target.label,
                 'observation': None if self.observation is None else self.observation.summary(),
-                'taught': self.taught, 'exported': self.exported,
+                'taught': self.taught, 'exported': self.exported, 'agv': self.agv, 'tank': self.tank,
+                'snapshots': dict(self.snapshots),
                 'validation': self.validation, 'validation_history': self.validation_history,
                 'observe_joints': self.config.pick.observe_joints,
                 'files': ['project.json', 'vision.json', 'observation.json', 'grasp_pick.json',

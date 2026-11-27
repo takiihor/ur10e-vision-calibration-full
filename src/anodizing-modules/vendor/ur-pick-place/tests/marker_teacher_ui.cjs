@@ -2,10 +2,14 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const root=require('node:path').join(__dirname,'../src/ur_pick_place/web/');
 const html=fs.readFileSync(root+'teacher.html','utf8');
 assert.match(html,/<form id="setup" novalidate>/);
+for (const side of ['min', 'max']) {
+ const input = html.match(new RegExp('<input id="validation-workspace-' + side + '"[^>]*>'))[0];
+ assert.doesNotMatch(input, / value="[^"]+"/, 'The operator must enter the workspace bounds');
+}
 const ids=[...html.matchAll(/id="([^"]+)"/g)].map(x=>x[1]);
 let invalidField=null,configureError='';
 const elements=Object.fromEntries(ids.map(id=>[id,{id,value:'',textContent:'',checked:false,hidden:false,disabled:false,events:{},classList:{toggle(){}},addEventListener(k,fn){this.events[k]=fn;},append(){},setAttribute(k,v){this[k]=v;},focus(){this.focused=true;},querySelector(){return invalidField;},querySelectorAll(){return [];},closest(){return elements['setup-advanced'];},reportValidity(){return false;}}]));
-const settings={project:'/tmp/project',calibration:'/tmp/calibration.json',robot_ip:'fake',tcp:[0,0,.07,0,0,0],target:{kind:'charuco',board_manifest:'/tmp/board.json',board:'front'},motion_model:'planar',approach_mm:100,limits:{max_shift_mm:30,max_rotation_deg:15}};
+const settings={project:'/tmp/project',calibration:'/tmp/calibration.json',robot_ip:'fake',tcp:[0,0,.083,0,0,0],target:{kind:'charuco',board_manifest:'/tmp/board.json',board:'front'},motion_model:'planar',approach_mm:100,limits:{max_shift_mm:30,max_rotation_deg:15}};
 const project={settings,project:settings.project,flow:{captured:false,taught:false,exported:false},calibration:{verdict:'good',camera_serial:'fake'},target:'Test board',observe_joints:[0,0,0,0,0,0]};
 const boardOptions=[{target:settings.target,dimensions_mm:[80,80],dictionary:'DICT_6X6_250'},
  {target:{kind:'charuco',board_manifest:'/tmp/tanks.json',board:'tank15'},dimensions_mm:[80,80],dictionary:'DICT_6X6_250'}];
@@ -62,11 +66,11 @@ const tick=()=>new Promise(resolve=>setImmediate(resolve));
  assert.equal(elements['picking-board'].value,'1'); // bubbling setup input must retain the selection
  assert.equal(elements.calibration.value,settings.calibration);
  elements['picking-board'].value='0';elements['picking-board'].events.input();elements.setup.events.input();
- assert.equal(elements.tcp.value,'0, 0, 70, 0, 0, 0');
- assert.match(elements['calibration-tcp'].textContent,/XYZ mm.*0, 0, 70, 0, 0, 0/);
+ assert.equal(elements.tcp.value,'0, 0, 83, 0, 0, 0');
+ assert.match(elements['calibration-tcp'].textContent,/XYZ mm.*0, 0, 83, 0, 0, 0/);
  elements.tcp.value='1, 2, 3, 0, 0, 0';
  elements.calibration.events.change();
- assert.equal(elements.tcp.value,'0, 0, 70, 0, 0, 0');
+ assert.equal(elements.tcp.value,'0, 0, 83, 0, 0, 0');
  assert.equal(elements.capture.disabled,true);
  assert.equal(elements['step-configure'].hidden,false);
  for(const id of ['capture','teach','locate']) assert.equal(elements['step-'+id].hidden,true);
@@ -112,7 +116,10 @@ const tick=()=>new Promise(resolve=>setImmediate(resolve));
  assert.equal(elements.teach.disabled,false);
  elements.teach.events.click();await tick();await tick();
  assert.equal(elements.locate.disabled,false);
- assert.equal(elements['teach-observation-return'].disabled,false);
+ assert.equal(elements['validation-settings'].hidden,false);
+ await elements['teach-observation-return'].events.click();await tick();
+ assert.match(elements.message.textContent,/Workspace needs three XYZ/);
+ assert.equal(state.return_result,undefined);
  elements['observation-return-speed'].value='3';elements['validation-workspace-min'].value='-900, -900, 20';elements['validation-workspace-max'].value='900, 900, 1200';
  const taught=structuredClone(project.taught);
  await elements['teach-observation-return'].events.click();await tick();await tick();
@@ -178,7 +185,7 @@ const tick=()=>new Promise(resolve=>setImmediate(resolve));
  assert.equal(elements.tcp_confirmed.checked,false);
  settings.min_pixels_per_module=4;
  elements.open.events.click();await tick();await tick();
- assert.equal(elements.tcp.value,'0, 0, 70, 0, 0, 0'); // saved JSON stays in metres
+ assert.equal(elements.tcp.value,'0, 0, 83, 0, 0, 0'); // saved JSON stays in metres
  // The backend deliberately clears fresh exports and validation permission when reopening.
  project.flow.exported=false;project.exported=null;project.validation=null;
  elements.tcp_confirmed.checked=true;

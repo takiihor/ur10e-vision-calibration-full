@@ -1,0 +1,144 @@
+{
+  "id": "legacy-interrupted-final",
+  "module": "executor",
+  "fingerprint": "legacy-fake-fingerprint-final",
+  "state": "interrupted",
+  "created": 1700000000,
+  "events": [],
+  "pending": null,
+  "result": null,
+  "error": "Service restarted. Review the saved artifacts.",
+  "executor_payload": {
+    "type": "dip",
+    "version": 1,
+    "params": {
+      "steps": [
+        {
+          "id": "step-0",
+          "tank": "tank-0",
+          "role": "seal",
+          "station": 1,
+          "setpoint": 30,
+          "limits": {
+            "min": 30,
+            "overstay": null,
+            "air": null
+          },
+          "terminal": true
+        }
+      ],
+      "source": "input",
+      "hold": "output",
+      "expected_basket": "released",
+      "run_id": "legacy-fake-run",
+      "basket": "legacy-fake-basket",
+      "recipe_revision": "legacy-fake-revision"
+    }
+  },
+  "checkpoint": {
+    "sequence": 6,
+    "boot": "legacy-boot-final",
+    "intent": null,
+    "confirmed": [
+      {
+        "effect": "place",
+        "value": {
+          "id": "step-0",
+          "tank": "tank-0",
+          "role": "seal",
+          "station": 1,
+          "setpoint": 30,
+          "limits": {
+            "min": 30,
+            "overstay": null,
+            "air": null
+          },
+          "terminal": true,
+          "source": "input",
+          "gripper": "released",
+          "basket": "legacy-fake-basket",
+          "run_id": "legacy-fake-run"
+        },
+        "evidence": {
+          "cycle": 1,
+          "timer_start_s": 1,
+          "elapsed_s": 0,
+          "done": false,
+          "basket_present": true,
+          "equipment_on": false,
+          "start_s": 1.111480918014422,
+          "clock_s": 1.1170091510284692,
+          "reserve": {
+            "usable_s": 86399,
+            "required_s": 40,
+            "fresh": true,
+            "observed_mono_s": 1
+          }
+        }
+      },
+      {
+        "effect": "dwell",
+        "value": {
+          "id": "step-0",
+          "tank": "tank-0",
+          "role": "seal",
+          "station": 1,
+          "setpoint": 30,
+          "limits": {
+            "min": 30,
+            "overstay": null,
+            "air": null
+          },
+          "terminal": true
+        },
+        "evidence": {
+          "cycle": 1,
+          "elapsed_s": 30,
+          "timer_s": 31,
+          "done": true,
+          "basket_present": true,
+          "equipment_on": false,
+          "done_s": 31.131810053018853,
+          "sample_s": 31.131817477056757,
+          "clock_s": 31.139067347045057,
+          "reserve": {
+            "usable_s": 86399,
+            "required_s": 40,
+            "fresh": true,
+            "observed_mono_s": 1
+          }
+        }
+      },
+      {
+        "effect": "lift",
+        "value": "output",
+        "evidence": {
+          "location": "output",
+          "released": true,
+          "lift_s": 31.157964978017844,
+          "clock_s": 31.162730789976195,
+          "reserve": {
+            "usable_s": 86369,
+            "required_s": 10,
+            "fresh": true,
+            "observed_mono_s": 1
+          }
+        }
+      }
+    ],
+    "admission_reserve": {
+      "usable_s": 86399,
+      "required_s": 40,
+      "fresh": true,
+      "observed_mono_s": 1
+    },
+    "reserve": {
+      "usable_s": 86369,
+      "required_s": 10,
+      "fresh": true,
+      "observed_mono_s": 1
+    }
+  },
+  "execution_uncertain": true,
+  "executor_ack": true
+}

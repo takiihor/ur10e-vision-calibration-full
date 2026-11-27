@@ -2,6 +2,7 @@
 (() => {
   const el=id=>document.getElementById(id), token=document.querySelector('meta[name="module-token"],meta[name="teach-token"]').content;
   let current=null, replying=false, connected=false, pollGeneration=0, ownerActive, discovery, shownPrompt, ownerReason='', mcuReason='';
+  const remember=id=>{try{localStorage.setItem('ano-manual-inspect-id',id);}catch{}};
   const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   async function api(path,body) {
     const response=await fetch(path,{headers:{'X-Module-Token':token,...(body?{'Content-Type':'application/json'}:{})},
@@ -12,9 +13,28 @@
     const manual=job.manual||job.result?.manual||{}, prompt=manual.prompt;
     const stage=manual.stage||'preflight', phases={awaiting_plan:'Review the route. Approve the plan to continue.',awaiting_grip:'Use the MCU buttons to grip. Check the item, then confirm held.',awaiting_release:'Use the MCU buttons to release. Check the item, then confirm released.'};
     el('manual-job-status').dataset.stage=stage;
+    el('manual-job-status').dataset.state=job.state;
     el('manual-job-status').dataset.jobId=job.id;
     el('manual-job-status').textContent=`${manual.operation||'Operation'} · ${job.state} · ${phases[stage]||stage.replaceAll('_',' ')} · item: ${(manual.item_state||'unknown').replaceAll('_',' ')}${job.error?' · '+job.error:''}`;
     if(manual.repeat){const r=manual.repeat;el('manual-job-status').textContent=`Automatic test · ${job.state} · ${r.completed_transfers}/${r.transfers} commanded transfers completed · ${r.source||'A'} → ${r.destination||'B'} · ${manual.operation||'REPEAT'} · ${stage.replaceAll('_',' ')} · commanded rod endpoint: ${r.commanded_rod_endpoint||'unknown'} (unverified)${job.error?' · '+job.error:''}`;}
+    if(manual.repeat){
+      const leg=manual.agv_leg;
+      let agv=job.state==='running'&&manual.agv_robot_station?`Robot at station ${manual.agv_robot_station}: ${manual.operation}…`:'';
+      if(stage==='robot_to_travel_pose')agv='Robot to travel pose…';
+      if(leg){
+        const ack=leg.ack_s==null?'':` acknowledged (${leg.ack_s.toFixed(1)} s)…`;
+        const deadline=leg.ack_s==null?leg.ack_deadline_epoch:leg.deadline_epoch;
+        const wait=Math.max(0,Math.ceil(deadline-Date.now()/1000));
+        const travel=leg.arrival_s==null?(job.state==='running'?` ${ack?'Arriving':'Waiting for acknowledgement'} · ${wait} s left`:''):
+          ` arrived (${leg.arrival_s.toFixed(1)} s)`;
+        agv=`AGV to station ${leg.to_station}…${ack}${travel}${agv?' · '+agv:''}`;
+      }
+      if(stage==='checking_agv')agv='Checking AGV station and link…';
+      if(agv)el('manual-job-status').textContent+=' · '+agv;
+    }
+    const alarm=el('pick-agv-job-alarm');
+    if(alarm&&alarm.textContent!==(manual.agv_alarm||''))alarm.textContent=manual.agv_alarm||'';
+    document.dispatchEvent(new CustomEvent('manual-job-update',{detail:job}));
     if(manual.robot_step)el('manual-job-status').textContent=`Robot step · ${job.state} · ${stage==='awaiting_plan'?'Review the exact step plan.':stage.replaceAll('_',' ')}${job.error?' · '+job.error:''}`;
     el('manual-reply-confirmed').closest('label').style.display=manual.repeat?'none':'';
     el('manual-reply').style.display=manual.repeat?'none':'';
@@ -82,7 +102,7 @@
         el('manual-reply-confirmed').checked=false;
         el('manual-reply').disabled=true;el('manual-stop').disabled=true;
         el('manual-current-job').value=active;
-        localStorage.setItem('ano-manual-inspect-id',active);
+        remember(active);
         track(active);
       }
       if(!active)ownerActive=null;
@@ -102,7 +122,7 @@
     // No persisted request body, permissions, automatic resend or automatic answer.
     el('manual-current-job').value=id;
     el('manual-job-status').textContent='Submitting '+id+'; if acknowledgement is lost, inspect this ID. Do not create a replacement job.';
-    localStorage.setItem('ano-manual-inspect-id',id);
+    remember(id);
     try {current=await api(path,{request_id:id,...body});connected=true;render(current);track(id);return current;}
     catch(error){el('manual-job-status').textContent=error.message+' Job '+id+'; inspect before any new request.';throw error;}
   };
@@ -121,7 +141,8 @@
     try {await api('/api/manual-control',{job_id:el('manual-current-job').value.trim(),action:'stop'});}
     catch(error){el('manual-job-status').textContent='Stop was not acknowledged. Use the pendant stop. '+error.message;}
   });
-  el('manual-current-job').value=localStorage.getItem('ano-manual-inspect-id')||'';
+  try{el('manual-current-job').value=localStorage.getItem('ano-manual-inspect-id')||'';}catch{}
+  if(el('manual-current-job').value)track(el('manual-current-job').value);
   el('manual-reply-confirmed').checked=false;
   discover();setInterval(discover,1500);
 })();

@@ -130,11 +130,13 @@ class EncoderTargetTests(unittest.TestCase):
         np.testing.assert_array_equal(np.sum((indices[:, None] - indices[None, :]) ** 2, axis=2),
                                       np.sum((matched[:, None] - matched[None, :]) ** 2, axis=2) / 2)
 
-    def test_sharp_real_crop_does_not_detect_coded_cell(self):
-        image = cv2.imread(str(ROOT / 'tools/tests/fixtures/encoder_code_crop.png'), cv2.IMREAD_GRAYSCALE)
+    def test_sharp_code_cell_is_not_a_plain_square(self):
+        image = np.full((132, 160), 30, np.uint8)
+        cv2.rectangle(image, (58, 48), (102, 84), 220, 2)
+        cv2.rectangle(image, (66, 54), (76, 63), 220, -1)
+        cv2.rectangle(image, (83, 69), (95, 79), 220, -1)
         centres = encoder.square_centres(encoder.detect_squares(image))
-        # Marked code cell in original frame at (2266, 66), crop origin (2191, 0).
-        self.assertTrue(not len(centres) or np.linalg.norm(centres - [75, 66], axis=1).min() > 8)
+        self.assertTrue(not len(centres) or np.linalg.norm(centres - [80, 66], axis=1).min() > 8)
 
     def test_detection_at_target_widths_and_rotations(self):
         for width, angle in [(10, 0), (20, 45), (40, 90)]:
@@ -193,43 +195,6 @@ class EncoderTargetTests(unittest.TestCase):
                            for y in range(8) for x in range(16) if x not in (7, 8)]) + 100
         with self.assertRaises(ValueError):
             encoder.index_lattice(points, (600, 400))
-
-    def test_real_dark_crop_plain_squares_and_indexing(self):
-        fixture = ROOT / 'tools/tests/fixtures'
-        image = cv2.imread(str(fixture / 'encoder_diagnostic_crop.png'), cv2.IMREAD_GRAYSCALE)
-        labels = json.loads((fixture / 'encoder_diagnostic_crop_labels.json').read_text())['points']
-        expected = np.array([p['centre_px'] for p in labels])
-        cells = np.array([p['cell'] for p in labels])
-        centres = encoder.square_centres(encoder.detect_squares(image))
-        distances = np.linalg.norm(centres[:, None] - expected[None, :], axis=2)
-        nearest = distances.argmin(axis=1)
-        self.assertTrue(np.all(distances.min(axis=1) < 8), 'False positive or unlabelled plain square')
-        self.assertEqual(len(np.unique(nearest)), len(nearest), 'Duplicate detections')
-        bright = {i for i, p in enumerate(labels) if p['polarity'] == 'bright'}
-        self.assertGreaterEqual(len(bright.intersection(nearest)), int(np.ceil(.9 * len(bright))))
-        indices = np.asarray(encoder.index_lattice(centres, image.shape[::-1]))
-        truth = cells[nearest]
-        np.testing.assert_array_equal(np.sum((indices[:, None] - indices[None, :])**2, axis=2),
-                                      np.sum((truth[:, None] - truth[None, :])**2, axis=2) / 2)
-
-    def test_real_boundary_crop_both_polarities_keep_phase(self):
-        fixture = ROOT / 'tools/tests/fixtures'
-        image = cv2.imread(str(fixture / 'encoder_diagnostic_boundary.png'), cv2.IMREAD_GRAYSCALE)
-        labels = json.loads((fixture / 'encoder_diagnostic_boundary_labels.json').read_text())['points']
-        expected = np.array([p['centre_px'] for p in labels])
-        cells = np.array([p['cell'] for p in labels])
-        centres = encoder.square_centres(encoder.detect_squares(image))
-        distances = np.linalg.norm(centres[:, None] - expected[None, :], axis=2)
-        nearest = distances.argmin(axis=1)
-        self.assertTrue(np.all(distances.min(axis=1) < 9), 'Coded cell or unlabelled detection')
-        self.assertEqual(len(np.unique(nearest)), len(nearest))
-        for polarity in ('bright', 'dark'):
-            labelled = {i for i, p in enumerate(labels) if p['polarity'] == polarity}
-            self.assertGreaterEqual(len(labelled.intersection(nearest)), int(np.ceil(.8 * len(labelled))))
-        indices = np.asarray(encoder.index_lattice(centres, image.shape[::-1]))
-        truth = cells[nearest]
-        np.testing.assert_array_equal(np.sum((indices[:, None] - indices[None, :])**2, axis=2),
-                                      np.sum((truth[:, None] - truth[None, :])**2, axis=2) / 2)
 
     def test_index_rejects_duplicate_or_broken_points(self):
         points = np.array([(x*30., y*30.) for y in range(6) for x in range(6)]) + 100

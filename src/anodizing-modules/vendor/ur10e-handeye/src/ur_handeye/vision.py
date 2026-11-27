@@ -9,6 +9,8 @@ import math
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from uuid import uuid4
 
 import cv2
 import numpy as np
@@ -26,6 +28,20 @@ CALIBRATION_POSE_OPTIONS = PoseOptions(refine=True, min_corners=10, min_coverage
 
 class VisionError(RuntimeError):
     pass
+
+
+def frame_evidence(frame):
+    return {'id': uuid4().hex, 'acquired_at': datetime.now(timezone.utc).isoformat(),
+            'frame': frame.frame_number, 'clock': frame.timestamp_domain}
+
+
+def snapshot_evidence(frame, camera, detection):
+    if not isinstance(frame, dict):
+        return None
+    device = camera.get('device') or {}
+    simulated = frame['clock'] == 'simulated' or camera.get('simulated')
+    return {**frame, 'provider': 'simulated' if simulated else camera.get('provider', 'realsense'),
+            'camera': device.get('serial_number'), 'detection': detection}
 
 
 def refine_corners(image_gray: np.ndarray, pixels: np.ndarray) -> np.ndarray | None:
@@ -108,6 +124,8 @@ class Observation:
     image_bgr: np.ndarray | None
     frame_rejections: dict[str, int] = field(default_factory=dict)
     frames: list = field(default_factory=list)
+    image_frame: dict | None = None
+    image_camera: dict = field(default_factory=dict)
 
     @property
     def board_in_camera(self) -> np.ndarray | None:
@@ -148,6 +166,7 @@ class BoardObserver:
     def __init__(self, camera, target: BoardTarget, pose_options: PoseOptions = CALIBRATION_POSE_OPTIONS,
                  intrinsics: dict | None = None, *, refine: bool = True):
         self.camera, self.target, self.pose_options = camera, target, pose_options
+        self.camera_metadata = getattr(camera, 'metadata', {})
         self.intrinsics_override = intrinsics
         self.refine = refine
         self.detector = CharucoDetector(target.board, target.border_bits, refine=False)
@@ -157,6 +176,7 @@ class BoardObserver:
             raise ValueError("frames must be at least 1")
         samples: dict[int, list[np.ndarray]] = defaultdict(list)
         image, intrinsics, used, size = None, None, 0, None
+        image_frame = None
         first_intrinsics, first_size = None, None
         frame_numbers = set()
         captured = self.captured_frames = []
@@ -164,6 +184,7 @@ class BoardObserver:
             if monitor is not None:
                 monitor()
             frame: Frame = self.camera.read()
+            evidence = frame_evidence(frame) if image is None else None
             detail = {"camera_frame_number": frame.frame_number, "camera_timestamp_ms": frame.timestamp_ms,
                       "camera_timestamp_domain": frame.timestamp_domain, "skip_reason": None}
             captured.append((frame, detail))
@@ -187,6 +208,7 @@ class BoardObserver:
                           charuco_corners=detection.charuco_corners.reshape(-1, 2).tolist())
             if image is None:
                 image = frame.bgr
+                image_frame = evidence
             if len(detection.charuco_ids) != len(set(detection.charuco_ids)):
                 detail["skip_reason"] = "duplicate_charuco_ids"
                 continue  # ambiguous association; never average it
@@ -230,7 +252,8 @@ class BoardObserver:
             if detail["skip_reason"]:
                 reason = detail["skip_reason"]
                 rejections[reason] = rejections.get(reason, 0) + 1
-        return Observation(ids, pixels, jitter, used, frames, pose, intrinsics or {}, image, rejections, captured)
+        return Observation(ids, pixels, jitter, used, frames, pose, intrinsics or {}, image, rejections, captured,
+                           image_frame, self.camera_metadata)
 
 
 class SimulatedCamera:

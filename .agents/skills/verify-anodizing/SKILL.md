@@ -1,6 +1,6 @@
 ---
 name: verify-anodizing
-description: Verify the anodizing Interface PC web app headlessly through its user-facing HTTP pages and read-only API. Use for changes to Calibration setup, Teaching setup, Pick/place availability, module navigation, or the tool preview.
+description: Verify the anodizing Interface PC web app headlessly through its user-facing HTTP pages and API. Use for changes to Calibration setup, Teaching setup, Pick/place availability, module navigation, the tool preview or the AGV simulator.
 ---
 
 # Verify the anodizing interface
@@ -30,7 +30,7 @@ This runs just the read-only checks against a fresh verification instance, then 
 
 ## Drive
 
-Use the feature-specific commands and expected results in [the feature map](features/README.md). Each command uses the same pages and GET routes as the user, then checks the response and where applicable the files backing it. Keep requests read-only. Stop before any path requiring a robot connection, camera, teaching action, calibration run, or job execution. HTTP proof covers responses and local data. It leaves browser rendering, client-side behavior and field hardware untested.
+Use the feature-specific commands and expected results in [the feature map](features/README.md). Each command uses the same pages and routes as the user, then checks the response and any backing files. Use GET requests for all journeys except the documented in-process AGV simulator steps. Stop before any path requiring a robot connection, camera, teaching action, calibration run, or job execution. HTTP proof covers responses and local data. It leaves browser rendering, client-side behavior and field hardware untested.
 
 ## Evidence
 
@@ -40,7 +40,7 @@ The helper prints a unique `anodizing-verify.*` directory under `/tmp`. To retai
 .agents/skills/verify-anodizing/scripts/verify teaching-setup /absolute/path/to/evidence
 ```
 
-Read `requests.jsonl` alongside the response HTML and JSON for the user action and its outcome. Saved HTML redacts the module token. Fixture evidence records its SHA-256 and state checks where applicable. `isolation.json` records the namespace and interfaces before startup. `network.strace` records the launched app's socket calls. A passing run shows its loopback bind and accepted HTTP traffic, zero IP `connect` calls, and no socket address for `192.168.12.248` or the UR ports `29999`, `30001`–`30004`, `30020`. Use `cleanup.json` and `result.json` to confirm shutdown and success. Retain logs and report the unmet precondition on failure.
+Read `requests.jsonl` alongside the response HTML and JSON for the user action and its outcome. Saved HTML redacts the module token. Fixture evidence records its SHA-256 and state checks where applicable. `isolation.json` records the namespace and interfaces before startup. `network.strace` records the launched app's socket calls. A passing run shows its loopback bind and accepted HTTP traffic, zero IP `connect` calls, and no socket address for `192.0.2.248` or the UR ports `29999`, `30001`–`30004`, `30020`. Use `cleanup.json` and `result.json` to confirm shutdown and success. Retain logs and report the unmet precondition on failure.
 
 ## Cleanup
 

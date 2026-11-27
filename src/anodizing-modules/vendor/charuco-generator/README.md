@@ -18,10 +18,10 @@ Rule of thumb: a single ArUco is robust and readable from far away, but its angl
 
 ## The two-stage tank localization
 
-An AGV carries a fixed right-facing camera and a UR10e with a wrist camera. Positioning at a tank takes two stages:
+The generator supports coarse positioning with an AGV camera and fine positioning with a wrist camera:
 
-1. **Coarse:** the AGV camera reads a large marker per tank from 500-800 mm and guides the wrist camera to the tank.
-2. **Fine:** the wrist camera reads a small ChArUco board per tank from about 300 mm for the precise coordinate.
+1. **Coarse:** the AGV camera reads a large marker per tank and guides the wrist camera to the tank.
+2. **Fine:** the wrist camera reads a small ChArUco board per tank for the precise coordinate.
 
 ```bash
 ./generate_two_stage.sh        # 16 tanks, into output/two_stage/ (--tanks N for 1-24)
@@ -29,11 +29,11 @@ An AGV carries a fixed right-facing camera and a UR10e with a wrist camera. Posi
 
 | Folder | Camera | Target | Code | IDs |
 | --- | --- | --- | --- | --- |
-| `stage1_aruco_realsense` | AGV camera (RealSense), 500-800 mm | 150 mm ArUco per tank | `DICT_5X5_100` | tank *n* = ID *n* (1-16) |
-| `stage2_charuco_basler_32mm` | Wrist camera (Basler), ~300 mm | 32 x 32 mm ChArUco per tank, 9 corners | `DICT_6X6_250` | tank *n*: 17 + 8(*n*-1) to 24 + 8(*n*-1) |
-| `stage2_charuco_realsense_80mm` | Wrist camera (RealSense), ~300 mm | Same boards at 80 x 80 mm, for testing before the Basler arrives | `DICT_6X6_250` | same as the 32 mm set |
-| `calibration_stage1` | AGV camera, calibrate at 500-650 mm | 360 x 200 mm board on A3 landscape | `DICT_6X6_250` | 145-166 |
-| `calibration_stage2` | Wrist camera (Basler), ~300 mm | 75 x 105 mm board | `DICT_6X6_250` | 167-183 |
+| `stage1_aruco_realsense` | AGV camera (RealSense) | 150 mm ArUco per tank | `DICT_5X5_100` | tank *n* = ID *n* (1-16) |
+| `stage2_charuco_basler_32mm` | Wrist camera (Basler) | 32 x 32 mm ChArUco per tank, 9 corners | `DICT_6X6_250` | tank *n*: 17 + 8(*n*-1) to 24 + 8(*n*-1) |
+| `stage2_charuco_realsense_80mm` | Wrist camera (RealSense) | Same boards at 80 x 80 mm | `DICT_6X6_250` | same as the 32 mm set |
+| `calibration_stage1` | AGV camera | 360 x 200 mm board on A3 landscape | `DICT_6X6_250` | 145-166 |
+| `calibration_stage2` | Wrist camera (Basler) | 75 x 105 mm board | `DICT_6X6_250` | 167-183 |
 
 `marker_plan.json` lists every set and a per-tank lookup (stage-1 ID, stage-2 board name, stage-2 IDs). Have the robot act only when both stages report the same tank.
 
@@ -48,13 +48,7 @@ An AGV carries a fixed right-facing camera and a UR10e with a wrist camera. Posi
 
 Each black or white cell of a marker should cover at least **5 camera pixels** to be read, and about **8 or more** for margin and tilted views. Cells per marker side: 7 for a 5x5 code, 8 for 6x6, 9 for 7x7 (each includes the black border).
 
-| Camera and lens | Smallest 4x4 board, 8 px per cell, at 300 mm |
-| --- | --- |
-| RealSense D435i, 1280 x 720 | about 113 mm |
-| Basler a2A2448-23gmBAS (2.74 um pixels) + 12 mm lens | about 23 mm |
-| Basler + 16 mm lens | about 18 mm |
-
-At 300 mm with a Basler and 12 mm lens the field of view is about 168 x 140 mm, so the board (plus 5 mm white margin) must also fit in the view with room for positioning error. Use `DICT_6X6_250` or `DICT_7X7_250` rather than 4x4 codes for tank boards: their codes differ by 11 and 17 bits (3 for 4x4), so a misread is far less likely. `DICT_8X8` does not exist in OpenCV; `DICT_7X7` is the largest.
+Choose a marker size that meets the pixel requirement at the intended distance and tilt. Allow room in the field of view for the white margin and placement error. Use `DICT_6X6_250` or `DICT_7X7_250` rather than 4x4 codes for tank boards: their codes differ by 11 and 17 bits (3 for 4x4), so a misread is far less likely. `DICT_8X8` does not exist in OpenCV; `DICT_7X7` is the largest.
 
 ## Quick start
 

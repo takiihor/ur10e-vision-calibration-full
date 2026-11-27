@@ -1,0 +1,43 @@
+export function stationPosition(track, station) {
+  const distance = track?.stations_m[station];
+  if (distance == null) return null;
+  const delta = track.end_m.map((value, axis) => value - track.start_m[axis]);
+  const fraction = distance / Math.hypot(...delta);
+  return track.start_m.map((value, axis) => value + delta[axis] * fraction);
+}
+
+export function sampleAge(sample) {
+  return sample?.age_ms == null ? 'Age unavailable' : (sample.age_ms / 1000).toFixed(1) + ' s ago';
+}
+
+function label(id, name, state, sample, anchor = null) {
+  return {
+    id, name, state, anchor, unknown: state === 'Unknown',
+    age: sampleAge(sample),
+  };
+}
+
+export function sceneLabels(config, variable, taughtTank, lineTanks) {
+  const last = variable('agv.last_confirmed_station')?.value;
+  const anchor = stationPosition(config?.track, last);
+  const moving = variable('agv.moving');
+  const target = variable('agv.target_station')?.value;
+  const motion = moving?.value === true ? (target ? `Moving to ${target}, position not reported` : 'Moving, position not reported')
+    : moving?.value === false ? 'Stopped' : 'Unknown';
+  const joints = variable('robot.joints');
+  const robot = joints?.value ? (joints.source === 'robot.simulator' ? 'Simulated joints' : 'Job joint sample') : 'Unknown';
+  const placement = anchor ? `Last confirmed station ${last}` : 'Unplaced';
+  return [
+    { ...label('agv', 'AGV', motion, moving, anchor), detail: placement },
+    { ...label('robot', 'Robot', robot, joints),
+      detail: anchor && config?.robot_mount ? `Display reference · ${placement}` : 'Unplaced' },
+    ...(config?.tanks ?? []).map(tank => {
+      const basket = lineTanks?.[tank.id]?.basket;
+      const statusId = lineTanks ? (basket && 'line.' + basket) : tank.status_id;
+      const sample = statusId && variable(statusId);
+      const state = sample?.value === 1 ? 'Occupied' : sample?.value === 0 ? 'Empty' :
+        typeof sample?.value === 'string' ? sample.value : 'Unknown';
+      return { ...label(tank.id, tank.label, state, sample, tank.anchor_m), taught: tank.id === taughtTank };
+    }),
+  ];
+}

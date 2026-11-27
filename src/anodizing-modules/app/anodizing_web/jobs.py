@@ -1,4 +1,5 @@
 """One process owns accepted jobs and operator replies, independent of HTTP clients."""
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -9,9 +10,17 @@ import tempfile
 import time
 
 ID = re.compile(r'^[A-Za-z0-9_-]{8,80}$')
+CALIBRATION_STOP_ACTIONS = ('manual', 'collect', 'replay')
 
 
-def atomic_json(path, value):
+class JobStop:
+    def __init__(self, kind, job_id):
+        self.kind, self.job_id = kind, job_id
+        self.requested = threading.Event()
+        self.lock = threading.Lock()
+
+
+def atomic_json(path, value, *, sync_directory=False):
     path = Path(path)
     fd, temp = tempfile.mkstemp(prefix='.job-', dir=path.parent)
     try:
@@ -20,13 +29,22 @@ def atomic_json(path, value):
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temp, path)
+        if sync_directory:
+            directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
     finally:
         if os.path.exists(temp):
             os.unlink(temp)
 
 
 class JobOwner:
-    def __init__(self, root, *, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False):
+    record_event = None
+
+    def __init__(self, root, *, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False,
+                 allow_agv_in_recipe=False, robot_read_access=False, load_saved_jobs=True):
         self.directory = Path(root) / '.jobs'
         if self.directory.is_symlink():
             raise ValueError('Job directory must not be a symbolic link.')
@@ -35,6 +53,12 @@ class JobOwner:
         self.allow_auto_calibration = allow_auto_calibration
         self.allow_teacher_motion = allow_teacher_motion
         self.allow_manual_pick_place = allow_manual_pick_place
+        self.allow_agv_in_recipe = allow_agv_in_recipe
+        self.robot_configured = (robot_read_access or allow_auto_calibration
+                                 or allow_teacher_motion or allow_manual_pick_place)
+        self.agv = None
+        self.agv_visit = None
+        self.agv_start_lock = threading.Lock()
         self.execution_uncertain = False
         self.robot_model = robot_model
         self.current_alignment = None  # Runtime-only; restart never restores permission to descend.
@@ -42,12 +66,16 @@ class JobOwner:
         self.lock = threading.RLock()
         self.jobs = {}
         self.active = None
+        self.line_test_fence = False
         self.mcu_pending = None
         self.runner = None
         self.storage_error = None
         self.closing = False
         self.teacher_service = None
+        self.active_stop = None
         self.teacher_job = self.teacher_project = self.teacher_settings = None
+        if not load_saved_jobs:
+            return
         for path in self.directory.glob('*.json'):
             try:
                 if path.is_symlink():
@@ -57,9 +85,17 @@ class JobOwner:
                     continue
                 if job['state'] in ('running', 'waiting'):
                     job.update(state='interrupted', pending=None, error='Service restarted. Review the saved artifacts.')
+                    if job.get('calibration_motion_approved') or job['module'] == 'executor':
+                        job['execution_uncertain'] = True
                     if job.get('manual'):
-                        job['manual'].update(stage='interrupted',prompt=None,item_state='unknown')
-                    atomic_json(path, job)
+                        manual = job['manual']
+                        manual.update(stage='interrupted',prompt=None,item_state='unknown')
+                        if manual.get('agv_transport'):
+                            from .recipe_agv import ALARM
+                            manual.update(agv_alarm=ALARM, agv_stop_sent=False)
+                            manual['repeat']['abort_reason'] = job['error']
+                            job['error'] += ' ' + ALARM
+                    self._save(job)
                 self.jobs[job['id']] = job
                 self.execution_uncertain |= bool(job.get('execution_uncertain'))
             except (ValueError, KeyError, OSError, TypeError):
@@ -73,7 +109,11 @@ class JobOwner:
                 self.execution_uncertain = True
 
     def _save(self, job):
-        atomic_json(self.directory / (job['id'] + '.json'), job)
+        path = self.directory / (job['id'] + '.json')
+        if job['module'] == 'executor':
+            atomic_json(path, job, sync_directory=True)
+        else:
+            atomic_json(path, job)
 
     def drain_workers(self, job_id, workers):
         workers = [worker for worker in workers if worker and worker.is_alive()]
@@ -90,6 +130,23 @@ class JobOwner:
         for worker in workers:
             worker.join()
 
+    def cancel_unconfirmed(self, request_id):
+        if not isinstance(request_id, str) or not ID.fullmatch(request_id):
+            raise ValueError('Invalid request ID.')
+        with self.lock:
+            old = self.jobs.get(request_id)
+            if old is not None:
+                if old['module'] not in ('manual-pick-place', 'robot-control'):
+                    raise ValueError('Choose a Pick/place or robot-step request ID.')
+                return self.get(request_id)
+            now = time.time()
+            job = {'id': request_id, 'module': 'manual-pick-place', 'fingerprint': None, 'state': 'interrupted',
+                   'created': now, 'finished': now, 'pending': None, 'result': None, 'events': [],
+                   'cancelled_before_acceptance': True, 'error': 'Request cancelled before acceptance.'}
+            self._save(job)
+            self.jobs[request_id] = job
+            return dict(job)
+
     def submit(self, request_id, module, payload, function):
         if not isinstance(request_id, str) or not ID.fullmatch(request_id):
             raise ValueError('Request ID must contain 8 to 80 letters, numbers, underscores or hyphens.')
@@ -100,9 +157,13 @@ class JobOwner:
                 raise ValueError('The service is closing.')
             old = self.jobs.get(request_id)
             if old:
+                if old.get('cancelled_before_acceptance'):
+                    raise ValueError('Request ID was cancelled before acceptance.')
                 if old['fingerprint'] != fingerprint:
                     raise ValueError('Request ID was already used for a different request.')
                 return dict(old)
+            if self.line_test_fence:
+                raise ValueError('A line test owns the service. Wait for confirmed restore.')
             if self.mcu_pending:
                 raise ValueError('An MCU request is still pending. Wait for its outcome.')
             if self.storage_error:
@@ -122,14 +183,32 @@ class JobOwner:
                 raise ValueError('Start the service with --allow-teacher-motion after review.')
             if teacher_move and not self.robot_model:
                 raise ValueError('Teacher movement requires the selected factory robot model.')
-            if manual_move or teacher_move or (module == 'calibration' and payload.get('action') in ('plan', 'collect', 'replay')):
-                if not (manual_move or teacher_move) and not self.allow_auto_calibration:
-                    raise ValueError('Automatic calibration is disabled on this service.')
+            auto_motion = module == 'calibration' and payload.get('action') in ('collect', 'replay')
+            auto_plan = module == 'calibration' and payload.get('action') == 'plan'
+            if (auto_motion or auto_plan) and not self.allow_auto_calibration:
+                raise ValueError('Automatic calibration is disabled on this service.')
+            actuator = module == 'mcu' and payload.get('command') in ('1', '2', '3')
+            if manual_move or teacher_move or auto_motion or actuator:
+                from .recipe_agv import admit, StationVisit
+                repeat = module == 'manual-pick-place' and payload.get('action') == 'REPEAT'
+                mode, connection_id, stop_generation = admit(self.agv, payload, require_approval=repeat)
+                visit = StationVisit(self.agv, lambda: self._stop_for_agv(request_id),
+                                     strict_station=repeat, connection_id=connection_id,
+                                     stop_generation=stop_generation, switched_off=mode == 'off')
+            else:
+                mode, visit = None, None
+            if manual_move or teacher_move or auto_motion or auto_plan:
                 from .auto_scene import prepare
                 scene = prepare(self.root, request_id, payload.get('collision_scene'), self.robot_model) if self.robot_model else prepare(self.root, request_id, payload.get('collision_scene'))
             job = {'id': request_id, 'module': module, 'fingerprint': fingerprint,
                    'state': 'running', 'created': time.time(), 'events': [], 'pending': None,
                    'result': None, 'error': None}
+            if module == 'executor':
+                job['executor_payload'] = payload
+            if module == 'calibration':
+                job['calibration_action'] = payload.get('action')
+            if mode:
+                job['agv_motion'] = mode
             if scene:
                 job['auto_scene'] = scene
                 job['auto_action'] = payload['action']
@@ -146,13 +225,68 @@ class JobOwner:
                 self.current_alignment = None
             self.jobs[request_id] = job
             self.active = request_id
+            with self.agv_start_lock:
+                if teacher_move:
+                    self.active_stop = JobStop('teacher', request_id)
+                elif job.get('calibration_action') in CALIBRATION_STOP_ACTIONS:
+                    self.active_stop = JobStop('calibration', request_id)
+            self.agv_visit = visit
+            if self.record_event is not None:
+                self.record_event('job', 'accepted', job_id=request_id, request_id=request_id,
+                                  module=module, state=job['state'])
             threading.Thread(target=self._run, args=(job, function), daemon=True).start()
             return dict(job)
 
+    def check_agv(self):
+        visit = self.agv_visit
+        if visit and visit.error:
+            raise ValueError(visit.error)
+
+    def _stop_for_agv(self, job_id):
+        # Stop must bypass owner persistence, even if a job record is being written.
+        with self.agv_start_lock:
+            if self.motion_job == job_id and self.runner:
+                self.runner.stop()
+            elif self.teacher_job == job_id and self.teacher_service:
+                self.teacher_service.stop()
+
+    def _request_stop(self, handle):
+        with handle.lock:
+            if self.active_stop is not handle:
+                return False
+            handle.requested.set()
+        # The latch belongs to this job even if handoff or retirement is in progress.
+        with self.agv_start_lock:
+            if self.active_stop is handle:
+                if handle.kind == 'calibration' and self.runner:
+                    self.runner.stop()
+                elif handle.kind == 'teacher' and self.teacher_job == handle.job_id and self.teacher_service:
+                    self.teacher_service.stop()
+        return True
+
+    def _retire_stop(self, job):
+        with self.agv_start_lock:
+            handle = self.active_stop
+            if handle and handle.job_id == job['id']:
+                with handle.lock:
+                    self.active_stop = None
+                    if handle.kind == 'calibration' and handle.requested.is_set():
+                        job['stop_requested'] = True
+
     def _run(self, job, function):
+        visit = self.agv_visit
         try:
-            result = function(job['id'])
+            with visit.watch() if visit else nullcontext():
+                if visit:
+                    visit.ready.wait()
+                    self.check_agv()
+                result = function(job['id'])
+                self.check_agv()
+            self.check_agv()
             with self.lock:
+                self._retire_stop(job)
+                if job.get('stop_requested'):
+                    raise ValueError('Calibration Stop requested.')
                 job.update(state='done', result=result, pending=None)
                 if job.get('auto_action') == 'validate_move':
                     project = (result or {}).get('project') or {}
@@ -162,16 +296,42 @@ class JobOwner:
                             'grasp_sha256':capture['grasp_sha256'],'project':str(project['project'])}
         except Exception as exc:
             with self.lock:
+                self._retire_stop(job)
                 job.update(state='failed', error=str(exc), pending=None)
+                if job.get('stop_requested') and not job.get('execution_uncertain') and not (visit and visit.error):
+                    job.update(state='interrupted', error=f'Calibration ended after Stop was requested. {exc} Review the saved artifacts and check the machine.')
+                if visit and visit.error:
+                    manual = job.get('manual')
+                    repeat = (manual or {}).get('repeat')
+                    reason = (repeat or {}).get('abort_reason') or visit.error
+                    job['error'] = ' '.join(filter(None, (job['error'] if job.get('execution_uncertain') else None,
+                                                          reason, visit.alarm)))
+                    job['agv_interruption'] = dict(reason=reason, alarm=visit.alarm, agv_stop_sent=visit.stop_sent,
+                                                   stop_error=visit.stop_error, robot_stop_error=visit.robot_stop_error)
+                    if manual:
+                        manual.update(stage='interrupted', prompt=None, item_state='unknown',
+                                      agv_alarm=visit.alarm, agv_stop_sent=visit.stop_sent)
+                        if repeat:
+                            repeat.setdefault('abort_reason', reason)
         finally:
             with self.lock:
+                self._retire_stop(job)
                 job['finished'] = time.time()
+                saved = False
                 try:
                     self._save(job)
+                    saved = True
                 except (OSError, TypeError, ValueError) as exc:
                     self.storage_error = str(exc)
-                self.runner = None
-                self.motion_job = None
+                if self.record_event is not None:
+                    self.record_event('job', 'outcome', job_id=job['id'], request_id=job['id'],
+                                      module=job['module'], state=job['state'], audit_saved=saved)
+                with self.agv_start_lock:
+                    self.runner = None
+                    self.motion_job = None
+                self.agv_visit = None
+                if job['module'] == 'mcu' and self.mcu_pending == job['id']:
+                    self.mcu_pending = None
                 self.active = None
 
     def event(self, job_id, event):
@@ -180,14 +340,35 @@ class JobOwner:
             job['events'].append(event)
             # Keep the browser response bounded; final artifacts remain in their session.
             job['events'] = job['events'][-200:]
-            if event.get('type') == 'request':
+            if event.get('type') == 'request' and not self.stop_requested(job_id):
                 job.update(state='waiting', pending=event)
             self._save(job)
+
+    def stop_requested(self, job_id):
+        handle = self.active_stop
+        return bool(handle and handle.job_id == job_id and handle.requested.is_set())
+
+    def stop_calibration(self, job_id):
+        handle = self.active_stop
+        if not handle or handle.kind != 'calibration' or handle.job_id != job_id or not self._request_stop(handle):
+            raise ValueError('This calibration capture is no longer active.')
+        return {'job_id': job_id, 'stop_requested': True}
+
+    def stop_teacher(self, job_id):
+        handle = self.active_stop
+        if handle and handle.kind == 'teacher':
+            if handle.job_id != job_id or not self._request_stop(handle):
+                raise ValueError('This Teacher control belongs to an old session.')
+            return
+        with self.agv_start_lock:
+            if (self.active_stop and self.active_stop.kind == 'teacher') or not self.teacher_service or self.teacher_job != job_id:
+                raise ValueError('This Teacher control belongs to an old session.')
+            self.teacher_service.stop()
 
     def answer(self, job_id, request_id, value):
         with self.lock:
             job = self.jobs.get(job_id)
-            if not job or self.active != job_id or not self.runner or not job['pending']:
+            if not job or self.active != job_id or not self.runner or not job['pending'] or self.stop_requested(job_id):
                 raise ValueError('This operator request is no longer active.')
             if type(request_id) is not int or job['pending'].get('id') != request_id:
                 raise ValueError('This operator request is stale.')
@@ -196,16 +377,27 @@ class JobOwner:
                 raise ValueError('Invalid operator answer.')
             if kind == 'manual' and job.get('auto_action') and value != 'q':
                 raise ValueError('Automatic calibration cannot accept manual capture replies.')
-            if kind == 'motion' and value is True:
+            approves_motion = kind == 'motion' and value is True
+            if approves_motion:
+                self.check_agv()
                 if not self.allow_auto_calibration or job['module'] != 'calibration' or self.motion_job != job_id or not job.get('auto_scene'):
                     raise ValueError('Robot motion is disabled for this job.')
+                # A restart after approval may have lost the worker's cleanup report.
+                job['calibration_motion_approved'] = True
+                self._save(job)
                 from .auto_scene import check
                 try:
                     check(self.root, job['auto_scene'])
                 except ValueError:
-                    self.runner.stop()
+                    with self.agv_start_lock:
+                        self.runner.stop()
                     raise
-            self.runner.answer(request_id, value)
+            with self.agv_start_lock:
+                if self.stop_requested(job_id):
+                    raise ValueError('This operator request is no longer active.')
+                if approves_motion:
+                    self.check_agv()
+                self.runner.answer(request_id, value)
             job.update(state='running', pending=None)
             self._save(job)
             return dict(job)
@@ -236,12 +428,25 @@ class JobOwner:
         with self.lock:
             if job_id not in self.jobs:
                 raise ValueError('Job not found.')
-            return json.loads(json.dumps(self.jobs[job_id], allow_nan=False))
+            job = json.loads(json.dumps(self.jobs[job_id], allow_nan=False))
+            if job.get('module') == 'calibration' and self.stop_requested(job_id):
+                job.update(stop_requested=True, pending=None, state='running')
+            return job
 
     def status(self):
         with self.lock:
-            return {'active': self.active, 'mcu_pending': self.mcu_pending, 'storage_error': self.storage_error, 'closing': self.closing,
+            stop_targets = []
+            handle = self.active_stop
+            teacher_id = handle.job_id if handle and handle.kind == 'teacher' else self.teacher_job
+            if teacher_id is not None:
+                stop_targets.append({'kind': 'teacher', 'job_id': teacher_id})
+            manual = self.jobs.get(self.active, {})
+            if manual.get('auto_action') in ('PICK', 'PLACE', 'REPEAT', 'vertical_descent', 'STEP'):
+                stop_targets.append({'kind': 'manual', 'job_id': self.active})
+            if handle and handle.kind == 'calibration':
+                stop_targets.append({'kind': 'calibration', 'job_id': handle.job_id})
+            return {'active': self.active, 'stop_targets': stop_targets, 'mcu_pending': self.mcu_pending, 'storage_error': self.storage_error, 'closing': self.closing,
                     'execution_uncertain': self.execution_uncertain,
-                    'recovery': 'Review physical state, native worker cleanup and saved Teacher evidence before a reviewed service restart; no automatic motion replay or clear button.' if self.execution_uncertain else None, 'jobs': [
-                {k: job.get(k) for k in ('id', 'module', 'state', 'created', 'finished', 'error')}
+                    'recovery': 'Review physical state, native worker cleanup and saved job evidence before a reviewed service restart; no automatic motion replay or clear button.' if self.execution_uncertain else None, 'jobs': [
+                {k: v for k, v in job.items() if k in ('id', 'module', 'state', 'created', 'finished', 'error', 'calibration_action')}
                 for job in sorted(self.jobs.values(), key=lambda j: j['created'], reverse=True)[:100]]}

@@ -512,7 +512,7 @@ def capture(args, board, pose_calibration, verification_folder=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--serial", default="42007093")
+    parser.add_argument("--serial", required=True)
     parser.add_argument("--manifest", type=Path, default=MANIFEST)
     parser.add_argument("--board", default=BOARD)
     parser.add_argument("--exposure-us", type=float, default=5000)

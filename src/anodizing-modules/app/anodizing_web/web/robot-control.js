@@ -14,6 +14,8 @@
   }
   function reason(){
     if(posting)return 'Step request in progress.';
+    const agvReason=window.agvMotion?.reason('robot-step')??'Checking AGV state…';
+    if(agvReason)return agvReason;
     if(requestError)return requestError;
     if(awaitingInspection)return 'Inspect the accepted step in Current operation before another request. '+(requestJobId||'');
     if(!capability)return 'Checking IPC robot control capability.';
@@ -40,12 +42,13 @@
     }finally{inspecting=false;render();}
   }
   document.addEventListener('manual-owner-status',event=>{owner=event.detail;render();inspectOutcome().catch(()=>{});});
+  document.addEventListener('agv-motion-status',render);
   el('manual-inspect').addEventListener('click',()=>inspectOutcome().catch(()=>{}));
   buttons.forEach(button=>button.addEventListener('click',async()=>{
     if(reason())return;
     const axis=button.dataset.robotAxis,increment=Number(button.dataset.robotDirection)*Number(el(axis.length===1?'robot-translation-step':'robot-rotation-step').value);
-    const request=body(axis,increment);posting=true;awaitingInspection=true;requestError='';definitiveRejection=false;el('manual-reply-confirmed').checked=false;render();
-    try{const job=await window.startManualJob('/api/robot-control',request);requestJobId=job.id;}
+    const request={...body(axis,increment),agv_off:window.agvMotion.off('robot-step')};posting=true;awaitingInspection=true;requestError='';definitiveRejection=false;el('manual-reply-confirmed').checked=false;render();
+    try{const job=await window.startManualJob('/api/robot-control',request);requestJobId=job.id;window.agvMotion.submitted('robot-step',job);}
     catch(error){requestJobId=el('manual-current-job').value.trim();definitiveRejection=[400,403,404].includes(error.status);
       if(definitiveRejection){awaitingInspection=false;requestJobId=null;}
       requestError=error.message+(definitiveRejection?' Correct the settings before a new explicit request.':' Inspect the stored operation. No automatic retry.');}

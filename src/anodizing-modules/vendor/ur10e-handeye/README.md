@@ -6,7 +6,7 @@ The editor now shows the nominal UR10e, the tool box, and separate camera and mo
 
 ![Generated nominal UR10e geometry](docs/robot-tool-preview.svg)
 
-This is a generated geometry view, not a browser screenshot. The hand-eye review adds conservative joint-path checks and exposes the original 25 degree tilt and 30 degree roll. The bundled scene blocks automatic motion until the physical model and cell are confirmed. Native UR tool and safety settings are not configured. A green preview or confirmed profile is not a safety certification.
+This is a generated geometry view, not a browser screenshot. The hand-eye review adds conservative joint-path checks and provides tilt and roll controls. The bundled scene blocks automatic motion until the physical model and cell are confirmed. Configure and verify native UR tool and safety settings separately. A green preview or confirmed profile is not a safety certification.
 
 An explicitly selected version-1 scene can use `"collision_scope": "supervised_self"`
 for an attended calibration trial. It must keep `environment_complete: false` and
@@ -26,8 +26,6 @@ in the UI; each uses its own capture procedure.
 | **Eye to hand** | Fixed on platform | On robot flange | `camera_in_base` |
 
 ## Offline tool box draft
-
-![Illustrative draft tool box editor](docs/tool-envelope.png)
 
 In calibration Setup, choose **Open tool box draft**. The offline editor also works by opening the packaged `web/tool-envelope.html` file directly alongside its `.css` and `.js` files; no robot, camera or project is needed. The 390 × 80 × 100 mm example and centre (0, 0, 50) mm are illustrative, not measurements. The mounting orientation remains unverified. The tool excludes the separate camera and mount. The top-centre preset places the flange at the local negative-Z face centre. The dashed margin expands each box face.
 
@@ -150,3 +148,8 @@ An intrinsic fit's training error does not establish physical accuracy.
 **Try eye-in-hand simulation** runs without hardware. The rendered simulator supports
 eye in hand only; simulated results must not be used on hardware.
 Run tests with `.venv/bin/python -m pytest -q`.
+
+For the optional offline factory-posture test, set `ANODIZING_FACTORY_FIXTURES`
+to a private directory containing `model.json`, `scene.json`, `preflight.json`
+and `kinematics.json`. Use the matching factory model and scene, with distinct
+saved postures in the preflight and kinematics records.

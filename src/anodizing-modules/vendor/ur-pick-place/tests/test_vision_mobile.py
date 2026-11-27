@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from vision_sim import (CAMERA_IN_FLANGE, TCP_OFFSET, FakeGripper, handeye_error,
-                        matrix_to_pose, recipe, rtde_robot, vision_config, INTRINSICS, FakeCamera, calibration_dict)
+                        matrix_to_pose, recipe, rtde_robot, vision_config)
 from test_vision_pipeline import World, PLACE_TCP
 from test_manual import wait_for
 import numpy as np
@@ -30,18 +30,8 @@ class MobileVisionTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.world = World()
-        # Nominal 5 MP / 16 mm Basler optical geometry, with rendered image noise.
-        intrinsics = dict(INTRINSICS, width=2448, height=2048, fx=16/.00274, fy=16/.00274,
-                          ppx=1223.5, ppy=1023.5, coeffs=[0.0]*5)
-        self.world.camera = FakeCamera(self.world.rtde, self.world.camera.scene, intrinsics=intrinsics)
         self.path = vision_config(self.root, place=False, refine=True,
                                   camera_in_flange=CAMERA_IN_FLANGE @ handeye_error())
-        (self.root/'handeye.json').write_text(json.dumps(calibration_dict(
-            CAMERA_IN_FLANGE @ handeye_error(), intrinsics=intrinsics)))
-        raw = json.loads(self.path.read_text())
-        raw['camera'] = dict(provider='basler', width=2448, height=2048, fps=20)
-        raw['pick']['refine']['distance_m'] = .3
-        self.path.write_text(json.dumps(raw))
         self.config = VisionConfig.load(self.path)
         self.calibration = load_handeye(self.root / 'handeye.json')
         self.source = ControlPoseSource(self.world.rtde, self.world.rtde)
@@ -49,9 +39,9 @@ class MobileVisionTests(unittest.TestCase):
         self.observer = Observer(self.config, self.calibration, self.world.camera, self.source,
                                  mover=RobotMover(self.robot))
         observed = self.observer.look('pick', allow_motion=True)
-        # User's 300 mm marker-to-pick lever arm; true TCP points downward.
+        # A long synthetic offset makes angular errors visible at the pick point.
         self.marker_tcp = np.eye(4)
-        self.marker_tcp[:3, 3] = [.3, 0, .02]
+        self.marker_tcp[:3, 3] = [.34, -.05, .035]
         record = teach(observed, matrix_to_pose(self.world.pick @ self.marker_tcp), role='pick',
                        calibration=self.calibration, limits=self.config.pick.limits, tcp_offset=TCP_OFFSET)
         write_taught(self.root / 'grasp_pick.json', record)
@@ -91,7 +81,7 @@ class MobileVisionTests(unittest.TestCase):
         wait_for(lambda: not self.service.state()['pending'], timeout=15)
         return self.service.state()
 
-    def test_different_initial_pose_refines_and_picks_with_300mm_offset(self):
+    def test_different_initial_pose_refines_and_picks_with_a_long_offset(self):
         # Relative marker shift models a different AGV parking pose.
         self.world.move_pick(12, -8, 3)
         self.world.rtde.moveJ([q + .015 for q in self.world.rtde.q], .1, .1)
@@ -111,7 +101,7 @@ class MobileVisionTests(unittest.TestCase):
         events = [e[0] for e in self.world.rtde.events]
         self.assertEqual(events[:2], ['moveL', 'moveJ'])
 
-    def test_localization_across_full_pose_parking_variations_at_300mm(self):
+    def test_localization_across_full_pose_parking_variations_with_a_long_offset(self):
         from vision_sim import OBSERVE_PICK
         from ur_pick_place.vision.transforms import rotvec_to_matrix
         model = load_taught(self.root/'grasp_pick.json')

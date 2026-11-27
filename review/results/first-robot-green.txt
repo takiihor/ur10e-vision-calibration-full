@@ -1,8 +1,0 @@
-test_hardware_imports_and_non_loopback_traffic_are_blocked (test_guard.OfflineGuardTests.test_hardware_imports_and_non_loopback_traffic_are_blocked) ... ok
-test_base_xyz_and_local_rotation_use_correct_frames (test_robot_control_independent.RobotControlIndependent.test_base_xyz_and_local_rotation_use_correct_frames) ... ok
-test_step_requires_exact_plan_approval_before_one_dispatch (test_robot_control_independent.RobotControlIndependent.test_step_requires_exact_plan_approval_before_one_dispatch) ... ok
-
-----------------------------------------------------------------------
-Ran 3 tests in 1.139s
-
-OK

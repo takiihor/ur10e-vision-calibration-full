@@ -1,5 +1,6 @@
 """Exercise the existing HTTP handler without a socket, hardware or live service."""
 import io
+import secrets
 import unittest
 from types import SimpleNamespace
 
@@ -9,7 +10,7 @@ from ur_pick_place.vision.teach_ui import Handler
 class RobotAssets(unittest.TestCase):
     def request(self, path, host='127.0.0.1:8766'):
         handler = Handler.__new__(Handler)
-        handler.server = SimpleNamespace(service=object(), token='offline-test', allowed_hosts={'127.0.0.1:8766'})
+        handler.server = SimpleNamespace(service=object(), token=secrets.token_urlsafe(32), allowed_hosts={'127.0.0.1:8766'})
         handler.path, handler.headers, handler.wfile = path, {'Host': host}, io.BytesIO()
         result = {'headers': {}}
         handler.send_response = lambda status: result.update(status=status)

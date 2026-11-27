@@ -3,7 +3,7 @@ set -euo pipefail
 
 if [[ $# -lt 1 || $# -gt 2 || $1 == --help ]]; then
   printf 'Usage: %s FEATURE [EVIDENCE_PARENT]\n' "$0"
-  printf 'Features: doctor, navigation, calibration-setup, teaching-setup, pick-place-availability, tool-preview\n'
+  printf 'Features: doctor, navigation, calibration-setup, teaching-setup, pick-place-availability, tool-preview, agv\n'
   [[ ${1:-} == --help ]]
   exit
 fi

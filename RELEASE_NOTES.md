@@ -26,9 +26,9 @@
   serial selection, capture native Mono8 and fit intrinsics offline with held-out
   views and residual diagnostics. The fitter checks the capture serial when
   available and rejects byte-identical images shared by the training and holdout sets.
-- [Provisional Basler intrinsics](review/results/basler-encoder-intrinsics/README.md)
-  use restricted `k1` and `k2` with 0.340 px RMS over five holdout views. They are
-  review artifacts for the recorded optical settings and require metric validation.
+- [Synthetic Basler intrinsics example](review/results/basler-encoder-intrinsics/README.md)
+  illustrates the calibration output format with simulated values. See the private
+  calibration record for measured results.
 
 Verification is software-only. The bundled tests use fake hardware, loopback HTTP
 and offline fixtures. The IPC, robot and AGV, physical stop timing and metric
@@ -46,8 +46,8 @@ software review artifact, not a hardware qualification.
 - All bundled Python suites now pass from the package root. A single runner is at
   `src/anodizing-modules/tools/test-all.bash`.
 - Site-specific values were removed from the product code and browser pages:
-  robot address, collision-scene UUID, ±363° bounds, payload hash, camera serial,
-  `tank01-new` project, and the named teaching board. Optional values can be
+  robot address, collision-scene ID, controller joint bounds, payload fingerprint,
+  camera serial, teaching project and board name. Optional values can be
   supplied by an operator-owned `site-profile.json`.
 - Teaching and robot-control defaults are discovered from files under the data
   directory and can be overridden by the profile.
@@ -65,8 +65,7 @@ software review artifact, not a hardware qualification.
 - Test corrections: stale camera kwargs, mock cleanup, `cv2`/`sys.modules`
   isolation, subprocess import path, full-pose browser move counts, missing
   external fixture, replay/CLI ordering, and charuco-generator config paths.
-- `review/results/final-13115877.txt` is labelled as a 36-test focused subset,
-  not full-suite acceptance.
+- The historical 36-test run covered a focused subset.
 
 ### Limitations and open items
 
@@ -78,8 +77,8 @@ software review artifact, not a hardware qualification.
   collision differences, and an A3/40 mm board change. Those edits are not in
   this bundle. The owner must identify the intended files before merging.
 - **The vendor trees are not the pinned baselines.** They contain review changes,
-  generated assets and build files. `provenance/BASELINES.json` records every
-  difference; do not describe the bundle as an unmodified upstream snapshot.
+  generated assets and build files. `provenance/BASELINES.json` describes the published
+  vendor files; do not describe the bundle as an unmodified upstream snapshot.
 - **Licensing is unresolved for most vendors.** Only `charuco-generator` includes
   an upstream license. The other vendor notices state that no redistribution
   permission is granted. Resolve licensing before publishing or redistributing.
@@ -87,18 +86,13 @@ software review artifact, not a hardware qualification.
   address, scene, workspace, joint bounds or tool box. A missing or incorrect
   profile fails closed or asks the operator to enter values; it does not supply
   safe defaults.
-- **The historical review evidence is partial.** The 36-test file is a focused
-  subset. The earlier review records also refer to a 397-file release whose
-  hashes no longer describe this revised source. Use the regenerated manifests in
-  this package.
+- **Historical review evidence is partial.** Use the current content inventory
+  and software tests when verifying this revision.
 - **CI browser coverage can skip.** GitHub-hosted runners may not have Chrome;
   the browser integration tests then skip. Run them on a prepared workstation
   before release.
-- **The IPC data archive is large and sensitive.** The local packaging bundle's
-  `state/ipc-data.tar.gz` is about 537 MB compressed (647 MB uncompressed, 897
-  files) and contains site projects, scenes and calibration data. It is omitted
-  from this public source repository because it exceeds GitHub's per-file limit
-  and is confidential operational data. See `state/README.md`.
+- **IPC data is confidential.** Store projects, scenes, calibration and their
+  backup manifest privately. See `state/README.md`.
 - **No dependency lockfile beyond pins.** `app/requirements*.txt` pins the direct
   packages used by the tests. Transitive resolution still depends on the package
   index or a prepared offline wheel set.
@@ -120,5 +114,5 @@ The commands can be reproduced with:
 cd src/anodizing-modules
 ANODIZING_PYTHON=/path/to/python ./tools/test-all.bash
 cd ../..
-python3 provenance/verify.py
+python3 provenance/verify.py /private/baselines/BASELINES.json
 ```

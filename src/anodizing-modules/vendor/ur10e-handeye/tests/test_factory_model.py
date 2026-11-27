@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 import numpy as np
 import pytest
@@ -10,11 +11,6 @@ from ur_handeye.transforms import invert, pose_to_matrix
 from ur_handeye.ui import build_command
 
 WEB = Path(__file__).parents[1] / 'src/ur_handeye/web'
-BENCH = Path(__file__).resolve().parents[4]
-FACTORY = BENCH / 'ROBOT_MODEL_FACTORY_DRAFT.json'
-FACTORY_SCENE = BENCH / 'COLLISION_SCENE_FACTORY_DRAFT.json'
-FACTORY_DATA = BENCH / 'FACTORY_KINEMATICS.json'
-PREFLIGHT = BENCH.parent / 'split_web_modules_20261104/operator-20261105/read-only-robot.json'
 
 
 def scene_data():
@@ -40,11 +36,13 @@ def test_default_model_and_explicit_copy_are_identical(tmp_path):
 
 
 def test_factory_model_matches_two_distinct_saved_postures():
-    if not all(path.is_file() for path in (FACTORY, FACTORY_SCENE, FACTORY_DATA, PREFLIGHT)):
-        pytest.skip('local factory evidence is not included in the standalone package')
-    scene = load_scene(FACTORY_SCENE, model_path=FACTORY)
-    samples = [json.loads(PREFLIGHT.read_text())['samples'][0],
-               json.loads(FACTORY_DATA.read_text())['pose_samples'][0]]
+    fixtures = os.environ.get('ANODIZING_FACTORY_FIXTURES')
+    if not fixtures:
+        pytest.skip('set ANODIZING_FACTORY_FIXTURES to a private fixture directory')
+    folder = Path(fixtures)
+    scene = load_scene(folder / 'scene.json', model_path=folder / 'model.json')
+    samples = [json.loads((folder / 'preflight.json').read_text())['samples'][0],
+               json.loads((folder / 'kinematics.json').read_text())['pose_samples'][0]]
     assert np.linalg.norm(np.subtract(samples[0]['joints_rad'], samples[1]['joints_rad'])) > .1
     for sample in samples:
         flange = pose_to_matrix(sample['tcp_pose_m_rad']) @ invert(pose_to_matrix(sample['tcp_offset_m_rad']))

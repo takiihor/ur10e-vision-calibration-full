@@ -15,7 +15,7 @@
 <p><a href="/tool-envelope.html" target="_blank" rel="noopener">Open tool box draft</a></p>
 <form id="setup" novalidate><div class="fields">
 <label class="wide">Saved hand-eye calibration<input id="calibration" list="calibrations" required placeholder="Path to calibration.json"><datalist id="calibrations"></datalist><small>Maps the selected wrist camera to the robot. Select the printed picking target separately below.</small></label>
-<label>Camera<select id="camera_provider"><option value="realsense">RealSense</option><option value="basler">Basler</option></select></label><label>Robot IP<input id="robot_ip" required placeholder="192.168.12.248"></label><label>Marker type<select id="kind"><option value="charuco">ChArUco board</option><option value="aruco">Single ArUco marker</option></select></label>
+<label>Camera<select id="camera_provider"><option value="realsense">RealSense</option><option value="basler">Basler</option></select></label><label>Robot IP<input id="robot_ip" required placeholder="192.0.2.248"></label><label>Marker type<select id="kind"><option value="charuco">ChArUco board</option><option value="aruco">Single ArUco marker</option></select></label>
 <label class="wide charuco">Printed picking board<select id="picking-board"><option value="">Custom board — enter its manifest and name below</option></select><small>Select the board attached to the object. Your tank labels have an 80 × 80 mm checkerboard pattern.</small></label>
 <label class="wide charuco">Picking board manifest<input id="manifest" list="manifests" placeholder="Path to board_manifest.json"><datalist id="manifests"></datalist></label>
 <label class="charuco wide">Picking board name<input id="board" placeholder="For example, tank15"></label>
@@ -25,7 +25,7 @@
 <details id="setup-advanced" class="advanced"><summary>Project &amp; advanced settings</summary><div class="fields">
 <label class="wide">Project folder<input id="project" required placeholder="Folder for this teaching"><small>Enter an existing folder and choose Open saved project to resume.</small></label>
 <button id="open" type="button" class="secondary">Open saved project</button>
-<label class="check wide"><input id="refine_before_pick" type="checkbox" checked>Refine before picking · one camera move to the taught view</label><p class="hint wide">Capture the teaching view at about 300 mm. Robot Bench performs refinement when running with this project’s vision.json.</p><label class="wide">Follow marker<select id="motion_model"><option value="full">Full 3D pose · XYZ and orientation</option><option value="planar">XY + yaw · fixed support height</option></select><small>Use Full 3D for AGV parking changes in position, height, roll, pitch or yaw. Movement remains bounded by the configured limits.</small></label>
+<label class="check wide"><input id="refine_before_pick" type="checkbox" checked>Refine before picking · one camera move to the taught view</label><p class="hint wide">Capture the teaching view at the working distance for your lens and marker. Robot Bench performs refinement when running with this project’s vision.json.</p><label class="wide">Follow marker<select id="motion_model"><option value="full">Full 3D pose · XYZ and orientation</option><option value="planar">XY + yaw · fixed support height</option></select><small>Use Full 3D for AGV parking changes in position, height, roll, pitch or yaw. Movement remains bounded by the configured limits.</small></label>
 <label>Approach height (mm)<input id="approach_mm" type="number" min="1" max="300" step="any" value="100"><small>Robot-base +Z above the pick.</small></label><label>Allowed displacement (mm)<input id="max_shift_mm" type="number" min="1" max="500" step="any" value="100"></label><label>Allowed rotation (degrees)<input id="max_rotation_deg" type="number" min="1" max="180" step="any" value="180"></label>
 </div></details>
 <div class="actions"><button id="configure" type="submit" class="primary">Check setup &amp; continue →</button><span id="light-configure" class="light">● Pending</span></div></form>
@@ -59,12 +59,6 @@
 <p class="hint">All displayed poses: robot base · XYZ millimetres · RX, RY, RZ rotation-vector radians.</p>
 <p id="validation-freshness" class="result"></p>
 </div>
-<details id="validation-settings" open><summary>Test motion settings</summary><div class="fields">
-<label>Speed (mm/s)<input id="validation-speed" type="number" min="1" max="20" step="1" value="10"></label>
-<label>Return joint speed (degrees/s)<input id="observation-return-speed" type="number" min="1" max="6" step="1" value="3"></label>
-<label>Workspace minimum XYZ (mm)<input id="validation-workspace-min" value="-900, -900, 10"></label>
-<label class="wide">Workspace maximum XYZ (mm)<input id="validation-workspace-max" value="900, 900, 1200"></label>
-</div><p class="hint">Return speed and workspace bounds apply to both return buttons in Steps 3 and 5. The start and target must fit inside these bounds; checks do not detect obstacles or constrain the whole joint trajectory. Return and full 3D validation can change TCP Z. Planar validation holds the captured height.</p></details>
 <label class="check confirmation"><input id="validation-confirmed" type="checkbox"><span id="validation-confirmation-text">The AGV and marker/object have stayed fixed since capture. I reviewed the target, workspace and clear linear path.</span></label>
 <div class="actions"><button id="validation-move" type="button" class="primary" disabled>Move at fixed Z</button></div>
 <p id="validation-motion-help" class="hint">Review the movement mode and full target before motion.</p><p class="hint">Validation uses the current camera capture. Automatic camera-view refinement runs in Robot Bench during live picking.</p>
@@ -73,6 +67,12 @@
 <label>Independently measured TCP error X, Y, Z (mm, optional)<input id="validation-measured-error" placeholder="For example: 0.5, -0.3, 0.8"></label><p class="hint">Record an independent measurement at the actual picking point. Visual alignment alone does not establish ±2 mm picking accuracy.</p><div class="actions"><button id="validation-aligned" type="button" class="secondary">Alignment looks correct</button><button id="validation-misaligned" type="button" class="secondary">Alignment needs adjustment</button></div></div>
 <details open><summary>Test history</summary><p id="validation-history" class="result">No motion tests yet.</p></details>
 </section>
+<details id="validation-settings" hidden open><summary>Test motion settings</summary><div class="fields">
+<label>Speed (mm/s)<input id="validation-speed" type="number" min="1" max="20" step="1" value="10"></label>
+<label>Return joint speed (degrees/s)<input id="observation-return-speed" type="number" min="1" max="6" step="1" value="3"></label>
+<label>Workspace minimum XYZ (mm)<input id="validation-workspace-min" placeholder="X, Y, Z" required></label>
+<label class="wide">Workspace maximum XYZ (mm)<input id="validation-workspace-max" placeholder="X, Y, Z" required></label>
+</div><p class="hint">Enter the reviewed bounds for this workspace. Return speed and workspace bounds apply to both return buttons in Steps 3 and 5. The start and target must fit inside these bounds; checks do not detect obstacles or constrain the whole joint trajectory. Return and full 3D validation can change TCP Z. Planar validation holds the captured height.</p></details>
 </div><aside><div class="aside-label">YOUR NEXT ACTION</div><h3 id="guide-title">Prepare your setup</h3><p id="guide-text">Use the calibration for this camera and its unchanged wrist mounting.</p><div class="aside-rule"></div><span class="aside-label">HOW IT WORKS</span><p class="mini-flow">Capture a reference<br><span>↓</span><br>Teach a pick relative to it<br><span>↓</span><br>Read again to update the pick</p><div class="aside-note">Teach with the pendant.<br>Step 5 can return to observation and test the calculated pick pose.</div></aside></div>
 <footer class="wizard-footer"><button id="back" type="button" class="secondary" disabled>← Back</button><span id="step-counter">Step 1 of 5</span><button id="next" type="button" class="secondary" disabled>Next: Capture marker →</button></footer>
 </main></body></html>

@@ -61,7 +61,7 @@ class CameraPreviewTest(TestCase):
              mock.patch.object(vision, 'BoardTarget'), \
              mock.patch.object(vision, 'BoardObserver') as observer:
             observer.return_value.observe.return_value = observation
-            result = board_preview('manifest', 'tank01', '42007093', enabled=True,
+            result = board_preview('manifest', 'tank01', '12345678', enabled=True,
                                    camera_provider='basler', intrinsics='intrinsics.json',
                                    exposure_time_us=50000, gain_db=12.5)
         args = factory.call_args.args[0]
@@ -74,7 +74,7 @@ class CameraPreviewTest(TestCase):
         for kwargs, message in (({'exposure_time_us': 0}, 'exposure'),
                                 ({'gain_db': 49}, 'gain')):
             with self.assertRaisesRegex(ValueError, message):
-                board_preview('manifest', 'tank01', '42007093', enabled=True,
+                board_preview('manifest', 'tank01', '12345678', enabled=True,
                               camera_provider='basler', intrinsics='intrinsics.json', **kwargs)
 
     def test_camera_preview_needs_no_intrinsics_and_returns_annotated_image(self):
@@ -98,7 +98,7 @@ class CameraPreviewTest(TestCase):
             target.return_value.describe.return_value = {'name': 'tank01'}
             target.return_value.board = mock.Mock()
             target.return_value.border_bits = 1
-            result = camera_preview('manifest', 'tank01', '42007093', enabled=True,
+            result = camera_preview('manifest', 'tank01', '12345678', enabled=True,
                                     exposure_time_us=50000, gain_db=10)
         config = factory.call_args.args[0]
         self.assertEqual((config.width, config.height, config.exposure_time_us, config.gain_db),

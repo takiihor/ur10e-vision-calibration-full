@@ -1,28 +1,14 @@
 # Vendored source provenance
 
-This directory records where the bundled vendor trees came from. It is an offline
-record because the relevant commits are not all reachable from the public
-upstream main branches.
+The release owner keeps a trusted copy of the original `BASELINES.json` with
+the four matching source archives in private storage. That record contains
+the baseline revisions, archive names and their expected SHA-256 checksums.
 
-## Pinned baseline commits
+## Published vendor sources
 
-| Vendor | Commit | Available from at packaging time |
-| --- | --- | --- |
-| `ur10e-handeye` | `2f0e69c776957772548506cc9532537792a03dca` | `fork/review/2026-11-03-calibration-collision` in the local clone |
-| `ur-pick-place` | `e998dffc074c97bc3bd8f557564d0d1524de031f` | fetched object in the local clone; not contained in a listed branch |
-| `charuco-generator` | `52093f99665e29d479b9a9e2c29b1aac05fee0d5` | local `main` in the clone used for packaging |
-| `charuco-realsense` | `02e7010b7dcc63ed0dbfa5953ffe90a1d98b75fb` | local `master` in the clone used for packaging |
-
-The archives were deterministic trees of those commits. They are proof of the
-baseline, not a claim that the public upstream repositories contain these
-commits. The `.tar.gz` archives have been removed from this repository; only
-the recorded hashes and per-file deltas remain.
-
-## The bundle is not the baseline
-
-Every difference between the bundled vendor trees and these baselines is listed
-in `BASELINES.json`. The changes include review patches, generated assets and
-package-specific build files. `REVISIONS.txt` in the source bundle describes the
+The public `BASELINES.json` lists each shipped file as unchanged, changed
+or added relative to the trusted baseline. Changes include review patches,
+generated assets and package-specific build files. `REVISIONS.txt` in the source bundle describes the
 behavioral changes. Highlights:
 
 - `ur10e-handeye`: collision/cartesian/preview work, Basler routing, generated
@@ -42,14 +28,18 @@ See the limitation notes in the release documents.
 
 ## Verify offline
 
-The baseline archives are not included in this repository. To run the verifier,
-restore them under `provenance/` with the names recorded in `BASELINES.json`,
-then run:
+Obtain the trusted baseline record from the release owner. Keep the matching
+archives next to that record and pass its path to the verifier.
 
 ```bash
-python3 provenance/verify.py
+python3 provenance/verify.py /private/baselines/BASELINES.json
 ```
 
-The script checks each archive hash, extracts it to a temporary directory, and
-recomputes every added/changed/deleted entry in `BASELINES.json` against the
-bundled vendor tree. It reads files only.
+With no argument the verifier reads `provenance/private/BASELINES.json`.
+Git ignores that directory. Verify the record's authenticity independently
+before using it to check an archive.
+
+The verifier checks every archive against the trusted checksum before
+extraction. It compares every shipped file with its recorded category and
+checks the published digest for each addition and change. The complete list
+of unchanged, changed and added files also detects a restored or missing file.

@@ -21,8 +21,8 @@ class PreviewBackendTests(unittest.TestCase):
         first, second = self.state(100), self.state(200)
         monitor.snapshot.side_effect = [first, second]
         with mock.patch.object(primary, 'PrimaryMonitor', return_value=monitor) as factory:
-            result = preview_pose.read_pose('192.168.12.248')
-        factory.assert_called_once_with('192.168.12.248')
+            result = preview_pose.read_pose('192.0.2.248')
+        factory.assert_called_once_with('192.0.2.248')
         self.assertEqual(monitor.snapshot.call_args_list[1], mock.call(after=first.received_at, timeout=1))
         monitor.close.assert_called_once()
         self.assertEqual(result['joints_rad'], list(second.joints))
@@ -31,7 +31,7 @@ class PreviewBackendTests(unittest.TestCase):
 
     def test_bad_ip_never_connects(self):
         with mock.patch.object(primary, 'PrimaryMonitor') as factory:
-            for host in ('', 'http://robot', '192.168.12.999', None):
+            for host in ('', 'http://robot', '192.0.2.999', None):
                 with self.assertRaises(ValueError):
                     preview_pose.read_pose(host)
         factory.assert_not_called()
@@ -42,13 +42,13 @@ class PreviewBackendTests(unittest.TestCase):
             monitor.snapshot.side_effect = [self.state(100), self.state(stamp, joints)]
             with mock.patch.object(primary, 'PrimaryMonitor', return_value=monitor):
                 with self.assertRaises(ValueError):
-                    preview_pose.read_pose('192.168.12.248')
+                    preview_pose.read_pose('192.0.2.248')
             monitor.close.assert_called_once()
 
     def test_pose_opt_in_is_required_before_feedback(self):
         with mock.patch.object(preview_pose, 'read_pose') as reader:
             with self.assertRaises(PermissionError):
-                calibration.run(None, None, {'action': 'pose', 'robot_ip': '192.168.12.248'}, 'test', False)
+                calibration.run(None, None, {'action': 'pose', 'robot_ip': '192.0.2.248'}, 'test', False)
         reader.assert_not_called()
 
     def test_feedback_error_closes_monitor(self):
@@ -56,7 +56,7 @@ class PreviewBackendTests(unittest.TestCase):
         monitor.snapshot.side_effect = TimeoutError('No fresh state')
         with mock.patch.object(primary, 'PrimaryMonitor', return_value=monitor):
             with self.assertRaises(TimeoutError):
-                preview_pose.read_pose('192.168.12.248')
+                preview_pose.read_pose('192.0.2.248')
         monitor.close.assert_called_once()
 
     def scene(self):

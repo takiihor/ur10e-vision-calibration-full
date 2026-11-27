@@ -8,6 +8,17 @@ import unittest
 WEB = Path(__file__).parents[1] / 'anodizing_web' / 'web'
 
 
+def test_menu_order_and_travel_pose_location():
+    expected = ('/calibration', '/teaching', '/agv', '/pick-place')
+    for name in ('index', 'calibration', 'teaching', 'agv', 'pick-place'):
+        html = (WEB / (name + '.html')).read_text()
+        assert sorted(expected, key=lambda path: html.index(f'href="{path}"')) == list(expected)
+    assert 'Save current joints as AGV travel pose' in (WEB / 'teaching.html').read_text()
+    pick = (WEB / 'pick-place.html').read_text()
+    assert 'Save current joints as AGV travel pose' not in pick
+    assert 'Change on Teaching' in pick
+
+
 @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
 class WebProfileTests(unittest.TestCase):
     def run_js(self, script, filename, *args):
@@ -18,9 +29,9 @@ class WebProfileTests(unittest.TestCase):
     def test_invalid_basler_values_cannot_be_submitted(self):
         self.run_js(r"""
 const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
-const fields = {camera_provider: 'basler', camera_exposure_us: '5000', camera_gain_db: '0'};
+const fields = {camera_provider: 'basler', camera_exposure_us: '3200', camera_gain_db: '2'};
 const context = {document: {querySelector: () => ({content: 'fixture'}), body: {dataset: {module: 'calibration'}},
-  getElementById: id => ({value: fields[id] ?? ''})}, localStorage: {getItem: () => null}};
+  addEventListener() {}, getElementById: id => ({value: fields[id] ?? ''})}, localStorage: {getItem: () => null}};
 vm.createContext(context);
 const source = fs.readFileSync(process.argv[1], 'utf8');
 vm.runInContext(source.slice(0, source.indexOf('function notice(')), context);
@@ -30,8 +41,8 @@ for (const [id, invalid] of [['camera_exposure_us', ['', 'bad', '0', '-1', 'Infi
   for (const value of invalid) { fields[id] = value; assert.throws(() => context.values('camera-preview'), /Exposure|Gain/); }
   fields[id] = saved;
 }
-assert.equal(context.values('camera-preview').camera_exposure_us, 5000);
-assert.equal(context.values('camera-preview').camera_gain_db, 0);
+assert.equal(context.values('camera-preview').camera_exposure_us, 3200);
+assert.equal(context.values('camera-preview').camera_gain_db, 2);
 fields.camera_provider = 'realsense'; fields.camera_exposure_us = 'bad'; fields.camera_gain_db = 'bad';
 assert.doesNotThrow(() => context.values('camera'));
 """, 'app.js')

@@ -100,7 +100,7 @@ class EncoderSaturationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, redirect_stdout(io.StringIO()):
             path = Path(folder)/'glare.png'
             self.assertTrue(cv2.imwrite(str(path), image))
-            views = encoder.observations(folder, image.shape[::-1], .00168)
+            views = encoder.observations(folder, image.shape[::-1], .002)
         self.assertEqual(len(views), 1)
         self.assertEqual(len(views[0][1]), 53)
         self.assertEqual(len(views[0][2]), 53)

@@ -25,6 +25,7 @@ PAGES = {
     '/calibration': ('Calibration', 'calibration.html'),
     '/teaching': ('Marker Pick Teacher', 'teaching.html'),
     '/pick-place': ('Pick/place test', 'pick-place.html'),
+    '/agv': ('AGV test', 'agv.html'),
 }
 
 
@@ -37,17 +38,22 @@ def save_json(name, data):
     (EVIDENCE / name).write_text(json.dumps(data, indent=2) + '\n')
 
 
-def request(path, token=None):
+def request(path, token=None, *, payload=None):
+    method = 'GET' if payload is None else 'POST'
+    headers = {'X-Module-Token': token} if token else {}
+    if payload is not None:
+        headers['Content-Type'] = 'application/json'
     connection = http.client.HTTPConnection(HOST, PORT, timeout=3)
     try:
-        connection.request('GET', path, headers={'X-Module-Token': token} if token else {})
+        connection.request(method, path, body=None if payload is None else json.dumps(payload), headers=headers)
         response = connection.getresponse()
         body = response.read()
     finally:
         connection.close()
     with (EVIDENCE / 'requests.jsonl').open('a') as log:
-        log.write(json.dumps({'method': 'GET', 'path': path, 'status': response.status}) + '\n')
-    require(response.status == 200, f'GET {path} returned {response.status}')
+        log.write(json.dumps({'method': method, 'path': path, 'status': response.status,
+                              **({'payload': payload} if payload is not None else {})}) + '\n')
+    require(response.status == 200, f'{method} {path} returned {response.status}')
     return body
 
 
@@ -160,6 +166,79 @@ def tool_preview(_, token, status):
             'Example preview unexpectedly claims confirmation or cell coverage.')
 
 
+def agv(_, token, __):
+    page('/agv', *PAGES['/agv'], token)
+    initial = api('/api/agv', token)
+    require(initial['connected'] is False and initial['armed'] is False, 'AGV link must start disconnected.')
+
+    def action(step, **payload):
+        state = json.loads(request('/api/agv', token, payload=payload))
+        save_json('agv-' + step + '.json', state)
+        return state
+
+    connected = action('connect', action='connect', mode='simulator', stations=2)
+    require(connected['connected'] and connected['settings']['mode'] == 'simulator'
+            and not connected['armed'], 'Expected an unarmed simulator connection.')
+    queried = action('query', action='send', command='query_status')
+    status = queried['status']
+    require(not queried['stale'] and status['length'] == 29 and status['reply_prefix'] == '00 FF 0D'
+            and queried['status_hex'].startswith('00 FF 0D A5 5A 1D 25 '),
+            'Expected a fresh 29-byte AGV600 reply with radio prefix 00 FF 0D.')
+    require(status['obstacle_input'] == 0xCC and not {'attachment_active', 'roller_speed'} & status.keys(),
+            'Expected the simulator obstacle input and absent attachment fields.')
+    require(queried['results']['query_status']['state'] == 'status received',
+            'The valid status report did not complete the query.')
+    speed = action('read-speed', action='send', command='read_speed')
+    require(any(event['direction'] == 'RX' and event['decode'].get('read_speed_m_h') == 1250 for event in speed['log']),
+            'Expected the short 1250 m/h speed reply.')
+    require(speed['results']['read_speed']['state'] == 'reply: 1250 m/h',
+            'The valid speed reply did not complete the read.')
+    connection_id = connected['connection_id']
+    require(status['max_stations'] == 1 and status['current_station'] == 1, 'Expected one learned leg from station 1.')
+    armed = action('arm', action='arm', connection_id=connection_id, armed=True)
+    approval = dict(connection_id=connection_id, stop_generation=armed['stop_generation'])
+    action('reverse', action='send', command='reverse', **approval)
+    reversed_state = action('check-reverse', action='send', command='query_status')
+    require(reversed_state['status']['actual_speed_m_h'] == -1250, 'Reverse speed must be signed.')
+    time.sleep(1.1)
+    acknowledged = action('check-acknowledged', action='send', command='query_status')
+    require(acknowledged['results']['reverse']['ack_elapsed_s'] >= 1 and any(
+        entry['decode'].get('acknowledged_command') == 'reverse' for entry in acknowledged['log']),
+        'Expected an acknowledged reverse command.')
+    action('station-call', action='send', command='call_station', value=2, **approval)
+    moving = action('check-station-target', action='send', command='query_status')
+    require(moving['status']['target_station'] == 2 and not moving['status']['stopped'],
+            'Expected travel toward station 2.')
+    time.sleep(3.1)
+    arrived = action('check-station-arrival', action='send', command='query_status')
+    require(arrived['status']['current_station'] == 2 and arrived['status']['stopped']
+            and arrived['results']['call_station']['state'] == 'arrived', 'Expected stopped arrival at station 2.')
+    action('disarm', action='arm', connection_id=connection_id, armed=False)
+    station_stop = action('station-stop', action='send', command='stop')
+    require(station_stop['urgent_command'] == 'pause'
+            and station_stop['log'][-1]['direction'] == 'TX',
+            'Station-call software Stop did not send Pause.')
+    time.sleep(1.1)
+    checked = action('check-station-stop', action='send', command='query_status')
+    require(checked['status']['paused'] and checked['results']['pause'].get('confirmed_stopped') is True,
+            'The simulator report did not show a stopped and paused AGV.')
+    disconnected = action('disconnect', action='disconnect', connection_id=connection_id)
+    require(not disconnected['connected'], 'Simulator did not disconnect.')
+
+    standard = action('connect-standard', action='connect', mode='simulator', agv_mode=0)
+    action('query-standard', action='send', command='query_status')
+    basic_stop = action('standard-stop', action='send', command='stop')
+    require(basic_stop['urgent_command'] == 'stop'
+            and basic_stop['log'][-1]['direction'] == 'TX',
+            'Standard-mode software Stop did not send basic Stop.')
+    time.sleep(1.1)
+    checked = action('check-standard-stop', action='send', command='query_status')
+    require(checked['status']['command_stop'] and checked['results']['stop'].get('confirmed_stopped') is True,
+            'The simulator report did not corroborate basic Stop.')
+    disconnected = action('disconnect-standard', action='disconnect', connection_id=standard['connection_id'])
+    require(not disconnected['connected'], 'Standard-mode simulator did not disconnect.')
+
+
 def check_trace(trace):
     bound = False
     accepted = 0
@@ -180,7 +259,7 @@ def check_trace(trace):
 
 FEATURES = {'doctor': None, 'navigation': navigation, 'calibration-setup': calibration_setup,
             'teaching-setup': teaching_setup, 'pick-place-availability': pick_place_availability,
-            'tool-preview': tool_preview}
+            'tool-preview': tool_preview, 'agv': agv}
 
 
 def main():
@@ -194,7 +273,7 @@ def main():
     require(not DATA.exists() and not Path('/dev/bus/usb').exists(), 'Run requires disposable state and a private /dev.')
     save_json('isolation.json', {'namespace': namespace, 'host_namespace': args.host_namespace,
                                 'interfaces': interfaces, 'python': sys.version.split()[0],
-                                'robot_ports': sorted(ROBOT_PORTS), 'robot_address': '192.168.12.248'})
+                                'robot_ports': sorted(ROBOT_PORTS), 'robot_address': '192.0.2.248'})
     trace_path = EVIDENCE / 'network.strace'
     launch = ['./start-ui.sh', '--no-browser', '--port', str(PORT), '--data-dir', str(DATA)]
     command = ['strace', '-D', '-f', '-qq', '-e', 'trace=bind,listen,connect,accept,accept4',

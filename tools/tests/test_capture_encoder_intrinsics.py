@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,8 @@ from unittest.mock import MagicMock, patch
 import cv2
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools import capture_basler_intrinsics as basler
 from tools import capture_encoder_intrinsics as capture
 
 
@@ -26,6 +29,15 @@ class CaptureTests(unittest.TestCase):
             self.assertIn('--serial', stderr.getvalue())
             camera.assert_not_called()
             self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_basler_diagnostics_require_an_explicit_serial(self):
+        with patch.object(sys, 'argv', ['capture_basler_intrinsics.py', '--diagnose']), \
+             patch.object(basler, 'diagnose', side_effect=AssertionError('Camera opened without --serial')) as diagnose, \
+             contextlib.redirect_stderr(io.StringIO()) as stderr, self.assertRaises(SystemExit) as error:
+            basler.main()
+        self.assertEqual(error.exception.code, 2)
+        self.assertIn('--serial', stderr.getvalue())
+        diagnose.assert_not_called()
 
     def test_invalid_arguments_do_not_open_camera(self):
         with tempfile.TemporaryDirectory() as tmp:

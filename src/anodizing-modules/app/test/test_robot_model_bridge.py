@@ -1,9 +1,8 @@
-"""Selected-model integration checks. The local factory draft is an external fixture."""
+"""Selected-model integration checks using a synthetic joint calibration."""
 import hashlib
 import http.client
 import json
 from pathlib import Path
-import shutil
 import tempfile
 import threading
 import time
@@ -16,26 +15,26 @@ from anodizing_web.server import Server
 from ur_handeye import collision, ui_jobs
 from test_auto_bridge import Runner
 
-DRAFT = Path(__file__).resolve().parents[3] / 'ROBOT_MODEL_FACTORY_DRAFT.json'
 EXAMPLE = Path(collision.__file__).parent / 'web/collision-scene.example.json'
 
 
-@unittest.skipUnless(DRAFT.is_file(), 'Local factory-model draft is unavailable')
 class SelectedModelBridgeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.model = self.root / 'factory.json'
-        shutil.copyfile(DRAFT, self.model)
+        model = json.loads(EXAMPLE.with_name('ur10e-model.json').read_text())
+        model.update(nominal=False, source='synthetic joint calibration')
+        model['joints'][0]['xyz_m'][2] += .001
+        self.model.write_text(json.dumps(model))
         self.digest = hashlib.sha256(self.model.read_bytes()).hexdigest()
-        self.assertEqual(self.digest,'4e64c90f62e55ce90e440ecdafbdb64684c080f7a5f655e3a479a1e8b1e60fea')
         self.scene = self.root / 'scene.json'
         data = json.loads(EXAMPLE.read_text())
         data['model_sha256'] = self.digest
         self.scene.write_text(json.dumps(data))
         (self.root / 'board.json').write_text('{}')
-        self.body = {'action':'collect','session':'new-session','manifest':'board.json',
+        self.body = {'action':'collect','agv_off':True,'session':'new-session','manifest':'board.json',
                      'board':'calibration_stage2','robot_ip':'fake','serial':'fake',
                      'collision_scene':'scene.json','views':14,'tilt_deg':25,'roll_deg':30}
         self.server = Server(0,self.root,allow_auto_calibration=True,robot_model='factory.json')

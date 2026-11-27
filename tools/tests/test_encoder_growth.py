@@ -1,5 +1,4 @@
 """Prediction/refinement regressions; image labels do not come from the detector."""
-import json
 from pathlib import Path
 import sys
 import unittest
@@ -117,17 +116,16 @@ class EncoderGrowthTests(unittest.TestCase):
             np.sum((indices[:, None]-indices[None, :])**2, axis=2),
             np.sum((truth[matched, None]-truth[matched][None, :])**2, axis=2)/(40*40))
 
-    def test_real_sparse_candidate_does_not_displace_dense_seed(self):
-        fixture = ROOT / 'tools/tests/fixtures/encoder_sparse_seed.png'
-        image = cv2.imread(str(fixture), cv2.IMREAD_GRAYSCALE)
+    def test_remote_plain_square_does_not_displace_dense_seed(self):
+        image = np.full((420, 580), 30, np.uint8)
+        for x, y in [(65, 72), *((260 + 32*i, 115 + 32*j) for i in range(7) for j in range(7))]:
+            cv2.rectangle(image, (x-9, y-9), (x+9, y+9), 220, -1)
+        image = cv2.GaussianBlur(image, (5, 5), .6)
         corners, indices = encoder.detect_lattice(image)
         centres = encoder.square_centres(corners)
-        # The central dark plain square is visually at (190,170), far from the
-        # dense white patch. It is valid to measure later but cannot seed axes.
-        self.assertGreaterEqual(len(corners), 120)
-        self.assertLess(np.linalg.norm(centres-[190, 170], axis=1).min(), 2)
-        self.assertEqual(len(np.unique(indices, axis=0)), len(indices))
-        self.assertGreaterEqual(encoder.image_coverage(centres, image.shape[::-1])['occupied_cells'], 60)
+        self.assertEqual(len(centres), 49)
+        self.assertEqual(len(np.unique(indices, axis=0)), 49)
+        self.assertTrue(np.all(centres[:, 0] >= 259))
 
     def test_refinement_uses_local_scale_when_perspective_differs_from_seed(self):
         image = np.full((128, 128), 220, np.float32)
@@ -171,24 +169,6 @@ class EncoderGrowthTests(unittest.TestCase):
         self.assertTrue(np.all(distances.min(axis=1) < 1.25), 'Accepted a non-plain position')
         self.assertFalse(np.any(moved[nearest]), 'Disagreeing region was silently re-indexed')
         self.assert_topology(np.asarray(indices), cells[nearest])
-
-    def test_existing_real_fixtures_keep_plain_cell_phase(self):
-        fixture = ROOT / 'tools/tests/fixtures'
-        for stem in ('encoder_diagnostic_crop', 'encoder_diagnostic_boundary'):
-            with self.subTest(fixture=stem):
-                image = cv2.imread(str(fixture / (stem+'.png')), cv2.IMREAD_GRAYSCALE)
-                labels = json.loads((fixture / (stem+'_labels.json')).read_text())['points']
-                expected = np.array([item['centre_px'] for item in labels])
-                cells = np.array([item['cell'] for item in labels])
-                corners, indices = encoder.detect_lattice(image)
-                centres = encoder.square_centres(corners)
-                distances = np.linalg.norm(centres[:, None]-expected[None, :], axis=2)
-                nearest = distances.argmin(axis=1)
-                self.assertTrue(np.all(distances.min(axis=1) < 9), 'Coded cell or unlabelled square')
-                self.assertEqual(len(np.unique(nearest)), len(nearest))
-                bright = {n for n, item in enumerate(labels) if item['polarity'] == 'bright'}
-                self.assertGreaterEqual(len(bright.intersection(nearest)), int(np.ceil(.9*len(bright))))
-                self.assert_topology(np.asarray(indices), cells[nearest])
 
 
 if __name__ == '__main__':

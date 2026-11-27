@@ -50,8 +50,8 @@ class ValidationRobot(DemoRobot):
     def getForwardKinematics(self, joints, tcp_offset=None):
         self.fk_calls.append((list(joints), tcp_offset))
         if tcp_offset is None:
-            # Reproduce the live SDK/controller response when TCP is omitted.
-            return [.462, .152, 2.818, -1.401, -2.190, 1.649]
+            # An out-of-workspace pose exposes a missing explicit TCP argument.
+            return [.5, .2, 3.2, 0, 0, 0]
         return super().getForwardKinematics(joints)
 
 

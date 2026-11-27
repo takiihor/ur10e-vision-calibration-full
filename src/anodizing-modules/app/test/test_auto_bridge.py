@@ -34,7 +34,10 @@ class Runner:
         elif self.phase == 4:
             self.phase = 5
             self.active = False
+            yield from self.cleanup()
             yield {'type':'done', 'code':130 if self.stopped else 0}
+    def cleanup(self):
+        yield {'type': 'calibration_cleanup', 'errors': []}
     def answer(self, request_id, value):
         self.answers.append((request_id, value))
         self.phase = 2 if request_id == 1 and value else 4
@@ -52,7 +55,7 @@ class AutoBridgeTests(unittest.TestCase):
         self.scene = self.root/'scene.json'
         self.scene.write_bytes(EXAMPLE.read_bytes())
         (self.root/'board.json').write_text('{}')
-        self.body = {'action':'collect','session':'new-session','manifest':'board.json',
+        self.body = {'action':'collect','agv_off':True,'session':'new-session','manifest':'board.json',
                      'board':'calibration_stage2','robot_ip':'fake','serial':'fake',
                      'collision_scene':'scene.json','views':14,'tilt_deg':25,'roll_deg':30}
         Runner.instances.clear()
@@ -216,6 +219,7 @@ class AutoBridgeTests(unittest.TestCase):
         gate=threading.Event()
         with mock.patch.object(collision.Scene,'require_motion_ready'):
             owner.submit('unexpected-prompt-01','calibration',self.body,lambda _:gate.wait(5))
+        self.addCleanup(owner.shutdown)
         self.addCleanup(gate.set)
         owner.runner=Runner()
         owner.event('unexpected-prompt-01',{'type':'request','kind':'manual','id':1,'summary':'unexpected'})

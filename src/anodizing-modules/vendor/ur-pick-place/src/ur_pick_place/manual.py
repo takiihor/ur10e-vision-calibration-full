@@ -20,7 +20,7 @@ JOG_STOP_ACCEL = 1.0
 
 @dataclass
 class ManualSettings:
-    robot_ip: str = '192.168.0.10'
+    robot_ip: str = '192.0.2.10'
     workspace_min_m: list = field(default_factory=lambda: [-.9, -.9, .02])
     workspace_max_m: list = field(default_factory=lambda: [.9, .9, 1.2])
     tcp_speed_mm_s: float = 20.0

@@ -1,30 +1,20 @@
 # Three test modules and IPC controller
 
-Snapshot date: 11 November 2026. Review-fix revision: 13 November 2026.
-Historical source release: `44f2f0aa`, installed on 10 November 2026; this
-revision contains additional review fixes and regenerated manifests.
-
 This package contains the current standalone Calibration, Teaching and Pick/place
-pages, their shared IPC service, native module cores and saved IPC data.
+pages, their shared IPC service and native module cores.
 The three modules run without the ano app or ROS.
 
 ## Package contents
 
 - `src/anodizing-modules/`: the reviewed source, test, packaging and board
   files in this revision.
-- `state/README.md`: handling notes for the saved IPC data snapshot. The 513 MB
-  archive and its 897-file manifest are **not** in this public source repository;
-  they contain confidential site data and exceed GitHub's per-file limit.
-- `environment/`: installed Python package versions and the recorded IPC launch
-  configuration. This is a version record, not a copied virtual environment.
-- `review/`: handoff, review findings, patch, historical software test results
-  and two screenshots made with fake devices. `results/final-13115877.txt` is a
-  focused 36-test subset, not the full suite.
-- `provenance/`: per-file vendor baseline delta mapping and an offline verifier.
-  The baseline archives are not included. The bundled vendor trees are not
-  unmodified baselines.
+- `state/README.md`: handling notes for private IPC data.
+- `environment/requirements.txt`: Python dependency pins.
+- `review/`: historical review index and synthetic calibration example.
+- `provenance/`: public vendor file mapping and offline verifier. Supply the
+  trusted baseline record and archives from private storage.
 - `RELEASE_NOTES.md`: changes, limitations and unreconciled work.
-- `PACKAGE_INFO.json`: exact snapshot identity, counts and capture evidence.
+- `PACKAGE_INFO.json`: package description and external requirements.
 - `CONTENTS.sha256`: hashes of every other file in the package.
 
 SSH keys, passwords, Wi-Fi profiles, browser tokens, virtual environments,
@@ -49,20 +39,13 @@ From this package's top directory:
 sha256sum -c CONTENTS.sha256
 ```
 
-For a source-only check:
-
-```bash
-cd src/anodizing-modules
-sha256sum -c ../../SOURCE_MANIFEST.sha256
-```
-
-`SOURCE_MANIFEST.sha256` describes this release. The source-level `SHA256SUMS`
-is regenerated from the same revised files; both must match the extracted source.
+`SOURCE_MANIFEST.sha256` and the source-level `SHA256SUMS` are historical
+inventories with withheld entries omitted.
 
 Verify the offline vendor provenance separately:
 
 ```bash
-python3 provenance/verify.py
+python3 provenance/verify.py /private/baselines/BASELINES.json
 ```
 
 Run the full software suite with one command:
@@ -94,16 +77,14 @@ Use `./kill.sh PORT` for another port, or `./kill.sh --all` for all instances.
 
 ## First software check
 
-Match the Python version in `environment/` and use a separate virtual environment.
-The captured IPC runs Python 3.12.3. On a matching Linux system, the dependency
-installation commands are:
+Use a separate virtual environment. On Linux with Python 3.12:
 
 ```bash
 python3.12 -m venv review-venv
-review-venv/bin/python -m pip install -r environment/requirements-ipc-snapshot.txt
+review-venv/bin/python -m pip install -r environment/requirements.txt
 ```
 
-The captured third-party requirements and the vendored project metadata describe
+The third-party requirements and the vendored project metadata describe
 the dependencies. SDK binaries and operating-system packages still need installation
 on a new PC. The launcher supplies all four bundled native modules through
 `PYTHONPATH`; a fresh checkout from GitHub is not required.
@@ -121,8 +102,8 @@ bash "$MODULE_BUNDLE/tools/probe.bash"
 bash "$MODULE_BUNDLE/tools/run-ipc.bash" --port 8871
 ```
 
-This starts the service with hardware opt-ins off. Port 8871 keeps this check
-separate from the installed service on port 8870. The service has no built-in
+This starts the service with hardware opt-ins off on a separate review port.
+The service has no built-in
 robot address, scene, camera serial, joint bounds or named teaching project. It
 discovers board/project/calibration files under `ANODIZING_DATA_DIR`; reviewed
 overrides can be placed in an optional `site-profile.json` there. In another
@@ -154,10 +135,9 @@ If you have the separate local package, extract the archive only in a dedicated
 review directory, as described in `state/README.md`. Do not add the extracted
 data to this repository.
 
-The recorded launch configuration describes the existing installation. It is not
-an instruction to start another hardware controller beside it. Hardware use still
+Keep the installation's launch configuration in local storage. Hardware use
 requires the correct camera serial, active TCP, robot model, scene, calibration
-and explicit task approval. Machine-specific paths in saved records remain intact.
+and explicit task approval.
 
 Current physical limits:
 
@@ -165,10 +145,8 @@ Current physical limits:
   the start and endpoint. The selected scene checks the joint path.
 - The supervised-self scene omits external cell objects.
 - MCU acknowledgements do not prove that the rod is held or released.
-- D435 intrinsics were fitted from 16 views, but remain marked unvalidated.
-- Basler preparation uses the 12 mm lens and 32 mm fine boards. A [provisional
-  encoder-plate estimate](review/results/basler-encoder-intrinsics/README.md) is
-  available for the recorded Basler and optical settings. Physical validation
-  remains outstanding.
+- Verify camera intrinsics with independent views before metric use. Keep
+  measurements, camera identity and optical settings in the private calibration
+  record. See the [encoder-plate workflow](tools/ENCODER_INTRINSICS.md).
 
 Packaging reads files only. It does not provide new physical validation.

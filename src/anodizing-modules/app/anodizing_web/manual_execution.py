@@ -82,7 +82,8 @@ def load_context(root, body):
         robot={'active_tcp_offset':settings['tcp']}, base_dir=str(project))
     return SimpleNamespace(settings=settings, config=config, calibration=calibration,
         model=replace(load_taught(project/'grasp_pick.json'), role=role), target=target_from_config(settings['target']),
-        provenance=provenance, check_inputs=check_inputs, role=role, approach_mm=settings['approach_mm'], hashes=hashes)
+        provenance=provenance, check_inputs=check_inputs, role=role, approach_mm=settings['approach_mm'], hashes=hashes,
+        agv_station=(saved.get('agv') or {}).get('station'))
 
 
 def observe_role(context, control, receive, tick):
@@ -194,6 +195,9 @@ class ManualExecution(TeacherJointMotion):
             self._poll()
             time.sleep(.02)
 
+    def _interruption_details(self):
+        return {}
+
     def _execute(self, command, payload, generation):
         if command != 'move_tcp':
             return super()._execute(command,payload,generation)
@@ -208,7 +212,8 @@ class ManualExecution(TeacherJointMotion):
                 exc = RuntimeError(f'{exc}; stop failed: {stop_error}')
             if self.phases:
                 self.phases.interrupt(exc)
-            self._publish(stage='interrupted', item_state='unknown', prompt=None, error=str(exc))
+            self._publish(stage='interrupted', item_state='unknown', prompt=None, error=str(exc),
+                          **self._interruption_details())
             raise exc
 
     def _dispatch_validation(self, target, after, generation):
@@ -457,6 +462,8 @@ class TeacherDescent(ManualExecution):
 
 def control(owner, body):
     job_id = body.get('job_id')
+    if body.get('action') == 'cancel-unconfirmed':
+        return owner.cancel_unconfirmed(job_id)
     # Latch before any owner lock or disk I/O, including a stalled fsync.
     runner = owner.runner
     if body.get('action') == 'stop' and owner.active == job_id and isinstance(runner,ManualExecution):
@@ -475,6 +482,7 @@ def control(owner, body):
                 job['execution_uncertain'] = True
                 raise
         elif body.get('action') == 'confirm':
+            owner.check_agv()
             if owner.mcu_pending or owner.execution_uncertain or owner.storage_error:
                 raise ValueError('MCU work is pending or execution/storage is uncertain. Inspect the outcome before confirmation.')
             if not isinstance(owner.runner,ManualExecution):
@@ -537,6 +545,10 @@ def run(owner, root, body, job_id):
         context = recipe.contexts['A','PICK']
     else:
         context = load_context(root,context_body)
+        visit = owner.agv_visit
+        station = getattr(context, 'agv_station', None)
+        if station is not None and visit and not visit.switched_off:
+            visit.require_endpoint(station)
     if descent:
         with owner.lock:
             aligned_job = owner.jobs.get(body.get('alignment_job_id')) or {}
@@ -598,6 +610,7 @@ def run(owner, root, body, job_id):
         tcp_accel_m_s2=.05, joint_speed_rad_s=math.radians(number(body.get('joint_speed_deg_s',3),'Joint speed (degrees/s)',low=1,high=6)),
         joint_accel_rad_s2=.1)
     def guard():
+        owner.check_agv()
         with worker_owner_lock():
             if (owner.closing or owner.active != job_id or owner.storage_error or owner.jobs[job_id].get('manual_cancelled')
                     or ((repeat or step) and owner.execution_uncertain)):
@@ -607,6 +620,12 @@ def run(owner, root, body, job_id):
     def emit(state):
         with owner.lock:
             job = owner.jobs[job_id]
+            previous = job.get('manual') or {}
+            repeat_state = state.get('repeat') or {}
+            previous_repeat = previous.get('repeat') or {}
+            if (state.get('stage'), repeat_state.get('phase'), repeat_state.get('completed_transfers')) != (
+                    previous.get('stage'), previous_repeat.get('phase'), previous_repeat.get('completed_transfers')):
+                job['manual_updated_at'] = time.time()
             job.update(manual=state,state='waiting' if state.get('prompt') else 'running',pending=state.get('prompt'))
             owner._save(job)
     cleanup_error = None
@@ -642,16 +661,26 @@ def run(owner, root, body, job_id):
             factory=step_backend if step else native_backend,operation='DESCEND' if descent else operation,context=context,emit=emit,
             **({'recipe':recipe,'owner':owner,'parent_job_id':job_id} if repeat else {}))
         with owner.lock:
-            owner.runner = worker
-            owner.motion_job = job_id
+            with owner.agv_start_lock:
+                owner.check_agv()
+                owner.runner = worker
+                owner.motion_job = job_id
             emit(worker.state()['manual'])
         def wait():
             while True:
-                guard()
+                try:
+                    guard()
+                except ValueError:
+                    if not (repeat and worker.cancelled.is_set()):
+                        raise
+                    # The repeat worker owns native and AGV Stop and writes the
+                    # specific interruption before it clears the active command.
                 state = worker.state()
                 if state['error']:
                     raise ValueError(state['error'])
                 if not state['pending'] and not state['moving']:
+                    if worker.cancelled.is_set():
+                        raise ValueError('Manual operation stopped; no resume.')
                     return state
                 time.sleep(.02)
         worker.submit('connect'); wait(); guard()

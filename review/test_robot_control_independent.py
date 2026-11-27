@@ -11,8 +11,8 @@ class RobotControlIndependent(unittest.TestCase):
         h=test_manual_execution.ManualWorkerTests();owner=h.public_server();self.addCleanup(h.doCleanups)
         body={'request_id':'robot-step-once','action':'STEP','axis':'x','increment':5,
               'robot_ip':'fake','tcp':h.tcp,'tcp_confirmed':True,'operator_path_approved':True,
-              'collision_scene':'reviewed-scene.json','workspace_min_m':[-.9,-.9,.01],
-              'workspace_max_m':[.9,.9,1.2],'joint_bounds_rad':[[-6.28,6.28] for _ in range(6)],
+              'collision_scene':'reviewed-scene.json','workspace_min_m':[-.82,-.84,.025],
+              'workspace_max_m':[.82,.84,1.22],'joint_bounds_rad':[[-6.28,6.28] for _ in range(6)],
               'joint_bounds_source':'offline fixture limits','joint_speed_deg_s':3}
         if importlib.util.find_spec('anodizing_web.robot_control'):
             patch=mock.patch('anodizing_web.robot_control.native_backend',return_value=(h.robot,h.robot));patch.start();self.addCleanup(patch.stop)
@@ -65,7 +65,7 @@ class RobotControlIndependent(unittest.TestCase):
         h=test_manual_execution.ManualWorkerTests();owner=h.public_server();self.addCleanup(h.doCleanups)
         patch=mock.patch('anodizing_web.robot_control.native_backend',return_value=(h.robot,h.robot));patch.start();self.addCleanup(patch.stop)
         h.public_body={'request_id':request_id,'action':'STEP','axis':'x','increment':5,'robot_ip':'fake','tcp':h.tcp,
-            'collision_scene':'reviewed-scene.json','workspace_min_m':[-.9,-.9,.01],'workspace_max_m':[.9,.9,1.2],
+            'collision_scene':'reviewed-scene.json','workspace_min_m':[-.82,-.84,.025],'workspace_max_m':[.82,.84,1.22],
             'joint_bounds_rad':[[-6.28,6.28] for _ in range(6)],'joint_bounds_source':'fixture','joint_speed_deg_s':3}
         return h,owner
 

@@ -35,6 +35,7 @@ Any other options are passed to the IPC server. Common examples:
   --allow-teaching
   --allow-manual
   --allow-manual-pick-place
+  --allow-agv-in-recipe
 
 Environment:
   ANODIZING_PYTHON     Use an existing prepared interpreter; skips .venv setup

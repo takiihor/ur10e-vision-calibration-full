@@ -30,10 +30,22 @@ def test_solve_writes_the_shared_contract_and_matches_truth(collected, tmp_path,
 
 
 def test_verify_passes_for_the_true_calibration_and_fails_for_a_wrong_one(collected, tmp_path, capsys):
+    from conftest import run_auto
+    from ur_handeye.poses import PlanOptions
+    from ur_handeye.simulation import build_scenario
+
     _, directory, _ = collected
     calibration = tmp_path / "calibration.json"
     assert main(["solve", "--session", str(directory), "--output", str(calibration), "--no-loo"]) == 0
-    assert main(["verify", "--calibration", str(calibration), "--session", str(directory)]) == 0
+    capsys.readouterr()
+    assert main(["verify", "--calibration", str(calibration), "--session", str(directory)]) == 2
+    copied = tmp_path / "copied"
+    shutil.copytree(directory, copied)
+    assert main(["verify", "--calibration", str(calibration), "--session", str(copied)]) == 2
+    fresh = tmp_path / "fresh"
+    run_auto(build_scenario(seed=3), fresh, plan=PlanOptions(tilt_deg=22, roll_deg=26))
+    assert main(["verify", "--calibration", str(calibration), "--session", str(fresh)]) == 0
+    assert json.loads(capsys.readouterr().out)["simulated"] is True
     result = json.loads(calibration.read_text())
     x = np.asarray(result["camera_in_flange"]["matrix"])
     x[:3, 3] += [0.004, 0, 0]  # a 4 mm error in the camera mount
@@ -43,10 +55,11 @@ def test_verify_passes_for_the_true_calibration_and_fails_for_a_wrong_one(collec
     calibration.write_text(json.dumps(result))
     capsys.readouterr()
     output = tmp_path / "verification.json"
-    argv = ["verify", "--calibration", str(calibration), "--session", str(directory), "--output", str(output)]
+    argv = ["verify", "--calibration", str(calibration), "--session", str(fresh), "--output", str(output)]
     assert main(argv) == 1
     report = json.loads(capsys.readouterr().out)
     assert report["passed"] is False
+    assert report["simulated"] is True
     assert report["limits"] == {"position_max_mm": 2.0, "rotation_max_deg": 1.0}
     assert report["failures"] and "position" in report["failures"][0]["failed_limits"]
     assert "label" in report["failures"][0]

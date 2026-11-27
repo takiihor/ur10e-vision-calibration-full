@@ -8,10 +8,11 @@ Review and unpack the source bundle into a new directory. Do not replace the exi
 
 ```bash
 export MODULE_BUNDLE=/path/to/anodizing-modules
-export ANODIZING_PYTHON=/home/user/anodizing_line/anodizing_modules_20261104/.venv/bin/python
-export ANODIZING_DATA_DIR=/home/user/anodizing_line/anodizing_modules_20261104/data
+export ANODIZING_PYTHON=$MODULE_BUNDLE/.venv/bin/python
+export ANODIZING_DATA_DIR=$MODULE_BUNDLE/data
+cd "$MODULE_BUNDLE/../.."
+sha256sum -c CONTENTS.sha256
 cd "$MODULE_BUNDLE"
-sha256sum -c /path/to/SOURCE_MANIFEST.sha256
 ./tools/probe.bash
 ```
 
@@ -112,10 +113,10 @@ In a second IPC terminal with the same variables, run the simulation-only smoke 
 
 It refuses a service started with hardware opt-ins. It creates a uniquely named `smoke/` folder and checks a simulated teaching, PICK and shifted PLACE. The service binds only to IPC loopback. It validates Host, Origin, a process token and bounded JSON requests. One service and one job owner are allowed at a time. Job records are under `.jobs`; accepted calibration and read-only jobs continue when a browser or tunnel disconnects. Supervised Teacher movement is the exception: it requires a live heartbeat and requests a stop after heartbeat loss. Reload and select the existing job ID. A repeated ID with the same request returns its stored state; a different request with that ID is refused. On service restart an unfinished job is marked interrupted. A server shutdown waits for workers to clean up; it interrupts a running calibration worker.
 
-On the laptop, start the tunnel with the existing IPC SSH account and Wi-Fi address:
+On the laptop, set IPC_SSH_TARGET to the SSH target from your private installation notes and start the tunnel:
 
 ```bash
-./tools/tunnel.bash USER@192.168.1.251
+./tools/tunnel.bash "$IPC_SSH_TARGET"
 ```
 
 Use the laptop's copy of the bundle for that command. Then open `http://127.0.0.1:8870/`, or directly open `/calibration`, `/teaching`, or `/pick-place` at that address. Keep the IPC service and tunnel running. The request token changes when the service restarts; reload the page afterward.
@@ -176,9 +177,9 @@ Exclusion is within this module service and its workers, not controller-wide or 
 
 The separate manual panel keeps independent pick-tag/place-tag selections (both must match the selected project's taught board) and explicitly reuses the original pick-taught marker-to-tool offset with separate provenance. Original grasp/reference/configuration data are never rewritten. The visible PICK / PLACE controls use the native checked sequence.
 
-After coordinator review, IPC `--allow-manual-pick-place` with the selected factory model enables explicit manual requests; it stays off by default. Select the reviewed scene, configured operating joint bounds and source, workspace and speeds; confirm active TCP and that the held item fits wholly inside the selected scene's attached tool box. PICK and PLACE each obtain a fresh pose3/reference4 qualified marker observation, show the exact plan for another bound reply, align above by checked joint transit, descend straight base-Z with actual stopped XY/orientation held, pause for manual grip/release, and withdraw straight+100mm. No automatic gripper action, force search or held-state inference. MCU commands require separate button clicks. No moveJ substitutes for vertical legs and rejected hardware requests never run simulation.
+After coordinator review, IPC `--allow-manual-pick-place` with the selected factory model enables explicit manual requests; it stays off by default. Select the reviewed scene, configured operating joint bounds and source, workspace and speeds; confirm active TCP and that the held item fits wholly inside the selected scene's attached tool box. PICK and PLACE each obtain a fresh marker observation that meets the selected project’s quality checks, show the exact plan for another bound reply, align above by checked joint transit, descend straight base-Z with actual stopped XY/orientation held, pause for manual grip/release, and withdraw straight+100mm. No automatic gripper action, force search or held-state inference. MCU commands require separate button clicks. No moveJ substitutes for vertical legs and rejected hardware requests never run simulation.
 
-Step5 additionally exposes one separately approved vertical descent after the current completed planar alignment. It binds current alignment/capture/grasp hashes and explicit confirmation that marker/dummy/rod have not moved. The full current taught height is read from saved data, not an incremental probe or old taught pose. Old Run only aligns. A later relevant task, return, reteach or restart invalidates descent eligibility. The reported7.892mm endpoint is outside the default10mm workspace minimum; an optional visible minZ0 form draft is never automatically applied or saved and never changes robot safety limits. Review and approve the exact new plan before motion.
+Step5 additionally exposes one separately approved vertical descent after the current completed planar alignment. It binds current alignment/capture/grasp hashes and explicit confirmation that marker/dummy/rod have not moved. The full current taught height is read from saved data, not an incremental probe or old taught pose. Old Run only aligns. A later relevant task, return, reteach or restart invalidates descent eligibility. If a taught endpoint falls outside the reviewed workspace, review the bounds before proceeding. A workspace edit requires operator input and cannot change controller safety limits. Review and approve the exact new plan before motion.
 
 Each vertical leg requires the full continuous-branch conditional clear_in_model certificate plus immediate exact binding recheck. Native joint chords and sampled IK never certify moveL. The checker keeps explicit floating numerical allowances and the total0.2degree model/tracking correspondence assumption. At most three representative controller-FK/safety samples detect mismatch, with progress/timing recorded; they do not prove whole-route correspondence. supervised_self excludes external cell objects. Full geometry checking still covers every accepted branch ball.
 
@@ -202,7 +203,7 @@ An MCU reply does not answer the prompt. Check the physical item and use the
 separate operation confirmation before lift/retraction. Raw text, hex and FSR
 sensor values are evidence of the reply, not proof that an item is held.
 
-Anobot revision `4e9a298c94e07e1d26a47f7d615f957741dd7e2f` defines these bytes and
+The MCU protocol defines these command bytes and the
 case-insensitive exact `Tight`, `Loose`, `Open` replies, and `FSR1:n/FSR2:n` status.
 The adapter uses its 2 s read limit, 0.5 s write limit, 0.1 s quiet period and
 128-byte reply bound. Queued input is discarded before each explicit command.
@@ -253,19 +254,17 @@ ANODIZING_PYTHON=/path/to/python ./tools/test-all.bash
 
 The runner imports the vendor trees directly, runs the app and four vendor
 suites, and leaves the opt-in browser checks skipped when Node or Chrome is not
-installed. It is also used by `.github/workflows/tests.yml`. The historical
-`review/results/final-13115877.txt` is a 36-test focused subset, not this full
-suite.
+installed. It is also used by `.github/workflows/tests.yml`. The historical 36-test run covered a focused subset.
 
-The package-level `provenance/` directory contains deterministic baseline
-archives, the per-file vendor mapping and an offline verifier:
+From the module bundle, verify the public vendor files using the trusted private
+record and its baseline archives:
 
 ```bash
-python3 ../provenance/verify.py
+python3 ../../provenance/verify.py /private/baselines/BASELINES.json
 ```
 
 The bundled vendor trees include review changes and are not identical to the
-pinned baselines; every difference is recorded in `provenance/BASELINES.json`.
+pinned baselines; the public mapping describes the included vendor files.
 The release notes list work that was not reconciled.
 
 Basler camera preparation and physical limits: [BASLER_PREPARATION.md](BASLER_PREPARATION.md).
@@ -278,3 +277,26 @@ The Robot steps card is available on Calibration, Teaching and Pick/place. It do
 Choose a base X/Y/Z increment of 1, 5 or 10 mm, or a tool-local rotation of 1, 2 or 5 degrees. A +/− click prepares one frozen start and endpoint. It does not authorize motion. Review the endpoint and pinned settings in Current operation. Check the physical area and approve once. The IPC checks the full joint path before one unblended moveJ. The TCP path can curve and change height or orientation. Workspace bounds apply to the start and endpoint. A tool rotation keeps the requested TCP endpoint position fixed. No gripper command is sent.
 
 The shared IPC owner retains the worker through cleanup. Stop cancels pending approval or stops the accepted move. A disconnect does not repeat or resume work. Network failures leave the request blocked for inspection. A definite rejected request permits correction and a new explicit click. Dispatch evidence uses the existing `*.manual-path.json` restart fence. These changes require offline regression and browser acceptance before activation. Fake robot checks do not validate physical clearance, model accuracy or controller timing.
+
+
+Both AGV pages accept a live serial radio address and channel in Link settings.
+The address takes two hex bytes and the channel takes one. A blank field uses
+the corresponding `agv.address` or `agv.channel` string from the private
+`site-profile.json` in the service data directory. Restart the service after
+editing the profile. The browser remembers explicit overrides from its last
+successful connection and restores them when the transport matches. The service
+rejects missing or invalid live routes before opening a serial port.
+An API caller can omit a field to use its profile value.
+
+When the profile contains `agv.wired_port`, both pages offer Wired RS-485 and the
+service fences motion and recipes in every transport. Use a dedicated link to
+the AGV and the private device path for the approved serial adapter. Wired sends
+bare requests. A radio route also lets it recognize the configured reply
+prefix and check the vehicle ID. With both fields absent, the first complete
+status frame identifies the vehicle for that connection.
+
+The simulator uses an invented route, initial speed and periodic frame
+interval. Offline tests use fake serial and a simulated clock. They provide
+no evidence about physical routing, link timing or motion. The optional
+`agv.fault_descriptions` profile field maps decimal fault codes to local
+descriptions.

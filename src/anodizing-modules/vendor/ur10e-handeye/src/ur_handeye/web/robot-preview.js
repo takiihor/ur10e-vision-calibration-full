@@ -56,6 +56,7 @@ if(typeof module!=='undefined')module.exports={multiply,rigid,point,robotFrames,
 
 if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',()=>{
   const native=document.getElementById('native-tool-preview'),visualOnly=!!native||new URLSearchParams(location.search).get('view')==='preview';
+  const calibrationFrame=new URLSearchParams(location.search).get('view')==='calibration'&&window.parent!==window;
   const section=document.createElement('section');section.className='panel robot-panel'+(visualOnly?' visual-only':'');section.id='robot-panel';
   section.innerHTML=`<h2>UR10e and tool preview</h2><p class="badge">NOMINAL MODEL · PREVIEW</p>
   <p>Drag to orbit. Right-drag to pan. Use the wheel to zoom.</p><p class="hint">Focus the view. Use arrow keys to orbit. Use + or - to zoom.</p><button id="fit-view" type="button">Fit view</button><p id="preview-status" role="status"></p>
@@ -91,7 +92,7 @@ if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',()
   let scene=copy(DEFAULT_COLLISION_SCENE),q=[0,-1.9,-1.6,-1.2,1.5708,0],plan=null,bodyValid=true,poseRevision=0,sceneRevision=0,readRevision=0,loadingScene=false,cameraVisual=null,nativeLoaded=false,nativeSelection='',nativeBase='',nativeTimer,nativeDirty=false;
   const state=el('scene-state'),message=el('scene-message'),canvas=el('robot-canvas');
   const render=typeof createRobotPreview==='function'?createRobotPreview(canvas,el('preview-status'),el('fit-view')):()=>{};
-  function draw(){render(q,scene,UR10E_MODEL,visualOnly?cameraVisual:undefined);}
+  function draw(){render(q,scene,UR10E_MODEL,visualOnly||calibrationFrame?cameraVisual:undefined);}
   const jointInputs=[];
   for(let i=0;i<6;i++){const label=document.createElement('label');label.textContent=['Base','Shoulder','Elbow','Wrist 1','Wrist 2','Wrist 3'][i]+' (deg)';const input=document.createElement('input');input.type='number';input.min=-720;input.max=720;input.step=.1;input.value=(q[i]*180/Math.PI).toFixed(2);input.addEventListener('input',()=>{poseRevision++;el('pose-status').textContent='Manual joint pose.';const v=jointInputs.map(n=>n.value.trim()===''?NaN:Number(n.value)*Math.PI/180);if(finiteVector(v,6,4*Math.PI)){q=v;plan=null;el('path-status').textContent='Manual joint pose. No path check applies.';draw();}});label.append(input);jointInputs.push(input);el('joint-inputs').append(label);}
   const fieldKeys=['Length','Width','Height','Centre X','Centre Y','Centre Z','Roll','Pitch','Yaw'],bodyInputs=[];let bodyDisplayed=[];
@@ -100,8 +101,9 @@ if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',()
   function options(){const previous=el('scene-box').value;el('scene-box').replaceChildren();for(const b of [...scene.attached,...scene.obstacles]){const o=document.createElement('option');o.value=b.name;o.textContent=b.name;el('scene-box').append(o);}if([...el('scene-box').options].some(o=>o.value===previous))el('scene-box').value=previous;showBody();}
   function showBody(){const b=selected();if(!b)return;const tool=b.name==='tool';el('tool-editor').hidden=!tool;el('scene-fields').hidden=tool;el('scene-frame').textContent=scene.obstacles.includes(b)?'Cell box pose uses base coordinates.':'Attached box pose uses tool0 (flange) coordinates.';bodyValid=true;const v=[...b.dimensions_m.map(x=>x*1000),...b.pose.xyz_m.map(x=>x*1000),...b.pose.rpy_rad.map(x=>x*180/Math.PI)];bodyDisplayed=v.map(x=>Number(x.toFixed(6)));bodyInputs.forEach((n,i)=>n.value=bodyDisplayed[i]);el('remove-obstacle').disabled=!scene.obstacles.includes(b);}
   function draftKey(path){return 'ano-scene-draft-'+UR_MODEL_SHA256+':'+path;}
-  function storeDraft(){if(native&&nativeLoaded&&nativeSelection&&nativeDirty)try{localStorage.setItem(draftKey(nativeSelection),JSON.stringify({base:nativeBase,scene,fields:['length','width','height','x','y','z','roll','pitch','yaw'].map(id=>el(id).value)}));}catch{message.textContent='Draft could not be stored locally. Save the scene before leaving.';}}
-  function sceneDirty(){if(loadingScene)return;sceneRevision++;if(native){nativeDirty=true;setTimeout(storeDraft,0);}else if(location.protocol!=='file:'&&window.parent!==window)window.parent.postMessage({type:'calibration-scene-dirty'},location.origin);}
+  const toolIds=['length','width','height','x','y','z','roll','pitch','yaw'];
+  function storeDraft(){if(nativeLoaded&&nativeSelection&&nativeDirty)try{localStorage.setItem(draftKey(nativeSelection),JSON.stringify({base:nativeBase,scene,fields:toolIds.map(id=>el(id).value)}));}catch{message.textContent='Draft could not be stored locally. Save the scene before leaving.';}}
+  function sceneDirty(){if(loadingScene)return;sceneRevision++;if(native||calibrationFrame){nativeDirty=true;setTimeout(storeDraft,0);}if(!native&&location.protocol!=='file:'&&window.parent!==window)window.parent.postMessage({type:'calibration-scene-dirty'},location.origin);}
   function changed(){sceneDirty();scene.confirmed=false;scene.environment_complete=false;message.textContent=scene.collision_scope==='supervised_self'?'The scene changed. Check the arm and attached model again.':'The scene changed. Check the physical model and cell again.';sync();draw();}
   function editBody(){const v=bodyInputs.map(n=>n.value.trim()===''?NaN:Number(n.value)),next=copy(scene),b=[...next.attached,...next.obstacles].find(x=>x.name===selected()?.name);if(!b)return;v.forEach((x,i)=>{if(x!==bodyDisplayed[i]){if(i<3)b.dimensions_m[i]=x/1000;else if(i<6)b.pose.xyz_m[i-3]=x/1000;else b.pose.rpy_rad[i-6]=x*Math.PI/180;}});try{validateScene(next,UR_MODEL_SHA256);bodyDisplayed=v;bodyValid=true;scene=next;changed();}catch{bodyValid=false;message.textContent='Enter valid dimensions and offsets. The view keeps the last valid scene.';}}
   function sync(){const self=scene.collision_scope==='supervised_self';el('scene-confirmed').checked=scene.confirmed;el('scene-complete').checked=scene.environment_complete;el('cell-coverage').hidden=self;el('scene-complete').disabled=self||(!!native&&!nativeLoaded);el('scene-confirmed-label').textContent=self?'Arm and attached model checked':'Physical model checked';el('scene-scope').textContent=native&&!nativeLoaded?'Scene scope is not loaded.':self?'Arm and attached tools only. External objects are not checked.':'Cell scope. Check external objects and cell coverage.';el('scene-clearance').value=scene.clearance_m*1000;el('scene-uncertainty').value=scene.model_uncertainty_m*1000;state.textContent=scene.confirmed&&(self||(scene.environment_complete&&scene.obstacles.length))?'SCENE RECORDED · PATH CHECK REQUIRED':'AUTOMATIC MOTION BLOCKED';showPathStatus();}
@@ -116,6 +118,31 @@ if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',()
   el('scene-export').addEventListener('click',()=>{try{download(checkedScene(),'collision-scene.json');message.textContent='';}catch{message.textContent='The editor cannot export this scene. Check the values.';}});
   async function fileData(event){const file=event.target.files[0];if(!file)return null;if(file.size>1000000)throw Error('Use a JSON file smaller than 1 MB.');try{return JSON.parse(await file.text());}catch{throw Error('The file is not valid JSON.');}}
   function importScene(data){const next=validateScene(data,UR_MODEL_SHA256),tool=next.attached.find(b=>b.name==='tool');const vals=[...tool.dimensions_m.map(x=>x*1000),...tool.pose.xyz_m.map(x=>x*1000),...tool.pose.rpy_rad.map(x=>x*180/Math.PI)];if(vals.slice(0,3).some(x=>x>5000)||vals.slice(3,6).some(x=>Math.abs(x)>5000))throw Error('The tool exceeds the tool box editor limits.');['length','width','height','x','y','z','roll','pitch','yaw'].forEach((id,i)=>el(id).value=vals[i]);el('coverage').value='tool-only';loadingScene=true;try{el('length').dispatchEvent(new Event('input'));scene=next;options();sync();draw();message.textContent='';}finally{loadingScene=false;}}
+  function restoreToolDraft(path,result){
+    const base=canonical(validateScene(result.scene,UR_MODEL_SHA256));
+    let draft;
+    try{
+      const value=JSON.parse(localStorage.getItem(draftKey(path))||'null');
+      if(value&&Array.isArray(value.fields)&&value.fields.length===toolIds.length){
+        validateScene(value.scene,UR_MODEL_SHA256);
+        draft=value;
+      }
+    }catch{}
+    const next=copy(calibrationFrame&&draft?.base===base?draft.scene:result.scene);
+    if(draft){
+      next.attached[next.attached.findIndex(b=>b.name==='tool')]=copy(draft.scene.attached.find(b=>b.name==='tool'));
+      next.confirmed=draft.base===base&&draft.scene.confirmed;
+      next.environment_complete=draft.base===base&&draft.scene.environment_complete;
+    }
+    importScene(next);
+    if(draft){
+      loadingScene=true;
+      try{toolIds.forEach((id,i)=>el(id).value=draft.fields[i]);el('length').dispatchEvent(new Event('input'));}
+      finally{loadingScene=false;}
+      message.textContent=draft.base===base?'Unsaved draft restored.':'The saved scene changed. The tool draft was restored. Check the scene again.';
+    }
+    nativeSelection=path;nativeBase=base;nativeLoaded=true;nativeDirty=Boolean(draft);sync();
+  }
   el('scene-import').addEventListener('change',async event=>{try{const data=await fileData(event);if(!data)return;readRevision++;importScene(data);el('scene-loaded').textContent='Imported file: '+event.target.files[0].name;el('scene-save').disabled=location.protocol==='file:';sceneDirty();}catch(e){message.textContent='The editor did not import the scene. '+e.message;}finally{event.target.value='';}});
   document.addEventListener('tool-box-change',event=>{const p=event.detail;scene.attached.find(b=>b.name==='tool').dimensions_m=p.dimensions_m;scene.attached.find(b=>b.name==='tool').pose=copy(p.pose_in_flange);if(native){if(loadingScene)draw();else changed();}else if(visualOnly){if(!loadingScene)try{localStorage.setItem('ano-tool-preview-'+UR_MODEL_SHA256,JSON.stringify({profile:p,values:['length','width','height','x','y','z','roll','pitch','yaw','margin'].map(id=>el(id).value)}));}catch{}draw();}else changed();});
   el('path-import').addEventListener('change',async event=>{try{const d=await fileData(event);if(!d)return;plan=readJointPlan(d,UR_MODEL_SHA256);el('path-segment').replaceChildren();plan.segments.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent=(i+1)+': '+s.label;el('path-segment').append(o);});el('path-segment').disabled=el('path-position').disabled=false;el('path-position').value=0;pathPose();message.textContent='';}catch(e){message.textContent='The editor did not import the path. '+e.message;}finally{event.target.value='';}});
@@ -131,6 +158,7 @@ if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',()
   if(!visualOnly&&location.protocol!=='file:'&&window.parent!==window){
     window.addEventListener('message',async event=>{
       if(event.origin!==location.origin||event.source!==window.parent||event.data?.type!=='calibration-scene-select'||typeof event.data.path!=='string')return;
+      if(calibrationFrame){storeDraft();nativeLoaded=false;}
       const selection=event.data.path,revision=++readRevision,edit=sceneRevision;el('scene-save').disabled=true;
       if(!selection){el('scene-loaded').textContent+=' No saved scene selected.';el('scene-save').disabled=false;return;}
       el('scene-loaded').textContent='Loading scene: '+selection;
@@ -142,14 +170,14 @@ if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',()
         if(edit!==sceneRevision)throw Error('The editor changed during loading. Select the scene again.');
         const result=job.result;
         if(!result||typeof result.path!=='string'||!result.path.startsWith('/')||result.model_sha256!==UR_MODEL_SHA256||result.confirmed!==result.scene?.confirmed||result.environment_complete!==result.scene?.environment_complete||result.obstacles_count!==result.scene?.obstacles?.length)throw Error('The scene read result is invalid.');
-        importScene(result.scene);el('scene-loaded').textContent='Loaded scene: '+result.path;el('scene-save').disabled=false;
-        window.parent.postMessage({type:'calibration-scene-loaded',selection,path:result.path},location.origin);
+        if(calibrationFrame)restoreToolDraft(selection,result);else importScene(result.scene);
+        el('scene-loaded').textContent='Loaded scene: '+result.path+(nativeDirty?' · unsaved tool draft':'');el('scene-save').disabled=false;
+        window.parent.postMessage({type:'calibration-scene-loaded',selection,path:result.path,scope:scene.collision_scope||'cell',dirty:nativeDirty},location.origin);
       }catch(error){if(revision!==readRevision)return;el('scene-loaded').textContent='Scene not loaded: '+selection+'. '+error.message;window.parent.postMessage({type:'calibration-scene-load-error',selection,error:error.message},location.origin);}
     });
     window.parent.postMessage({type:'calibration-scene-ready'},location.origin);
   }
   if(native){
-    const toolIds=['length','width','height','x','y','z','roll','pitch','yaw'];
     function enabled(value){for(const id of [...toolIds,'scene-confirmed'])el(id).disabled=!value;el('scene-complete').disabled=!value||scene.collision_scope==='supervised_self';el('scene-save').disabled=!value;}
     function loadScene(path){
       if(nativeDirty)storeDraft();
@@ -164,14 +192,9 @@ if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',()
           if(job.state!=='done')throw Error(job.error||'Scene read did not finish.');
           const result=job.result;
           if(!result||typeof result.path!=='string'||!result.path.startsWith('/')||result.model_sha256!==UR_MODEL_SHA256||result.confirmed!==result.scene?.confirmed||result.environment_complete!==result.scene?.environment_complete||result.obstacles_count!==result.scene?.obstacles?.length)throw Error('The scene read result is invalid.');
-          const base=canonical(validateScene(result.scene,UR_MODEL_SHA256));let draft=null;
-          try{draft=JSON.parse(localStorage.getItem(draftKey(path))||'null');if(draft)validateScene(draft.scene,UR_MODEL_SHA256);}catch{draft=null;}
-          let next=result.scene;
-          if(draft&&Array.isArray(draft.fields)&&draft.fields.length===9){next=copy(result.scene);const tool=draft.scene.attached.find(b=>b.name==='tool');next.attached[next.attached.findIndex(b=>b.name==='tool')]=copy(tool);next.confirmed=draft.base===base?draft.scene.confirmed:false;next.environment_complete=draft.base===base?draft.scene.environment_complete:false;}
-          importScene(next);
-          if(draft&&Array.isArray(draft.fields)&&draft.fields.length===9){loadingScene=true;try{toolIds.forEach((id,i)=>el(id).value=draft.fields[i]);el('length').dispatchEvent(new Event('input'));}finally{loadingScene=false;}message.textContent=draft.base===base?'Unsaved draft restored.':'The saved scene changed. The tool draft was restored. Check the scene again.';}
-          nativeSelection=path;nativeBase=base;nativeLoaded=true;nativeDirty=!!draft;enabled(true);sync();
-          el('scene-loaded').textContent='Loaded scene: '+result.path+' · '+result.obstacles_count+' cell boxes'+(draft?' · unsaved draft':'');
+          restoreToolDraft(path,result);
+          enabled(true);sync();
+          el('scene-loaded').textContent='Loaded scene: '+result.path+' · '+result.obstacles_count+' cell boxes'+(nativeDirty?' · unsaved draft':'');
           document.dispatchEvent(new CustomEvent('calibration-scene-scope',{detail:{selection:path,scope:scene.collision_scope||'cell'}}));
         }catch(error){if(revision===readRevision)el('scene-loaded').textContent='Scene not loaded: '+path+'. '+error.message;}
       },150);
@@ -180,7 +203,7 @@ if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',()
     el('scene-reload').addEventListener('click',()=>loadScene(el('collision_scene').value.trim()));
     loadScene(el('collision_scene').value.trim());
   }
-  if(visualOnly){
+  if(visualOnly||calibrationFrame){
     let revision=0,timer,queue=Promise.resolve();
     function selectCalibration(path){
       const current=++revision;clearTimeout(timer);cameraVisual=null;draw();
@@ -201,7 +224,20 @@ if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',()
         }catch(error){if(current===revision){status.textContent='Camera visual unavailable. '+error.message;cameraVisual=null;draw();}}
       });},300);
     }
-    if(native){document.addEventListener('preview-calibration-selection',event=>selectCalibration(event.detail));selectCalibration(document.getElementById('calibration').value.trim());}
+    if(calibrationFrame){
+      el('camera-visual-status').hidden=false;
+      window.addEventListener('keydown',event=>{
+        if(event.key==='Escape'){
+          event.preventDefault();
+          if(!event.repeat)window.parent.postMessage({type:'calibration-escape'},location.origin);
+        }
+      },true);
+      window.addEventListener('message',event=>{
+        if(event.origin===location.origin&&event.source===window.parent&&event.data?.type==='calibration-preview-select'&&typeof event.data.path==='string')selectCalibration(event.data.path);
+        if(event.origin===location.origin&&event.source===window.parent&&event.data?.type==='calibration-robot-select'&&typeof event.data.robot==='string')el('pose-ip').value=event.data.robot;
+      });
+    }
+    else if(native){document.addEventListener('preview-calibration-selection',event=>selectCalibration(event.detail));selectCalibration(document.getElementById('calibration').value.trim());}
     else {try{const saved=JSON.parse(localStorage.getItem('ano-calibration-form')||'{}');selectCalibration(typeof saved.calibration==='string'?saved.calibration:'');}catch{selectCalibration('');}}
   }
   el('scene-save').addEventListener('click',async()=>{
@@ -217,8 +253,9 @@ if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',()
       if(!result||typeof result.path!=='string'||!result.path.startsWith('/')||result.model_sha256!==saved.model_sha256||result.confirmed!==saved.confirmed||result.environment_complete!==saved.environment_complete||result.obstacles_count!==saved.obstacles.length)throw Error('The scene save result is invalid.');
       if(selectionRevision!==readRevision||canonical(checkedScene())!==canonical(saved))throw Error('The scene changed during the save. Save it again.');
       message.textContent='Scene saved: '+result.path;el('scene-loaded').textContent='Saved scene: '+result.path+' · '+result.obstacles_count+' cell boxes';
-      if(native){try{localStorage.removeItem(draftKey(nativeSelection));}catch{}nativeSelection=result.path;nativeBase=canonical(saved);nativeDirty=false;document.dispatchEvent(new CustomEvent('calibration-scene-saved',{detail:result.path}));document.dispatchEvent(new CustomEvent('calibration-scene-scope',{detail:{selection:result.path,scope:scene.collision_scope||'cell'}}));}
-      else if(window.parent!==window)window.parent.postMessage({type:'calibration-scene-saved',path:result.path},location.origin);
+      if(native||calibrationFrame){try{localStorage.removeItem(draftKey(nativeSelection));}catch{}nativeSelection=result.path;nativeBase=canonical(saved);nativeDirty=false;}
+      if(native){document.dispatchEvent(new CustomEvent('calibration-scene-saved',{detail:result.path}));document.dispatchEvent(new CustomEvent('calibration-scene-scope',{detail:{selection:result.path,scope:scene.collision_scope||'cell'}}));}
+      else if(window.parent!==window)window.parent.postMessage({type:'calibration-scene-saved',path:result.path,scope:saved.collision_scope||'cell'},location.origin);
     }catch(error){message.textContent='The scene was not applied. '+error.message;}
     finally{if(selectionRevision===readRevision)button.disabled=false;}
   });

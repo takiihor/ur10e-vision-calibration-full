@@ -22,19 +22,19 @@ def executor_module(test):
 
 class ManualRouteTests(unittest.TestCase):
     def settings(self):
-        return ManualSettings(robot_ip='fake', workspace_min_m=[-.9,-.9,.01],
-            workspace_max_m=[.9,.9,1.2], tcp_speed_mm_s=10,
+        return ManualSettings(robot_ip='fake', workspace_min_m=[-.82,-.84,.025],
+            workspace_max_m=[.82,.84,1.22], tcp_speed_mm_s=10,
             joint_speed_rad_s=math.radians(3), joint_accel_rad_s2=.1)
 
-    def test_real_saved_pick_below_workspace_is_refused_without_clamping(self):
+    def test_synthetic_pick_below_workspace_is_refused_without_clamping(self):
         module=executor_module(self)
-        route=vertical_intent([.4,.1,.007525,0,math.pi,0],117.056)
+        route=vertical_intent([.4,.1,.004,0,math.pi,0],113.0)
         original=copy.deepcopy(route)
         with self.assertRaisesRegex(ValueError, 'workspace|Workspace'):
             module.validate_route(route,self.settings())
         self.assertEqual(route,original)
-        self.assertAlmostEqual(route['endpoint'][2]*1000,7.525)
-        self.assertAlmostEqual(route['above'][2]*1000,124.581)
+        self.assertAlmostEqual(route['endpoint'][2]*1000,4.0)
+        self.assertAlmostEqual(route['above'][2]*1000,117.0)
 
     def test_all_route_stages_must_fit_workspace_before_any_dispatch(self):
         module=executor_module(self)
@@ -316,13 +316,13 @@ class ManualWorkerTests(unittest.TestCase):
                 self.worker.close()
 
     def test_saved_pick_outside_workspace_is_visible_and_refused_before_prompt(self):
-        self.prepare(endpoint_z=.007525)
-        self.context.approach_mm=117.056
+        self.prepare(endpoint_z=.004)
+        self.context.approach_mm=113.0
         self.worker.submit('move_tcp')
         state=self.wait_for(lambda s:bool(s['error']))
         self.assertIn('workspace',state['error'])
-        self.assertAlmostEqual(state['manual']['route']['endpoint'][2],.007525)
-        self.assertAlmostEqual(state['manual']['route']['above'][2],.124581)
+        self.assertAlmostEqual(state['manual']['route']['endpoint'][2],.004)
+        self.assertAlmostEqual(state['manual']['route']['above'][2],.117)
         self.assertEqual(self.robot.moves,[])
 
     def test_laptop_heartbeat_expiry_holds_at_boundary_without_replay(self):
@@ -561,12 +561,12 @@ class ManualWorkerTests(unittest.TestCase):
         self.assertEqual([m[0] for m in self.robot.moves],['moveJ','moveL'])
 
 
-    def public_server(self):
+    def public_server(self, operation='PICK'):
         import json
         from unittest import mock
         from anodizing_web.server import Server
         from test_port import PortTests
-        self.prepare()
+        self.prepare(operation=operation)
         self.worker.close();self.robot.connected=True
         self.server=Server(0,self.root)
         self.server.allow_teaching=True
@@ -583,12 +583,12 @@ class ManualWorkerTests(unittest.TestCase):
                               ('anodizing_web.manual_execution.load_context',{'return_value':self.context}),
                               ('anodizing_web.manual_execution.native_backend',{'return_value':(self.robot,self.robot)})]:
             patch=mock.patch(target,**kwargs);patch.start();self.addCleanup(patch.stop)
-        self.public_body={'request_id':'manual-real-request','action':'PICK','project':'fixture-project',
+        self.public_body={'request_id':'manual-real-request','action':'PICK','project':'fixture-project','agv_off':True,
             'calibration':'fixture-calibration','pick_tag':'tank01','place_tag':'tank01',
             'reuse_taught_offset':True,'operator_path_approved':True,'tcp_confirmed':True,
             'held_envelope_confirmed':True,'initial_item_state':'operator_confirmed_released',
-            'collision_scene':'reviewed-scene.json','workspace_min_m':[-.9,-.9,.01],
-            'workspace_max_m':[.9,.9,1.2],'joint_speed_deg_s':3,'speed_mm_s':10,
+            'collision_scene':'reviewed-scene.json','workspace_min_m':[-.82,-.84,.025],
+            'workspace_max_m':[.82,.84,1.22],'joint_speed_deg_s':3,'speed_mm_s':10,
             'joint_bounds_rad':[[-2*math.pi,2*math.pi] for _ in range(6)],
             'joint_bounds_source':'offline fixture limits'}
         return owner
@@ -616,6 +616,35 @@ class ManualWorkerTests(unittest.TestCase):
             self.assertIn('390 x 80 x 100',job['error'])
             self.assertEqual(self.robot.moves,[])
             self.assertIsNone(owner.runner)
+
+    def test_unconfirmed_motion_id_is_closed_durably_or_returns_the_accepted_job(self):
+        import json
+        from anodizing_web.jobs import JobOwner
+        owner=self.public_server()
+        request_id=self.public_body['request_id']
+        cancel={'job_id':request_id,'action':'cancel-unconfirmed'}
+        status,raw=self.request('POST','/api/manual-control',cancel)
+        self.assertEqual(status,200,raw)
+        self.assertTrue(json.loads(raw)['cancelled_before_acceptance'])
+        status,raw=self.request('POST','/api/manual-pick-place',self.public_body)
+        self.assertEqual(status,400,raw)
+        self.assertIn('cancelled',json.loads(raw)['error'])
+        status,raw=self.request('POST','/api/mcu',{'request_id':request_id,'project':'fixture','command':'0'})
+        self.assertEqual(status,400,raw)
+        self.assertIn('already used',json.loads(raw)['error'])
+        self.assertEqual(self.robot.moves,[])
+        self.assertTrue(JobOwner(self.root).get(request_id)['cancelled_before_acceptance'])
+
+        accepted=dict(self.public_body,request_id='received-before-cancellation')
+        status,raw=self.request('POST','/api/manual-pick-place',accepted)
+        self.assertEqual(status,202,raw)
+        status,raw=self.request('POST','/api/manual-control',dict(cancel,job_id=accepted['request_id']))
+        self.assertEqual(status,200,raw)
+        self.assertFalse(json.loads(raw).get('cancelled_before_acceptance'))
+        self.assertEqual(owner.active,accepted['request_id'])
+        self.assertEqual(self.request('POST','/api/manual-control',dict(cancel,job_id=accepted['request_id'],action='stop'))[0],200)
+        self.public_body=accepted
+        self.wait_public(lambda record:record['state'] not in ('running','waiting'))
 
     def test_public_native_job_admission_exact_retry_and_restart_cannot_replay(self):
         import json
@@ -670,7 +699,7 @@ class ManualWorkerTests(unittest.TestCase):
         self.assertEqual(len(self.robot.moves),3)
 
 
-    def prepare_descent(self, endpoint_z=.3, hover_z=.415433583):
+    def prepare_descent(self, endpoint_z=.3, hover_z=.425):
         from ur_pick_place.poses import PoseStore
         self.prepare(endpoint_z=endpoint_z)
         self.worker.close();self.robot.connected=True
@@ -703,14 +732,14 @@ class ManualWorkerTests(unittest.TestCase):
         self.assertEqual(self.joint_calls,[])
         self.assertEqual(self.observe_mock.call_count,0,'Separate descent reuses exact completed alignment, not a new marker target')
 
-    def test_current_teacher_taught_height_is_visible_but_below_workspace_refuses_without_clamp(self):
-        self.prepare_descent(endpoint_z=.0078922268,hover_z=.115433583)
+    def test_taught_height_below_workspace_is_visible_and_refused_without_clamping(self):
+        self.prepare_descent(endpoint_z=.006,hover_z=.125)
         original=copy.deepcopy(self.context.alignment)
         self.worker.submit('move_tcp')
         state=self.wait_for(lambda s:bool(s['error']))
         self.assertIn('workspace',state['error'].lower())
-        self.assertAlmostEqual(state['manual']['route']['endpoint'][2],.0078922268)
-        self.assertAlmostEqual(state['manual']['descent_mm'],107.5413562)
+        self.assertAlmostEqual(state['manual']['route']['endpoint'][2],.006)
+        self.assertAlmostEqual(state['manual']['descent_mm'],119.0)
         self.assertEqual(self.context.alignment,original)
         self.assertEqual(self.robot.moves,[])
         self.assertIsNone(state['manual']['prompt'])
@@ -733,7 +762,7 @@ class ManualWorkerTests(unittest.TestCase):
 
     def public_descent(self):
         owner=self.public_server()
-        self.robot.q=[.4,.1,.415433583,0,math.pi,0]
+        self.robot.q=[.4,.1,.425,0,math.pi,0]
         self.context.provenance['project']=str(self.root/'fixture-project')
         grasp_path=str(self.root/'fixture-project/grasp_pick.json')
         self.context.hashes={grasp_path:'current-grasp'}

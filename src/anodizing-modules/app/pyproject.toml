@@ -24,13 +24,15 @@ realsense = ["pyrealsense2==2.59.1.11053"]
 basler = ["pypylon>=4,<5"]
 robot = ["ur_rtde==1.6.5"]
 serial = ["pyserial>=3.5"]
+bluetooth = ["bleak==3.1.0"]
 test = ["pytest==8.4.2"]
 
 [project.scripts]
 anodizing-modules = "anodizing_web.server:main"
+anodizing-module-token = "anodizing_web.module_tokens:main"
 
 [tool.setuptools]
 packages = ["anodizing_web"]
 
 [tool.setuptools.package-data]
-anodizing_web = ["web/*.html", "web/*.css", "web/*.js"]
+anodizing_web = ["agv-ble-fields.json", "web/*.html", "web/*.css", "web/*.js", "web/*.mjs", "operator_dist/*.html", "operator_dist/*.json", "operator_dist/*.txt", "operator_dist/assets/*"]

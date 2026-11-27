@@ -19,10 +19,13 @@ namespace=dict(BaseHTTPRequestHandler=BaseHTTPRequestHandler,json=json,secrets=s
 exec(compile(ast.Module(body=[handler],type_ignores=[]),str(source),'exec'),namespace)
 
 
+TOKEN = secrets.token_urlsafe(32)
+
+
 class MCUHandlerTests(unittest.TestCase):
-    def request(self,method,*,token='secret',host='localhost:8870',origin=None,data=b'{}'):
+    def request(self,method,*,token=TOKEN,host='localhost:8870',origin=None,data=b'{}'):
         h=object.__new__(namespace['Handler'])
-        h.server=SimpleNamespace(owner=object(),hosts={'localhost:8870'},token='secret')
+        h.server=SimpleNamespace(owner=object(),hosts={'localhost:8870'},token=TOKEN)
         h.path='/api/mcu';h.headers=Message();h.headers['Host']=host
         if token is not None:h.headers['X-Module-Token']=token
         if origin is not None:h.headers['Origin']=origin

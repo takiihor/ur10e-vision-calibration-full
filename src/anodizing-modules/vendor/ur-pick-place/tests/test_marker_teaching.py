@@ -54,6 +54,31 @@ class MarkerTeachingTests(unittest.TestCase):
         from vision_sim import true_flange
         self.world.rtde.flange = true_flange(OBSERVE_PICK)
 
+    def test_capture_metadata_is_committed_after_worker_and_survives_reopen(self):
+        self.project.capture(defer=True)
+        draft = read_json(self.project.directory / 'project.json')
+        self.assertFalse(draft['flow']['captured'])
+        self.assertNotIn('agv', draft)
+        stamp = self.project.snapshot('reference')
+        image = self.project.directory / f"reference-{stamp['id']}.jpg"
+        self.assertTrue(image.is_file())
+        self.assertEqual(stamp['detection'], 'Pose detected')
+        self.assertEqual(stamp['provider'], 'realsense')
+        agv = {'station': 3, 'source': 'operator'}
+        self.project.finish_capture(agv=agv, tank_edit={'tank': 'Tank07'})
+        saved = read_json(self.project.directory / 'project.json')
+        self.assertTrue(saved['flow']['captured'])
+        self.assertEqual((saved['agv'], saved['tank']), (agv, 'Tank07'))
+        reopened = TeachingProject(self.settings, runtime=self.runtime)
+        self.assertEqual(reopened.summary()['snapshots']['reference'], stamp)
+        self.assertEqual(reopened.summary()['tank'], 'Tank07')
+        reopened.capture()
+        self.assertEqual(reopened.summary()['tank'], 'Tank07')
+        self.assertNotEqual(reopened.snapshot('reference')['id'], stamp['id'])
+        self.assertTrue(image.is_file())
+        reopened.capture(tank_edit={'tank': None})
+        self.assertNotIn('tank', read_json(self.project.directory / 'project.json'))
+
     def test_pixel_minimum_is_project_scoped_and_persisted(self):
         self.assertEqual(self.project.config.quality.min_pixels_per_module, 5.0)
         settings = dict(self.settings, project=str(self.root / 'four-pixel'), min_pixels_per_module=4.0)
@@ -214,6 +239,19 @@ class MarkerTeachingTests(unittest.TestCase):
         self.assertEqual((self.project.directory / 'target.json').read_bytes(), exported)
         self.assertEqual(set(self.runtime.calls), {'receive', 'camera'})
 
+    def test_agv_station_is_optional_and_survives_reopen_and_teaching(self):
+        path = self.project.directory / 'project.json'
+        self.assertNotIn('agv', read_json(path))
+        self.assertIsNone(TeachingProject(self.settings, runtime=self.runtime).agv)
+        for source in ('agv_status', 'operator'):
+            record = dict(station=2, source=source, status_time='2026-11-19T12:00:00Z', transport='serial')
+            self.project.capture(agv=record)
+            reopened = TeachingProject(self.settings, runtime=self.runtime)
+            reopened.save_pick(marker_unchanged=True)
+            self.assertEqual(reopened.summary()['agv'], record)
+            self.assertEqual(read_json(path)['agv'], record)
+            self.assertEqual(read_json(path)['schema_version'], 1)
+
     def test_capture_again_invalidates_taught_offset(self):
         self.capture_and_teach()
         self.project.capture()
@@ -288,7 +326,7 @@ class MarkerTeachingTests(unittest.TestCase):
         for path in (original, local, invalid, simulated):
             path.parent.mkdir(parents=True, exist_ok=True)
         original.write_text(json.dumps(calibration_dict(tcp_offset=[0]*6)))
-        tcp = [0, 0, .2286, 0, 0, 0]
+        tcp = [0, 0, .137, 0, 0, 0]
         local.write_text(json.dumps(calibration_dict(tcp_offset=tcp)))
         invalid.write_text('{}')
         demo = calibration_dict()

@@ -6,7 +6,7 @@ The editor now shows the nominal UR10e, the tool box, and separate camera and mo
 
 ![Generated nominal UR10e geometry](docs/robot-tool-preview.svg)
 
-This is a generated geometry view, not a browser screenshot. Teacher motion remains unchanged. Its Cartesian stages and observation return do not use the calibration checker. The preview and scene confirmation are not safety certifications. Native UR tool and safety settings are not configured.
+This is a generated geometry view, not a browser screenshot. Teacher motion remains unchanged. Its Cartesian stages and observation return do not use the calibration checker. The preview and scene confirmation are not safety certifications. Configure and verify native UR tool and safety settings separately.
 
 
 Teach waypoints and run force-guided pick-and-place cycles on a Universal Robots
@@ -19,8 +19,6 @@ position relative to an ArUco marker or ChArUco board.
 | Marker Pick Teacher | `./start_marker_teach.sh` | http://127.0.0.1:8766 | Teach, export and validate camera-derived pick positions |
 
 ## Offline tool box draft
-
-![Illustrative draft tool box editor](docs/tool-envelope.png)
 
 In Marker Pick Teacher setup, choose **Open tool box draft**. The offline editor also works by opening the packaged `web/tool-envelope.html` file directly alongside its `.css` and `.js` files; no robot, camera or project is needed. The 390 × 80 × 100 mm example and centre (0, 0, 50) mm are illustrative, not measurements. The mounting orientation remains unverified. The tool excludes the separate camera and mount. The top-centre preset places the flange at the local negative-Z face centre. The dashed margin expands each box face.
 
@@ -157,7 +155,7 @@ Open http://127.0.0.1:8766. Follow the five steps with **Next** and **Back**:
    the desired final pick endpoint and orientation, then stop. Confirm that the
    marker has not moved and click **Read current TCP & save pick**. Check that
    the joint-motion path is clear, then click **Return to observation pose**.
-   Return speed and workspace bounds are under Step 5’s **Test motion settings**.
+   Enter the reviewed minimum and maximum XYZ bounds under **Test motion settings** before the first return. These settings are available in Steps 3 and 5.
 4. **Read & export:** show the whole marker and stop the arm. The capture pose may
    differ from teaching; returning to the saved observation joints is optional.
    Click **Read marker & export poses**. Download **Pick pose JSON**
@@ -203,8 +201,8 @@ camera-view refinement is tested through Robot Bench's live picking workflow.
 For a fresh measurement on each run:
 
 1. In Marker Pick Teacher, select the camera and enable **Refine before picking**
-   when creating a new project. Capture a clear teaching view at about 300 mm,
-   then teach and save the pick as usual.
+   when creating a new project. Capture a clear teaching view with the entire
+   marker visible, then teach and save the pick as usual.
 2. In Robot Bench, open **Joint & force tests → Camera target**. Enter the saved
    project's full `vision.json` path in **Live vision configuration**. Select
    Home/Place and configure the gripper, approach height and force limits.
@@ -264,10 +262,11 @@ XYZ errors and stores their magnitude and whether they are within 2 mm. Its
 fixed-Z visual test and controller arrival error alone do not prove pick accuracy.
 
 The vision report includes frame spread, marker-to-pick distance and the rotational
-contribution to pick-point spread. At a 300 mm offset, 0.2° angular error can cause
-about 1.05 mm displacement. Frame spread measures repeatability, not systematic
-calibration error. Robot Bench saves the last completed live plan alongside its
-sequence settings as `latest_vision_pick.json`.
+contribution to pick-point spread. For a given angular error, the maximum
+pick-point displacement grows in proportion to the marker-to-pick distance.
+Frame spread measures repeatability. Use independent measurements to check
+systematic calibration error. Robot Bench saves the last completed live plan
+alongside its sequence settings as `latest_vision_pick.json`.
 
 ## Saved files and useful commands
 

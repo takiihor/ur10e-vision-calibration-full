@@ -10,7 +10,8 @@ import unittest
 from unittest import mock
 
 from anodizing_web.jobs import JobOwner
-from anodizing_web import mcu
+from anodizing_web import agv, mcu
+from test_agv_robot_motion import connect_parked
 
 
 class FakeSocket:
@@ -45,11 +46,11 @@ class MCUTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root/'project').mkdir()
         (self.root/'project/project.json').write_text(json.dumps(dict(schema_version=1,
-            type='marker_pick_project', settings={'robot_ip':'192.168.12.248'}, flow={})))
+            type='marker_pick_project', settings={'robot_ip':'192.0.2.248'}, flow={})))
         self.owner = JobOwner(self.root, allow_manual_pick_place=True)
 
     def submit(self, command='3', request_id='mcu-request-123'):
-        return mcu.submit(self.owner, dict(project='project', command=command, request_id=request_id))
+        return mcu.submit(self.owner, dict(project='project', command=command, request_id=request_id, agv_off=True))
 
     def finish(self, request_id='mcu-request-123'):
         deadline = time.monotonic()+2
@@ -72,7 +73,7 @@ class MCUTests(unittest.TestCase):
                     job = self.finish(request_id)
                 self.assertEqual(job['state'], 'done', job['error'])
                 self.assertEqual(sock.sent, [command.encode('ascii')])
-                self.assertEqual(connect.call_args.args[0], ('192.168.12.248',54321))
+                self.assertEqual(connect.call_args.args[0], ('192.0.2.248',54321))
                 self.assertTrue(sock.closed)
                 self.assertEqual(job['mcu']['rx_hex'], response.hex(' '))
                 self.assertNotIn('item_state', job['mcu'])
@@ -99,6 +100,69 @@ class MCUTests(unittest.TestCase):
         for response in (b'Open',b'FSR1:x/FSR2:2',b'FSR1:1'):
             with self.assertRaises(ValueError): mcu.parse_reply('0',response)
 
+    def test_moving_agv_blocks_standalone_actuation_and_allows_sensor_read(self):
+        self.owner.agv = link = agv.Connection(self.owner)
+        self.addCleanup(link.close)
+        connect_parked(link)
+        with link.lock:
+            link.status = dict(link.status, stopped=False, actual_speed_m_h=500)
+        sock = FakeSocket(b'FSR1:1/FSR2:2')
+        with mock.patch.object(mcu.socket, 'create_connection', return_value=sock):
+            with self.assertRaisesRegex(ValueError, 'AGV state unknown'):
+                mcu.submit(self.owner, dict(project='project', command='3', request_id='mcu-actuation'))
+            self.submit('0', 'mcu-sensor-read')
+            self.assertEqual(self.finish('mcu-sensor-read')['state'], 'done')
+        self.assertEqual(sock.sent, [b'0'])
+
+    def test_refused_handoff_releases_reservation_for_sensor_and_shutdown(self):
+        from contextlib import contextmanager
+        from anodizing_web.recipe_agv import StationVisit
+
+        @contextmanager
+        def refused(_visit):
+            raise ValueError('AGV handoff refused')
+            yield
+
+        sock = FakeSocket(b'FSR1:1/FSR2:2')
+        with (mock.patch.object(StationVisit, 'watch', refused),
+              mock.patch.object(mcu.socket, 'create_connection', return_value=sock)):
+            self.submit()
+            job = self.finish()
+            self.assertEqual(job['state'], 'failed')
+            self.assertIn('AGV handoff refused', job['error'])
+            self.assertEqual(sock.sent, [])
+            try:
+                self.submit('0', 'mcu-sensor-after-refusal')
+                sensor = self.finish('mcu-sensor-after-refusal')
+                sensor_error = None
+            except ValueError as exc:
+                sensor, sensor_error = None, str(exc)
+            shutdown = threading.Thread(target=self.owner.shutdown, daemon=True)
+            shutdown.start()
+            shutdown.join(.3)
+            shutdown_finished = not shutdown.is_alive()
+            if not shutdown_finished:
+                with self.owner.lock:
+                    self.owner.mcu_pending = None
+                shutdown.join(1)
+        self.assertIsNone(sensor_error, sensor_error)
+        self.assertEqual(sensor['state'], 'done')
+        self.assertEqual(sock.sent, [b'0'])
+        self.assertTrue(shutdown_finished, 'shutdown remained blocked by refused MCU request')
+
+    def test_serial_report_before_dispatch_cancels_declared_off_actuation(self):
+        self.owner.agv = link = agv.Connection(self.owner)
+        self.addCleanup(link.close)
+        sock = FakeSocket()
+        with (mock.patch.object(mcu.socket, 'create_connection', return_value=sock),
+              mock.patch.object(mcu, '_drain', side_effect=lambda _: connect_parked(link))):
+            self.submit()
+            job = self.finish()
+        self.assertEqual(job['state'], 'failed')
+        self.assertEqual(job['mcu']['status'], 'not_sent')
+        self.assertIn('AGV is reporting', job['error'])
+        self.assertEqual(sock.sent, [])
+
     def test_missing_status_reply_does_not_create_actuator_uncertainty_or_replay(self):
         sock=FakeSocket(b'')
         with mock.patch.object(mcu.socket,'create_connection',return_value=sock) as connect:
@@ -124,7 +188,7 @@ class MCUTests(unittest.TestCase):
         self.assertTrue(job['execution_uncertain'])
         restarted=JobOwner(self.root,allow_manual_pick_place=True)
         with mock.patch.object(mcu.socket,'create_connection',side_effect=AssertionError('replay')):
-            old=mcu.submit(restarted,dict(project='project',command='3',request_id=job['id']))
+            old=mcu.submit(restarted,dict(project='project',command='3',request_id=job['id'],agv_off=True))
         self.assertEqual(old['state'],'failed')
 
     def test_validation_and_all_owner_fences_prevent_hardware(self):
@@ -230,7 +294,7 @@ class MCUTests(unittest.TestCase):
             self.owner.jobs['parent-pick']['manual']['stage']='awaiting_plan'
             with self.assertRaises(ValueError):self.child(parent)
             self.owner.jobs['parent-pick']['manual']['stage']='awaiting_grip'
-            self.owner.runner.context.settings['robot_ip']='192.168.12.249'
+            self.owner.runner.context.settings['robot_ip']='192.0.2.249'
             with self.assertRaises(ValueError):self.child(parent)
 
     def test_consumed_live_prompt_blocks_stale_persisted_wait(self):

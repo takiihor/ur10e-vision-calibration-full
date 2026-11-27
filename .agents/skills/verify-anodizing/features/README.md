@@ -11,7 +11,7 @@ Use this index to find the user path and the evidence that shows it works.
 ## Driving conventions
 
 - Run commands from the checkout root. Use the literal feature IDs below.
-- Follow only GET routes named in the recipes. Stop before sending a request that can start work or open a device.
+- Follow the routes named in each recipe. Use GET except for the in-process AGV simulator journey. Stop before starting a job or opening a hardware device.
 - Treat a missing fixture or failed request as a failed journey. Keep its evidence.
 
 ## Proof and skip reporting
@@ -27,3 +27,4 @@ Use this index to find the user path and the evidence that shows it works.
 - [Teaching setup](teaching-setup.md) checks prefilled inputs and board discovery and documents teaching exclusions.
 - [Pick/place availability](pick-place-availability.md) checks disabled hardware capabilities and documents job-execution exclusions.
 - [Tool preview](tool-preview.md) checks the model and example collision scene and documents motion exclusions.
+- [AGV simulator](agv.md) connects the simulator, queries status and verifies Stop.

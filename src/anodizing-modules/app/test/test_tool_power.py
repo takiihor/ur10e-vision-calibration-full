@@ -78,11 +78,11 @@ class ProtocolTests(unittest.TestCase):
         from anodizing_web.tool_power import read_voltage
         sock = FakeSocket(state(100, 24) + state(100, 24) + state(101, 0) + state(102, 24))
         with mock.patch('anodizing_web.tool_power.socket.create_connection', return_value=sock) as connect:
-            result = read_voltage('192.168.12.248', expected=24)
+            result = read_voltage('192.0.2.248', expected=24)
         self.assertEqual(result['controller_tool_output_voltage'], 24)
         self.assertEqual(result['controller_timestamp_us'], 102)
         self.assertEqual(result['source'], 'controller_primary_tool_data')
-        self.assertEqual(connect.call_args.args[0], ('192.168.12.248', 30011))
+        self.assertEqual(connect.call_args.args[0], ('192.0.2.248', 30011))
         self.assertTrue(sock.closed)
         self.assertTrue(sock.timeouts)
 
@@ -92,7 +92,7 @@ class ProtocolTests(unittest.TestCase):
                      state(100,0)+state(99,24)):
             with self.subTest(data=data), mock.patch('anodizing_web.tool_power.socket.create_connection', return_value=FakeSocket(data)):
                 with self.assertRaises((OSError, ValueError, TimeoutError)):
-                    read_voltage('192.168.12.248', expected=24)
+                    read_voltage('192.0.2.248', expected=24)
 
     def test_truncated_oversized_and_invalid_frame_headers_are_bounded(self):
         from anodizing_web.tool_power import read_voltage, MAX_FRAME
@@ -100,7 +100,7 @@ class ProtocolTests(unittest.TestCase):
             sock = FakeSocket(data)
             with self.subTest(data=data[:10]), mock.patch('anodizing_web.tool_power.socket.create_connection', return_value=sock):
                 with self.assertRaises((OSError, ValueError)):
-                    read_voltage('192.168.12.248')
+                    read_voltage('192.0.2.248')
             self.assertTrue(sock.closed)
 
     def test_global_deadline_expires_even_if_stream_keeps_delivering(self):
@@ -109,7 +109,7 @@ class ProtocolTests(unittest.TestCase):
         with mock.patch('anodizing_web.tool_power.time.monotonic', side_effect=lambda:next(ticks)), mock.patch(
                 'anodizing_web.tool_power.socket.create_connection', return_value=FakeSocket(state()*100, fragment=65536)):
             with self.assertRaises(TimeoutError):
-                read_voltage('192.168.12.248')
+                read_voltage('192.0.2.248')
 
 
 class OwnerTests(unittest.TestCase):
@@ -118,7 +118,7 @@ class OwnerTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root/'project').mkdir()
-        self.project = {'schema_version':1, 'type':'marker_pick_project', 'settings':{'robot_ip':'192.168.12.248'}, 'flow':{}}
+        self.project = {'schema_version':1, 'type':'marker_pick_project', 'settings':{'robot_ip':'192.0.2.248'}, 'flow':{}}
         self.save_project()
         self.owner = JobOwner(self.root, allow_manual_pick_place=True)
         self.body = {'project':'project', 'action':'on', 'item_state':'unknown', 'request_id':'tool-power-001'}
@@ -154,7 +154,7 @@ class OwnerTests(unittest.TestCase):
         job,command,reader,connect=self.run_power()
         self.assertEqual(job['state'],'done',job['error'])
         self.assertEqual(command.sent,[b'sec tool_power():\n  set_tool_voltage(24)\nend\n'])
-        self.assertEqual([c.args[0] for c in connect.call_args_list], [('192.168.12.248',30002),('192.168.12.248',30011)])
+        self.assertEqual([c.args[0] for c in connect.call_args_list], [('192.0.2.248',30002),('192.0.2.248',30011)])
         self.assertEqual(job['result']['controller_tool_output_voltage'],24)
         self.assertFalse(self.owner.execution_uncertain)
         self.assertFalse(job['execution_uncertain'])
@@ -244,7 +244,7 @@ class OwnerTests(unittest.TestCase):
             submit(self.owner,self.body)
             job=self.wait()
         self.assertEqual(job['state'],'done',job['error'])
-        self.assertEqual([c.args[0] for c in connect.call_args_list],[('192.168.12.248',30011)])
+        self.assertEqual([c.args[0] for c in connect.call_args_list],[('192.0.2.248',30011)])
         self.assertTrue(self.owner.execution_uncertain)
         self.assertTrue(self.owner.jobs['old-arm-job']['execution_uncertain'])
         self.assertTrue(capability(self.owner)['read_available'])
@@ -286,7 +286,7 @@ os._exit(74)
             submit(self.owner, read_body)
             read_job = self.wait(read_body['request_id'])
         self.assertEqual(read_job['state'], 'done', read_job['error'])
-        self.assertEqual([c.args[0] for c in connect.call_args_list], [('192.168.12.248', 30011)])
+        self.assertEqual([c.args[0] for c in connect.call_args_list], [('192.0.2.248', 30011)])
         self.owner = JobOwner(self.root, allow_manual_pick_place=True)
         self.assertTrue(self.owner.execution_uncertain)
         self.assertTrue(self.owner.get(self.body['request_id'])['execution_uncertain'])
@@ -357,14 +357,15 @@ os._exit(74)
 
     def test_invalid_or_synthetic_saved_projects_never_connect(self):
         from anodizing_web.tool_power import submit
-        for i,change in enumerate(({'simulation':True},{'type':'other'},{'schema_version':2},{'settings':{'robot_ip':'simulation'}},{'settings':{'robot_ip':'192.168.12.248:30002'}},{'settings':{'robot_ip':'127.0.0.1'}},{'settings':{'robot_ip':3232238840}})):
+        # The integer spelling of a TEST-NET address must also fail type validation.
+        for i,change in enumerate(({'simulation':True},{'type':'other'},{'schema_version':2},{'settings':{'robot_ip':'simulation'}},{'settings':{'robot_ip':'192.0.2.248:30002'}},{'settings':{'robot_ip':'127.0.0.1'}},{'settings':{'robot_ip':3221226232}})):
             self.project.update(change);self.save_project()
             self.body['request_id']=f'bad-project-{i:03d}'
             with mock.patch('anodizing_web.tool_power.socket.create_connection') as connect:
                 submit(self.owner,self.body);job=self.wait(self.body['request_id'])
             self.assertEqual(job['state'],'failed')
             connect.assert_not_called()
-            self.project={'schema_version':1,'type':'marker_pick_project','settings':{'robot_ip':'192.168.12.248'},'flow':{}}
+            self.project={'schema_version':1,'type':'marker_pick_project','settings':{'robot_ip':'192.0.2.248'},'flow':{}}
 
 
 if __name__=='__main__':unittest.main()

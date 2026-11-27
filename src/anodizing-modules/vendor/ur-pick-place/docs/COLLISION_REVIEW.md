@@ -3,8 +3,7 @@
 This review adds a complete nominal arm to the tool editor. The camera and mount
 use separate editable boxes. Calibration checks each proposed joint path,
 including probes, intermediate returns, updated plans and the final return.
-The original 25 degree tilt and 30 degree roll settings are visible in Setup.
-The live bench has not received these changes.
+Review tilt and roll in Setup before planning a path.
 
 ![Generated nominal arm and tool geometry](robot-tool-preview.svg)
 
@@ -47,7 +46,7 @@ The anobot camera attachment uses [98.60, 10.98, 8.68] mm and
 camera-body offset from the screw mount. Its body size is 25.05 by 90 by 25 mm.
 The adapter box encloses the referenced adapter mesh, including its nominal
 origin. The reference mesh does not prove the installed adapter's size or pose.
-The user confirmed that the tool box excludes the camera and mount.
+The example models the tool, camera and mount separately.
 
 ## Check a saved path without hardware
 
@@ -137,16 +136,16 @@ integration remain open work. Interface PC planning ownership stays unchanged.
 Offline checks include nominal FK, known separation and containment, a collision
 between clear endpoints, attachment-to-arm contact, motion bounds, invalid
 profiles, missing dependencies and automatic refusal before hardware access.
-The example simulation generates 14 views at the original angles. Its 29 view
+The example simulation generates 14 views at its configured angles. Its 29 view
 and return paths pass in the example model. The example scene remains unconfirmed.
 
 Node tests exercise the editor scripts with a DOM double. A headless Firefox review
 exercised the local calibration file and the teacher HTTP editor with an inert service.
 The review covered frame labels, scene and joint edits, view controls, import/export, invalid input,
-confirmation reset, saved paths and stage selection. The screenshot below is from
-that browser review. No attended hardware trial occurred.
+confirmation reset, saved paths and stage selection. No attended hardware trial
+occurred. The schematic shows the nominal model.
 
-![Firefox preview with an example cell box](browser-preview.png)
+![Generated nominal UR10e geometry](robot-tool-preview.svg)
 
 Before a live trial, verify the robot-specific arm model, all assembly coverage,
 mounting transforms, cell geometry, payload, uncertainty and motion mode.

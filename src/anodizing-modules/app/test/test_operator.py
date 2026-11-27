@@ -1,0 +1,211 @@
+"""Stage 1 contracts exercised without a socket or device."""
+from email.parser import BytesParser
+from io import BytesIO
+import json
+import secrets
+import re
+from types import SimpleNamespace
+
+import pytest
+
+from anodizing_web import agv, server
+from anodizing_web.jobs import JobOwner
+
+
+def request(service, path, token=..., host='127.0.0.1:8870', origin=None, method='GET', etag=None, body=None):
+    if token is ...:
+        token = service.token
+    handler = server.Handler.__new__(server.Handler)
+    handler.server = service
+    handler.client_address = ('127.0.0.1', 1234)
+    extra = f'Origin: {origin}\r\n' if origin is not None else ''
+    if etag is not None:
+        extra += f'If-None-Match: {etag}\r\n'
+    payload = b'' if body is None else json.dumps(body).encode()
+    if payload:
+        extra += f'Content-Type: application/json\r\nContent-Length: {len(payload)}\r\n'
+    handler.rfile = BytesIO(f'{method} {path} HTTP/1.1\r\nHost: {host}\r\n'
+                            f'X-Module-Token: {token}\r\n{extra}\r\n'.encode() + payload)
+    handler.wfile = BytesIO()
+    handler.handle_one_request()
+    head, body = handler.wfile.getvalue().split(b'\r\n\r\n', 1)
+    status, headers = head.split(b'\r\n', 1)
+    return int(status.split()[1]), BytesParser().parsebytes(headers), body
+
+
+@pytest.fixture
+def service(tmp_path):
+    owner = JobOwner(tmp_path)
+    instance = SimpleNamespace(owner=owner, agv=agv.Connection(owner), bluetooth=SimpleNamespace(reason=None), token=secrets.token_urlsafe(32),
+                               hosts={'127.0.0.1:8870', 'localhost:8870'}, asset_cache={})
+    instance.cached_asset = lambda path: server.Server.cached_asset(instance, path)
+    return instance
+
+
+def test_operator_entry_refreshes_nonce_and_uses_a_static_allowlist(service, tmp_path, monkeypatch):
+    monkeypatch.setattr(server, 'OPERATOR_DIST', tmp_path, raising=False)
+    (tmp_path / 'assets').mkdir()
+    (tmp_path / 'assets' / 'main-a1.js').write_text('entry')
+    (tmp_path / 'assets' / 'private.js').write_text('private')
+    (tmp_path / 'asset-allowlist.json').write_text('["assets/main-a1.js"]')
+    (tmp_path / 'index.html').write_text('<meta name="module-token" content="__TOKEN__">'
+                                        '<meta name="style-nonce" content="__STYLE_NONCE__">')
+    code, headers, body = request(service, '/operator/')
+    assert code == 200 and headers['Cache-Control'] == 'no-store'
+    assert f'content="{service.token}"'.encode() in body
+    nonce = re.search(r"'nonce-([^']+)'", headers['Content-Security-Policy'])[1]
+    assert nonce.encode() in body and "script-src 'self';" in headers['Content-Security-Policy']
+    assert "frame-ancestors 'none'" in headers['Content-Security-Policy']
+    service.token = secrets.token_urlsafe(32)
+    _, later, body = request(service, '/operator/')
+    assert nonce not in later['Content-Security-Policy'] and f'content="{service.token}"'.encode() in body
+    assert request(service, '/operator/assets/main-a1.js')[1]['Content-Type'].startswith('text/javascript')
+    for path in ('/operator/assets/private.js', '/operator/asset-allowlist.json', '/operator/index.html',
+                 '/operator/../agv'):
+        assert request(service, path)[0] == 404
+
+
+@pytest.mark.parametrize(('enabled', 'description', 'guidance'), [
+    (False, 'Run simulated PICK and PLACE requests.', 'Pick/place hardware controls are disabled.'),
+    (True, 'Run simulated or supervised hardware Pick/place tests.',
+     'Pick/place hardware controls are enabled by service configuration.'),
+])
+def test_legacy_landing_describes_pick_place_capability(service, enabled, description, guidance):
+    service.owner = service.agv.owner
+    service.owner.allow_manual_pick_place = enabled
+    code, _, page = request(service, '/')
+    assert code == 200
+    assert b'href="/pick-place"' in page
+    assert description.encode() in page
+    assert guidance.encode() in page
+
+
+@pytest.mark.parametrize('disabled', [False, True])
+def test_simulation_choices_and_requests_follow_instance_config(service, monkeypatch, disabled):
+    monkeypatch.delenv('ANODIZING_DISABLE_SIMULATION', raising=False)
+    if disabled:
+        monkeypatch.setenv('ANODIZING_DISABLE_SIMULATION', '1')
+
+    agv_page = request(service, '/agv')[2]
+    assert b'<option value="serial">Serial port</option>' in agv_page
+    assert (b'<option value="simulator">' in agv_page) is not disabled
+    assert (b'data-action="simulate"' in request(service, '/calibration')[2]) is not disabled
+    mode = b'off' if disabled else b'on'
+    assert b'name="module-simulation" content="' + mode + b'"' in request(service, '/operator/')[2]
+
+    if disabled:
+        for path, body in [
+            ('/api/agv', {'action': 'connect'}),
+            ('/api/agv', {'action': 'connect', 'mode': 'simulator'}),
+            ('/api/calibration', {'action': 'simulate'}),
+            ('/api/teaching', {'action': 'simulate'}),
+            ('/api/pick-place', {'action': 'PICK'}),
+            ('/api/tests/line', {'action': 'arm'}),
+        ]:
+            code, _, payload = request(service, path, method='POST', body=body)
+            assert code == 403 and json.loads(payload)['error'] == 'Simulation is disabled on this service.'
+        assert service.agv.transport is None
+    else:
+        try:
+            code, _, payload = request(service, '/api/agv', method='POST', body={'action': 'connect'})
+            assert code == 200 and json.loads(payload)['settings']['mode'] == 'simulator'
+        finally:
+            service.agv.close()
+
+
+def test_state_is_authenticated_read_only_and_copies_acquisition_time(service, monkeypatch):
+    link = service.agv
+    clock = [10.0]
+    monkeypatch.setattr(agv, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(agv, 'serial_ports', lambda: pytest.fail('enumerated ports'))
+    monkeypatch.setattr(link, '_receive', lambda: pytest.fail('read device'))
+    monkeypatch.setattr(link, '_send', lambda *a, **k: pytest.fail('wrote device'))
+    monkeypatch.setattr(link, '_service_resend', lambda: pytest.fail('retries run from read'))
+    link.transport = object()
+    link.settings = {'mode': 'simulator'}
+    link.connected_at = 9.0
+    link._status_received({'mode': 2, 'max_stations': 1, 'current_station': 2,
+                           'stopped': True, 'actual_speed_m_h': 0, 'station_arrival': True,
+                           'fault_code': 0, 'obstacle_stop': False}, b'')
+    stamp = link.status_iso
+
+    def station(key='current_station'):
+        status, headers, payload = request(service, '/api/state')
+        assert status == 200 and headers['Cache-Control'] == 'no-store'
+        state = json.loads(payload)
+        assert state['schema_version'] == 1
+        variables = state['variables']
+        assert [v['id'] for v in variables] == sorted(v['id'] for v in variables)
+        return next(v for v in variables if v['id'] == f'agv.{key}')
+
+    assert (station()['quality'], station()['value'], station()['read_at']) == ('fresh', 2, stamp)
+    confirmed = station('last_confirmed_station')
+    assert (confirmed['quality'], confirmed['value'], confirmed['read_at']) == ('fresh', 2, stamp)
+    assert request(service, '/api/agv?cached=1')[0] == 200
+    link.recipe_active = True
+    clock[0] += 3
+    assert station()['quality'] == 'stale' and station()['value'] is None
+    link.recipe_active = False
+    assert station()['quality'] == 'fresh'
+    clock[0] += 2
+    assert station()['read_at'] == stamp and station()['age_ms'] == 5000
+    assert station()['quality'] == 'stale'
+    assert request(service, '/api/state', token='old')[0] == 403
+    assert request(service, '/api/state', origin='http://localhost:8870')[0] == 403
+    assert request(service, '/operator/', host='example.org')[0] == 403
+    assert request(service, '/api/state', method='POST')[0] == 400
+
+
+def test_urgent_send_for_an_old_connection_refuses_before_touching_transport(service, monkeypatch):
+    link = service.agv
+    link.id = 2
+    link.transport = object()
+    monkeypatch.setattr(link, '_send', lambda *a, **k: pytest.fail('wrote to a different AGV link'))
+    with pytest.raises(ValueError, match='connection changed'):
+        link.submit({'action': 'send', 'command': 'stop', 'connection_id': 1})
+
+
+def test_home_projection_does_not_report_stopped_at_nonzero_speed():
+    from anodizing_web.operator_state import agv_state
+    report = {'mode': 2, 'max_stations': 1, 'stopped': True, 'actual_speed_m_h': 500}
+    sample = (report, 'now', 10.0, True, 'simulator', False, None, 'now', None, 10.1)
+    moving = next(item for item in agv_state(sample) if item['id'] == 'agv.moving')
+    assert moving['value'] is True
+
+
+def test_vue_pick_place_reads_cached_agv_and_travel_pose_without_device_access(service, tmp_path, monkeypatch):
+    from anodizing_web import travel_pose
+
+    owner = service.owner = service.agv.owner
+    owner.root = tmp_path
+    owner.agv = service.agv
+    owner.robot_configured = owner.allow_agv_in_recipe = True
+    link = service.agv
+    link.transport = object()
+    link.settings = {'mode': 'serial'}
+    link.status = dict(stopped=True, actual_speed_m_h=0, obstacle_stop=False, fault_code=0, current_station=2)
+    link.status_at, link.status_iso = 8, '2026-01-01T00:00:00Z'
+    clock = [10.0]
+    monkeypatch.setattr(agv, 'monotonic', lambda: clock[0])
+    for name in ('_receive', '_send'):
+        monkeypatch.setattr(link, name, lambda *args, **kwargs: pytest.fail('accessed the AGV transport'))
+    monkeypatch.setattr(travel_pose, '_check', lambda *args: pytest.fail('opened a robot session'))
+    monkeypatch.setattr(travel_pose, 'load', lambda root: {'saved_at': link.status_iso})
+
+    def read(path):
+        code, _, data = request(service, path)
+        assert code == 200
+        assert request(service, path, token=None)[0] == 403
+        return json.loads(data)
+
+    path = '/api/agv-robot-motion?cached=1'
+    state = read(path)
+    assert state['parked'] and state['station'] == 2 and state['status_age_s'] == 2
+    assert state['connection_id'] == link.id and state['stop_generation'] == link.stop_generation
+    link.pending['call_station'] = object()
+    assert not read(path)['parked']
+    link.pending.clear()
+    clock[0] = 11
+    assert not read(path)['reporting']
+    saved = read('/api/agv-travel-pose?cached=1')
+    assert saved['pose']['saved_at'] == link.status_iso and saved['at_pose'] is None
