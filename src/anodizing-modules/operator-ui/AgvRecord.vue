@@ -15,7 +15,6 @@ import Panel from 'primevue/panel';
 import Select from 'primevue/select';
 import Tag from 'primevue/tag';
 import Textarea from 'primevue/textarea';
-import Timeline from 'primevue/timeline';
 import { useConfirm } from 'primevue/useconfirm';
 import {
   checklist, checklistCommands, connectionKeyFor, exportRecord, foundFields,
@@ -108,40 +107,38 @@ function download(format) {
         <strong>Before testing</strong> Confirm the robot is idle, the track is clear, a person is at the AGV’s e-stop, and fresh status is visible.
         The AGV may restart by itself in Auto mode or when automatic restart is enabled. Check both settings before moving.
       </Message>
-      <Timeline :value="steps" class="checklist" :pt="{ root: { role: 'list' }, event: { role: 'listitem' } }">
-        <template #content="{ item: { number, title, instructions, watch } }">
-          <Accordion @update:value="opened">
-            <AccordionPanel data-ui="agv.record.checklist.row" :data-ui-key="number" :id="'agv-test-' + number" :value="number">
-              <AccordionHeader data-ui="agv.record.checklist.toggle" :data-ui-key="number">
-                <span class="checklist-label">{{ title }}</span>
-                <Tag :value="agv.session.checklist[number]?.result ?? 'Not tested'"
-                  :severity="resultSeverity[agv.session.checklist[number]?.result] ?? 'secondary'" />
-              </AccordionHeader>
-              <AccordionContent>
-                <p>{{ instructions }}</p>
-                <p>Watch for this. {{ watch }}</p>
-                <div class="field-row">
-                  <div class="checklist-field">
-                    <label :id="'agv-result-label-' + number" :for="'agv-result-' + number">Result</label>
-                    <Select :pt="{ label: { 'data-ui': 'agv.record.checklist.result', 'data-ui-key': number } }" :input-id="'agv-result-' + number" :aria-labelledby="'agv-result-label-' + number"
-                      :model-value="agv.session.checklist[number]?.result ?? 'Not tested'" :options="outcomesList" fluid
-                      @update:model-value="updateTest(number, 'result', $event)" />
-                  </div>
-                  <label :for="'agv-notes-' + number">Notes
-                    <Textarea data-ui="agv.record.checklist.notes" :data-ui-key="number" :id="'agv-notes-' + number" rows="3" :model-value="agv.session.checklist[number]?.notes ?? ''"
-                      @update:model-value="updateTest(number, 'notes', $event)" />
-                  </label>
+      <div class="checklist">
+        <Accordion v-for="{ number, title, instructions, watch } in steps" :key="number" @update:value="opened">
+          <AccordionPanel data-ui="agv.record.checklist.row" :data-ui-key="number" :id="'agv-test-' + number" :value="number">
+            <AccordionHeader data-ui="agv.record.checklist.toggle" :data-ui-key="number">
+              <span class="checklist-label">{{ number }}. {{ title }}</span>
+              <Tag :value="agv.session.checklist[number]?.result ?? 'Not tested'"
+                :severity="resultSeverity[agv.session.checklist[number]?.result] ?? 'secondary'" />
+            </AccordionHeader>
+            <AccordionContent>
+              <p>{{ instructions }}</p>
+              <p>Watch for this. {{ watch }}</p>
+              <div class="field-row">
+                <div class="checklist-field">
+                  <label :id="'agv-result-label-' + number" :for="'agv-result-' + number">Result</label>
+                  <Select :pt="{ label: { 'data-ui': 'agv.record.checklist.result', 'data-ui-key': number } }" :input-id="'agv-result-' + number" :aria-labelledby="'agv-result-label-' + number"
+                    :model-value="agv.session.checklist[number]?.result ?? 'Not tested'" :options="outcomesList" fluid
+                    @update:model-value="updateTest(number, 'result', $event)" />
                 </div>
-                <p v-if="agv.session.checklist[number]?.evidence">
-                  Observed {{ localTime(agv.session.checklist[number].evidence.marked_at) }} ·
-                  {{ agv.session.checklist[number].evidence.commands.length }} command results ·
-                  {{ agv.session.checklist[number].evidence.events.length }} events
-                </p>
-              </AccordionContent>
-            </AccordionPanel>
-          </Accordion>
-        </template>
-      </Timeline>
+                <label :for="'agv-notes-' + number">Notes
+                  <Textarea data-ui="agv.record.checklist.notes" :data-ui-key="number" :id="'agv-notes-' + number" rows="3" :model-value="agv.session.checklist[number]?.notes ?? ''"
+                    @update:model-value="updateTest(number, 'notes', $event)" />
+                </label>
+              </div>
+              <p v-if="agv.session.checklist[number]?.evidence">
+                Observed {{ localTime(agv.session.checklist[number].evidence.marked_at) }} ·
+                {{ agv.session.checklist[number].evidence.commands.length }} command results ·
+                {{ agv.session.checklist[number].evidence.events.length }} events
+              </p>
+            </AccordionContent>
+          </AccordionPanel>
+        </Accordion>
+      </div>
     </Panel>
     <Panel data-ui="agv.record.events" class="panel agv-surface">
       <template #header><h2>Events</h2></template>
@@ -232,9 +229,6 @@ function download(format) {
 .agv-surface { padding: 0; }
 .agv-surface h2 { margin: 0; }
 .checklist { margin-top: .75rem; }
-.checklist :deep(.p-timeline-event-opposite) { display: none; }
-.checklist :deep(.p-timeline-event-separator) { padding-top: .85rem; }
-.checklist :deep(.p-timeline-event-content) { min-width: 0; padding: 0 0 .35rem .65rem; }
 .checklist :deep(.p-accordionheader) { gap: .4rem; }
 .checklist-label { flex: 1; text-align: start; }
 .checklist-field, .found-fields > label { flex: 1 1 11rem; min-width: 0; }

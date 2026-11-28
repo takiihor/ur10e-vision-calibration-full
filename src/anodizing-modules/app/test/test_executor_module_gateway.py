@@ -4,13 +4,14 @@ import secrets
 from hashlib import sha256
 import sys
 from threading import Event, Thread
-from time import time
+from time import CLOCK_BOOTTIME, time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
 
-from anodizing_web.executor import AdmissionRefused, Executor, FakeDevices
+from anodizing_web import executor as executor_module
+from anodizing_web.executor import MODULE_ATTESTATION_S, AdmissionRefused, Executor, FakeDevices
 from anodizing_web.executor_http import Client, control_listener
 
 from test_executor_phase1 import Clock, visit, wait_for
@@ -25,6 +26,24 @@ def gateway(tmp_path):
         executor.gateway('heartbeat', dict(identity, sequence=1))
         executor.gateway('connect', identity)
         yield executor, identity, clock
+    finally:
+        executor.close()
+
+
+@pytest.fixture
+def suspend_gateway(tmp_path, monkeypatch):
+    boot_clock = Clock()
+    clock_gettime = executor_module.time.clock_gettime
+    monkeypatch.setattr(executor_module.time, 'clock_gettime',
+                        lambda clock_id: boot_clock() if clock_id == CLOCK_BOOTTIME else clock_gettime(clock_id))
+    monkeypatch.setenv('ANODIZING_HEARTBEAT_S', '1')
+    monkeypatch.setenv('ANODIZING_LEASE_S', '12')
+    executor = Executor(tmp_path, FakeDevices(), gateway_enabled=True)
+    identity = dict(boot=executor.boot, protocol=executor.health()['protocol'], session='katana-test')
+    try:
+        executor.gateway('heartbeat', dict(identity, sequence=1))
+        executor.gateway('connect', identity)
+        yield executor, identity, boot_clock
     finally:
         executor.close()
 
@@ -47,17 +66,114 @@ def test_owner_handoff_disarms_and_fences_old_generation(gateway):
     claim = executor.gateway('claim', principal=principal())
     assert claim['owner'] == 'station-script' and not claim['armed']
     assert claim['stop_generation'] > page['stop_generation']
-    new_arm = executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation']))
+    new_arm = executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation'], module_attestation=module_confirmation(executor, claim)))
     assert new_arm['armed_for'] == 'station-script'
     with pytest.raises(ValueError, match='current owner'):
         executor.gateway('submit', visit(dict(identity, stop_generation=new_arm['stop_generation'])))
+
+
+def test_module_arm_requires_operator_confirmation(gateway):
+    executor, identity, _ = gateway
+    claim = executor.gateway('claim', principal=principal())
+    with pytest.raises(ValueError, match='confirm'):
+        executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation']))
+    assert not executor.gateway('status')['armed']
+
+
+def module_confirmation(executor, claim):
+    return {'confirmed': True, 'operator': 'shift operator', 'browser_enrollment': 'a' * 32,
+            'owner': claim['owner'], 'lease_id': executor.gateway('status')['module_lease_id']}
+
+
+@pytest.mark.parametrize('field,value', [
+    ('confirmed', False), ('operator', ''), ('browser_enrollment', ''),
+    ('owner', 'another-module'), ('lease_id', 'another-lease'),
+])
+def test_module_arm_rejects_invalid_or_stale_confirmation(gateway, field, value):
+    executor, identity, _ = gateway
+    claim = executor.gateway('claim', principal=principal())
+    confirmation = module_confirmation(executor, claim)
+    confirmation[field] = value
+    with pytest.raises(ValueError):
+        executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation'],
+                                     module_attestation=confirmation))
+    assert not executor.gateway('status')['armed']
+
+
+def test_module_arm_records_confirmation_and_expiry(gateway):
+    executor, identity, _ = gateway
+    claim = executor.gateway('claim', principal=principal())
+    before = time()
+    armed = executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation'],
+                                         module_attestation=module_confirmation(executor, claim)))
+    assert armed['armed_for'] == claim['owner']
+    attestation = executor.gateway('status')['module_attestation']
+    assert attestation['owner'] == claim['owner']
+    assert before + 1800 <= attestation['expires_at'] <= time() + 1800
+
+
+def test_module_confirmation_expires_while_leases_are_kept_alive(gateway):
+    executor, identity, clock = gateway
+    module = principal()
+    claim = executor.gateway('claim', principal=module)
+    executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation'],
+                                 module_attestation=module_confirmation(executor, claim)))
+    for sequence in range(2, 202):
+        clock.now += 9
+        executor.gateway('heartbeat', dict(identity, sequence=sequence))
+        executor.gateway('heartbeat', {'lease_id': claim['lease_id'], 'sequence': sequence}, principal=module)
+    status = executor.gateway('status')
+    assert status['module_attestation'] is None
+    assert status['module_attestation_expired']
+    with pytest.raises((AdmissionRefused, ValueError), match='expir'):
+        executor.gateway('submit', visit(dict(lease_id=claim['lease_id'],
+                                               stop_generation=status['stop_generation'])), principal=module)
+    assert executor.devices.effects == []
+
+
+def test_module_arm_confirmation_expires_across_suspend(suspend_gateway):
+    executor, identity, boot_clock = suspend_gateway
+    module = principal()
+    claim = executor.gateway('claim', principal=module)
+    executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation'],
+                                 module_attestation=module_confirmation(executor, claim)))
+    started = boot_clock.now
+    for sequence, elapsed in enumerate(range(9, MODULE_ATTESTATION_S, 9), start=2):
+        boot_clock.now = started + elapsed
+        executor.gateway('heartbeat', dict(identity, sequence=sequence))
+        executor.gateway('heartbeat', dict(lease_id=claim['lease_id'], sequence=sequence), principal=module)
+
+    boot_clock.now = started + MODULE_ATTESTATION_S - 1
+    before_suspend = executor.gateway('status', principal=module)
+    assert before_suspend['armed'] and before_suspend['module_attestation'] is not None
+
+    boot_clock.now += 1  # Only boot time advances during suspend.
+    after_resume = executor.gateway('status', principal=module)
+    assert after_resume['lease_valid'] and executor.gateway('status')['lease_valid']
+    assert after_resume['module_attestation_expired']
+    assert after_resume['module_attestation'] is None
+    assert not after_resume['armed']
+
+
+@pytest.mark.parametrize('action', ['stop', 'disarm', 'release'])
+def test_module_confirmation_clears_on_operator_action(gateway, action):
+    executor, identity, _ = gateway
+    claim = executor.gateway('claim', principal=principal())
+    executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation'],
+                                 module_attestation=module_confirmation(executor, claim)))
+    assert executor.gateway('status')['module_attestation'] is not None
+    if action == 'release':
+        executor.gateway('release', {'lease_id': claim['lease_id']}, principal=principal())
+    else:
+        executor.gateway(action, identity)
+    assert executor.gateway('status')['module_attestation'] is None
 
 
 def test_module_job_auto_admission_idempotency_and_own_records(gateway):
     executor, identity, _ = gateway
     module = principal()
     claim = executor.gateway('claim', principal=module)
-    current = executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation']))
+    current = executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation'], module_attestation=module_confirmation(executor, claim)))
     job = visit(dict(lease_id=claim['lease_id'], stop_generation=current['stop_generation']))
     executor.gateway('submit', job, principal=module)
     done = wait_for(lambda: executor.gateway('status', {'job_id': job['job_id']}, principal=module)['job'],
@@ -73,12 +189,46 @@ def test_module_job_auto_admission_idempotency_and_own_records(gateway):
     assert executor.devices.effects == [('station', 2)]
 
 
+def test_jobs_only_first_submission_and_retry_return_minimal_receipts(gateway):
+    executor, identity, _ = gateway
+    module = principal(scopes=('jobs',))
+    claim = executor.gateway('claim', principal=module)
+    armed = executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation'],
+                                         module_attestation=module_confirmation(executor, claim)))
+    request = visit(dict(lease_id=claim['lease_id'], stop_generation=armed['stop_generation']))
+    first = executor.gateway('submit', request, principal=module)
+    wait_for(lambda: executor.status(request['job_id'])['job'], lambda job: job['state'] == 'done')
+    receipt = executor.gateway('submit', request, principal=module)
+    assert receipt['job_id'] == request['job_id']
+    assert receipt['state'] == 'done'
+    assert receipt['checkpoint'] is None
+    assert receipt['result'] == {}
+    assert 'params' not in json.dumps(receipt)
+    assert first == dict(receipt, state=first['state'])
+
+
+def test_refused_retry_stays_refused_and_never_records_unvalidated_parameters(gateway):
+    executor, identity, _ = gateway
+    module = principal(scopes=('jobs',))
+    claim = executor.gateway('claim', principal=module)
+    armed = executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation'],
+                                         module_attestation=module_confirmation(executor, claim)))
+    executor.manual_travel_until = time() + 60
+    request = visit(dict(lease_id=claim['lease_id'], stop_generation=armed['stop_generation']))
+    request['params'] = {'unvalidated': 'synthetic-private-value'}
+    with pytest.raises(AdmissionRefused) as first:
+        executor.gateway('submit', request, principal=module)
+    assert 'synthetic-private-value' not in json.dumps(executor.owner.jobs[request['job_id']])
+    with pytest.raises(AdmissionRefused, match=str(first.value)):
+        executor.gateway('submit', request, principal=module)
+
+
 @pytest.mark.parametrize('station,reserve,reason', [(250, None, 'learned range'), (2, 100, 'battery')])
 def test_module_station_checks_learned_range_and_battery_floor(gateway, station, reserve, reason):
     executor, identity, _ = gateway
     module = principal()
     claimed = executor.gateway('claim', principal=module)
-    current = executor.gateway('arm', dict(identity, stop_generation=claimed['stop_generation']))
+    current = executor.gateway('arm', dict(identity, stop_generation=claimed['stop_generation'], module_attestation=module_confirmation(executor, claimed)))
     if reserve is not None:
         executor.devices.reserve_s = reserve
     with pytest.raises(AdmissionRefused, match=reason):
@@ -87,15 +237,41 @@ def test_module_station_checks_learned_range_and_battery_floor(gateway, station,
     assert executor.devices.effects == []
 
 
-def test_isolated_track_never_admits_a_module_without_local_confirmation(tmp_path, monkeypatch):
+@pytest.mark.parametrize('opt_in,case,refusal', [
+    pytest.param(None, 'clear', 'isolated track', id='unset'),
+    pytest.param('0', 'clear', 'isolated track', id='disabled'),
+    pytest.param('yes', 'clear', 'isolated track', id='not-one'),
+    pytest.param('1', 'clear', None, id='enabled-and-confirmed'),
+    pytest.param('1', 'expired-window', 'window', id='expired-window'),
+    pytest.param('1', 'battery-below-floor', 'battery', id='battery-below-floor'),
+    pytest.param('1', 'battery-at-floor', 'battery', id='battery-at-floor'),
+    pytest.param('1', 'no-confirmation', '(?i)confirm', id='no-confirmation'),
+])
+def test_isolated_track_module_motion_requires_opt_in_and_all_checks(tmp_path, monkeypatch, opt_in, case, refusal):
     class IsolatedTrackDouble(FakeDevices):
         simulated = False
+        battery_percent = 80
 
         def configure_manual_travel(self, expires, battery_floor, isolated_track):
             assert isolated_track
 
+        def status(self):
+            state = super().status()
+            if state['status'] is not None:
+                state['status']['battery_percent'] = self.battery_percent
+            return state
+
+        def perform(self, effect, value, *, check_module_dispatch):
+            check_module_dispatch()
+            return super().perform(effect, value)
+
     monkeypatch.setenv('ANODIZING_MANUAL_TRAVEL_UNTIL', str(time() + 60))
     monkeypatch.setenv('ANODIZING_MANUAL_TRAVEL_ISOLATED_TRACK', '1')
+    monkeypatch.setenv('ANODIZING_MANUAL_TRAVEL_MIN_BATTERY', '20')
+    if opt_in is None:
+        monkeypatch.delenv('ANODIZING_MODULE_TRAVEL_ON_ATTESTED_TRACK', raising=False)
+    else:
+        monkeypatch.setenv('ANODIZING_MODULE_TRAVEL_ON_ATTESTED_TRACK', opt_in)
     devices = IsolatedTrackDouble()
     executor = Executor(tmp_path, devices, gateway_enabled=True)
     try:
@@ -104,12 +280,74 @@ def test_isolated_track_never_admits_a_module_without_local_confirmation(tmp_pat
         executor.gateway('connect', identity)
         module = principal()
         claim = executor.gateway('claim', principal=module)
-        current = executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation']))
-        job = visit(dict(lease_id=claim['lease_id'], stop_generation=current['stop_generation']))
-        with pytest.raises(AdmissionRefused, match='per-call confirmation'):
+        if case != 'no-confirmation':
+            executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation'],
+                                         module_attestation=module_confirmation(executor, claim)))
+        if case == 'expired-window':
+            executor.manual_travel_until = time() - 1
+        elif case == 'battery-below-floor':
+            devices.battery_percent = 19
+        elif case == 'battery-at-floor':
+            devices.battery_percent = 20
+        job = visit(dict(lease_id=claim['lease_id'], stop_generation=claim['stop_generation']))
+        if refusal:
+            with pytest.raises(AdmissionRefused, match=refusal):
+                executor.gateway('submit', job, principal=module)
+            assert devices.effects == []
+        else:
             executor.gateway('submit', job, principal=module)
-        assert executor.gateway('status', {'job_id': job['job_id']}, principal=module)['job']['state'] == 'refused'
-        assert devices.effects == []
+            final = wait_for(lambda: executor.status(job['job_id'])['job'],
+                             lambda entry: entry is not None and entry['state'] not in ('accepted', 'running', 'waiting'))
+            assert final['outcome'] == 'succeeded'
+            assert devices.effects == [('station', 2)]
+    finally:
+        executor.close()
+
+
+@pytest.mark.parametrize('change', [
+    pytest.param(lambda executor: setattr(executor, 'isolated_track', True), id='isolated-track'),
+    pytest.param(lambda executor: setattr(executor.gateway.ownership, 'owner', 'next-owner'), id='owner'),
+    pytest.param(lambda executor: setattr(executor.gateway.ownership.lease, 'id', 'next-lease'), id='lease'),
+    pytest.param(lambda executor: setattr(executor.gateway.ownership.lease, 'deadline', executor.clock()), id='lease-expired'),
+    pytest.param(lambda executor: setattr(executor, 'stop_generation', next(executor.generations)), id='stop-generation'),
+])
+def test_module_station_rechecks_current_motion_authority_at_send(tmp_path, monkeypatch, change):
+    clock = Clock()
+    sent = Event()
+
+    class WiredStationDouble(FakeDevices):
+        simulated = False
+        manual_travel_qualified = True
+
+        def configure_manual_travel(self, expires, battery_floor, isolated_track):
+            assert not isolated_track
+
+        def perform(self, effect, value, *, check_module_dispatch):
+            with executor.guard:
+                change(executor)
+                check_module_dispatch()
+                sent.set()
+            return super().perform(effect, value)
+
+    monkeypatch.setenv('ANODIZING_MANUAL_TRAVEL_UNTIL', str(time() + 60))
+    monkeypatch.setenv('ANODIZING_MANUAL_TRAVEL_ISOLATED_TRACK', '0')
+    monkeypatch.delenv('ANODIZING_MODULE_TRAVEL_ON_ATTESTED_TRACK', raising=False)
+    executor = Executor(tmp_path, WiredStationDouble(), clock=clock, gateway_enabled=True)
+    try:
+        identity = dict(boot=executor.boot, protocol=executor.health()['protocol'], session='katana-test')
+        executor.gateway('heartbeat', dict(identity, sequence=1))
+        executor.gateway('connect', identity)
+        module = principal()
+        claim = executor.gateway('claim', principal=module)
+        armed = executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation'],
+                                             module_attestation=module_confirmation(executor, claim)))
+        job = visit(dict(lease_id=claim['lease_id'], stop_generation=armed['stop_generation']))
+        executor.gateway('submit', job, principal=module)
+        end = wait_for(lambda: executor.status(job['job_id'])['job'],
+                       lambda result: result is not None and result['state'] not in ('accepted', 'running', 'waiting'))
+        assert not sent.is_set()
+        assert executor.devices.effects == []
+        assert end['outcome'] != 'succeeded'
     finally:
         executor.close()
 
@@ -128,6 +366,34 @@ def test_module_lease_expires_at_ten_seconds_even_when_idle(gateway):
     assert 'heartbeat' in result['operator_check']['reason']
     with pytest.raises(ValueError, match='Claim'):
         executor.gateway('heartbeat', {'lease_id': claim['lease_id'], 'sequence': 1}, principal=module)
+
+
+@pytest.mark.parametrize('owner', ['controller', 'module'])
+def test_lease_expires_across_suspend(suspend_gateway, owner):
+    executor, identity, boot_clock = suspend_gateway
+    status_args = {}
+    if owner == 'module':
+        module = principal()
+        claim = executor.gateway('claim', principal=module)
+        lease_s = claim['lease_s']
+        status_args['principal'] = module
+    else:
+        executor.gateway('claim', identity)
+        lease_s = executor.health()['lease_s']
+
+    boot_clock.now += lease_s - 1
+    assert executor.gateway('status', **status_args)['lease_valid']
+    boot_clock.now += 1
+    assert not executor.gateway('status', **status_args)['lease_valid']
+
+
+def test_module_read_status_includes_only_the_battery_estimate(gateway):
+    executor, _, _ = gateway
+    status = executor.devices.status
+    executor.devices.status = lambda: dict(status(), battery_trend='in_use')
+    state = executor.gateway('status', principal=principal(scopes=('read',)))
+    assert state['device']['battery_trend'] == 'in_use'
+    assert set(state['device']) == {'connected', 'stale', 'status', 'status_age_s', 'battery_trend'}
 
 
 def test_module_scopes_keep_controls_and_foreign_attestation_out(gateway):
@@ -152,6 +418,7 @@ def test_calibration_owner_cannot_arm_or_disarm(gateway):
     reviewed = dict(identity, stop_generation=selected['stop_generation'])
     with pytest.raises(ValueError, match='AGV page'):
         executor.gateway('arm', reviewed, owner='calibration')
+    reviewed['module_attestation'] = module_confirmation(executor, selected)
     assert executor.gateway('arm', reviewed)['armed_for'] == 'calibration'
     with pytest.raises(ValueError, match='AGV page'):
         executor.gateway('disarm', identity, owner='calibration')
@@ -163,7 +430,7 @@ def test_coincident_controller_and_module_expiry_stops_once(gateway):
     claimed = executor.gateway('claim', principal=module)
     clock.now += 7
     executor.gateway('heartbeat', dict(identity, sequence=2))
-    armed = executor.gateway('arm', dict(identity, stop_generation=claimed['stop_generation']))
+    armed = executor.gateway('arm', dict(identity, stop_generation=claimed['stop_generation'], module_attestation=module_confirmation(executor, claimed)))
     entered, release = Event(), Event()
     perform = executor.devices.perform
     stops = []
@@ -349,7 +616,7 @@ def test_calibration_key_reads_its_own_jobs_and_retries_old_key_records(gateway)
     wait_for(lambda: executor.active is None and executor.status()['active_job_id'] is None, bool)
     executor.gateway('release', identity)
     calibration = executor.gateway('claim', identity, owner='calibration')
-    armed = executor.gateway('arm', dict(identity, stop_generation=calibration['stop_generation']))
+    armed = executor.gateway('arm', dict(identity, stop_generation=calibration['stop_generation'], module_attestation=module_confirmation(executor, calibration)))
     request = visit(dict(identity, stop_generation=armed['stop_generation']), 'calibration-retry-test')
     executor.gateway('submit', request, owner='calibration')
     recorded = wait_for(lambda: executor.status(request['job_id'])['job'], lambda job: job['state'] == 'done')
@@ -367,3 +634,231 @@ def test_calibration_key_reads_its_own_jobs_and_retries_old_key_records(gateway)
         finally:
             server.shutdown()
             worker.join()
+
+
+def test_stop_coalesces_pending_halts_and_bounds_receipts(tmp_path):
+    devices = FakeDevices()
+    executor = Executor(tmp_path, devices, gateway_enabled=True)
+    entered, release = Event(), Event()
+    calls = []
+    original_stop = devices.stop
+
+    def slow_stop():
+        calls.append(1)
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(3)
+        return original_stop()
+
+    devices.stop = slow_stop
+    try:
+        first = executor.stop({'stop_id': 'first-stop'})
+        assert entered.wait(1)
+        executor.stop({'stop_id': 'second-stop'})
+        latest = executor.stop({'stop_id': 'third-stop'})
+        assert len(calls) == 1
+        release.set()
+        wait_for(lambda: not executor.stop_workers, bool)
+        assert len(calls) == 2
+        assert executor.status()['stop']['generation'] == latest['generation'] > first['generation']
+        for index in range(200):
+            executor.stop({'stop_id': f'receipt-{index}'})
+        assert len(executor.stop_tickets) < 200
+    finally:
+        release.set()
+        executor.close()
+
+
+def test_heartbeat_stop_does_not_wait_for_blocked_journal_maintenance(gateway):
+    executor, identity, clock = gateway
+    module = principal()
+    executor.gateway('claim', principal=module)
+    entered, release, halted = Event(), Event(), Event()
+    original_stop = executor.devices.stop
+
+    def blocked_maintenance():
+        entered.set()
+        assert release.wait(3)
+
+    def observe_halt():
+        halted.set()
+        return original_stop()
+
+    executor._update_open_air = blocked_maintenance
+    executor.devices.stop = observe_halt
+    try:
+        assert entered.wait(1)
+        clock.now += 10
+        assert halted.wait(1), 'Heartbeat expiry did not signal halt while maintenance was blocked.'
+    finally:
+        release.set()
+
+
+def test_revoked_module_key_cannot_claim_after_request_body_arrives(gateway, tmp_path):
+    from email.message import Message
+    from io import BytesIO
+    from types import SimpleNamespace
+    from anodizing_web.executor_http import control_handler
+    from anodizing_web.module_tokens import KeyStore
+
+    executor, _, _ = gateway
+    tokens = KeyStore(tmp_path / 'keys.json')
+    record, key = tokens.add('sample', ['jobs'])
+    handler_class = control_handler(executor, 'fixture-operator-key-' * 2, tokens)
+    handler = handler_class.__new__(handler_class)
+    headers = Message()
+    headers['Authorization'] = 'Bearer ' + key
+    headers['Content-Type'] = 'application/json'
+    headers['Content-Length'] = '2'
+    handler.headers, handler.path = headers, '/v1/claim'
+    handler.server, handler.client_address = SimpleNamespace(), ('127.0.0.1', 12345)
+    handler.allowed_host = lambda: True
+    responses = []
+    handler.send = lambda status, value: responses.append((status, value))
+
+    class Body(BytesIO):
+        def read(self, size=-1):
+            result = super().read(size)
+            tokens.revoke(record.name)
+            return result
+
+    handler.rfile = Body(b'{}')
+    handler.handle_request('POST')
+    assert responses[0][0] == 403
+    assert executor.gateway('status')['owner'] is None
+
+
+def test_module_stop_joins_pending_page_stop_without_changing_page_receipt(gateway):
+    executor, _, _ = gateway
+    entered, release = Event(), Event()
+    original_stop = executor.devices.stop
+
+    def blocked_stop():
+        entered.set()
+        assert release.wait(3)
+        return original_stop()
+
+    executor.devices.stop = blocked_stop
+    try:
+        page = executor.gateway('stop', {'stop_id': 'page-stop'})
+        assert entered.wait(1)
+        module = executor.gateway('stop', {'stop_id': 'module-stop'}, principal=principal())
+        assert module['generation'] == page['generation']
+        assert not module['confirmed']
+        assert executor.status()['stop']['stop_id'] == 'page-stop'
+        release.set()
+        wait_for(lambda: executor.status()['stop'], lambda stop: stop['confirmed'])
+    finally:
+        release.set()
+
+
+def test_short_module_name_confirmation_survives_journal_reload_but_not_restart_authority(tmp_path):
+    executor = Executor(tmp_path, FakeDevices(), gateway_enabled=True)
+    identity = dict(boot=executor.boot, protocol=executor.health()['protocol'], session='katana-test')
+    executor.gateway('heartbeat', dict(identity, sequence=1))
+    executor.gateway('connect', identity)
+    claim = executor.gateway('claim', principal=principal('a'))
+    executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation'],
+                                 module_attestation=module_confirmation(executor, claim)))
+    executor.close()
+    restarted = Executor(tmp_path, FakeDevices(), gateway_enabled=True)
+    try:
+        status = restarted.gateway('status')
+        assert not status['armed']
+        assert status['module_attestation'] is None
+        assert not restarted.damaged
+    finally:
+        restarted.close()
+
+
+def test_old_confirmation_cannot_arm_new_owner_or_lease(gateway):
+    executor, identity, _ = gateway
+    first_module = principal('first-module', 'first-key-id')
+    first = executor.gateway('claim', principal=first_module)
+    confirmation = module_confirmation(executor, first)
+    executor.gateway('arm', dict(identity, stop_generation=first['stop_generation'], module_attestation=confirmation))
+    executor.gateway('release', {'lease_id': first['lease_id']}, principal=first_module)
+    second = executor.gateway('claim', principal=principal('second-module', 'second-key-id'))
+    assert executor.gateway('status')['module_attestation'] is None
+    with pytest.raises(ValueError, match='owner or lease changed'):
+        executor.gateway('arm', dict(identity, stop_generation=second['stop_generation'],
+                                     module_attestation=confirmation))
+    assert not executor.gateway('status')['armed']
+
+
+def test_operator_check_clears_module_confirmation(gateway):
+    executor, identity, _ = gateway
+    claim = executor.gateway('claim', principal=principal())
+    executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation'],
+                                 module_attestation=module_confirmation(executor, claim)))
+    executor.gateway('hold', dict(identity, stop_generation=claim['stop_generation'],
+                                  manual=True, idle=True, reason='Fixture check'))
+    status = executor.gateway('status')
+    assert status['operator_check'] is not None
+    assert status['module_attestation'] is None
+    assert not status['armed']
+
+
+def test_touchscreen_shows_current_authority_and_job_from_cached_status(gateway, monkeypatch):
+    from anodizing_web import executor_http
+
+    executor, identity, clock = gateway
+    module = principal(token_id=secrets.token_urlsafe(12))
+    claim = executor.gateway('claim', principal=module)
+    envelope = dict(lease_id=claim['lease_id'], stop_generation=claim['stop_generation'])
+    executor.gateway('heartbeat', dict(lease_id=claim['lease_id'], sequence=1), principal=module)
+    executor.gateway('arm', dict(identity, stop_generation=claim['stop_generation'],
+                                 module_attestation=module_confirmation(executor, claim)))
+    monkeypatch.setattr(executor.devices, 'read', lambda: pytest.fail('Touchscreen requested fresh device I/O'))
+    monkeypatch.setattr(executor_http, 'Loopback', lambda port, handler: handler)
+    reader = executor_http.display_listener(0, lambda: executor.status(display=True))
+
+    def touchscreen(method, path):
+        request = reader.__new__(reader)
+        request.allowed_host = lambda: True
+        request.path = path
+        replies = []
+        request.send = lambda status, value, *args: replies.append((status, value))
+        getattr(request, 'do_' + method)()
+        [reply] = replies
+        return reply
+
+    finished = 'previous-visit'
+    executor.gateway('submit', visit(envelope, finished), principal=module)
+    wait_for(lambda: executor.status(finished)['job'], lambda job: job['state'] == 'done')
+    wait_for(lambda: executor.active is None and executor.status()['active_job_id'] is None, bool)
+    entered, release = Event(), Event()
+    perform = executor.devices.perform
+
+    def hold_fake_job(effect, value):
+        entered.set()
+        assert release.wait(3)
+        return perform(effect, value)
+
+    monkeypatch.setattr(executor.devices, 'perform', hold_fake_job)
+    current = 'current-visit'
+    executor.gateway('submit', visit(envelope, current, station=3), principal=module)
+    try:
+        assert entered.wait(1)
+        clock.now += 1.25
+        code, state = touchscreen('GET', '/status')
+        assert code == 200
+        assert state['owner'] == module.name
+        assert state['lease_alive'] is True
+        assert state['heartbeat_age_s'] == pytest.approx(1.25)
+        assert state['arm_confirmation_remaining_s'] == pytest.approx(1798.75)
+        assert state['job'] == dict(job_id=current, state='running', outcome=None)
+        assert state['last_job'] == dict(job_id=finished, state='done', outcome='succeeded')
+        assert state['stop_latched'] is False
+        serialized = json.dumps(state)
+        assert 'module_lease_id' not in state
+        assert 'token_id' not in serialized and module.token_id not in serialized
+        assert claim['lease_id'] not in serialized
+        assert touchscreen('POST', '/v1/stop')[0] == 405
+        assert touchscreen('GET', '/v1/health')[0] == 404
+        executor.gateway('stop', {'stop_id': 'touchscreen-check'})
+        _, stopped = touchscreen('GET', '/status')
+        assert stopped['stop_latched'] is True
+        assert stopped['arm_confirmation_remaining_s'] is None
+    finally:
+        release.set()

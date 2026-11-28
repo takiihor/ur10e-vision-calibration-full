@@ -56,7 +56,7 @@ def test_scene_serves_only_configured_versioned_glb(service, tmp_path, scene_pro
     assert request(service, url, etag=headers['ETag'])[0] == 304
     assert request(service, url, token='wrong', etag=headers['ETag'])[0] == 403
     assert request(service, url + 'x')[0] == 404
-    assert request(service, '/operator/synthetic.glb')[0] == 404
+    assert request(service, '/dev/synthetic.glb')[0] == 404
 
 
 @pytest.mark.parametrize('damage', ['unbound', 'external', 'distance', 'station', 'mount', 'duplicate'])

@@ -15,7 +15,8 @@ from anodizing_web import mcu
 
 source=Path(__file__).resolve().parents[1]/'anodizing_web/server.py'
 handler=next(node for node in ast.parse(source.read_text()).body if isinstance(node,ast.ClassDef) and node.name=='Handler')
-namespace=dict(BaseHTTPRequestHandler=BaseHTTPRequestHandler,json=json,secrets=secrets,urlsplit=urlsplit,MAX_BODY=32768,mcu=mcu)
+namespace=dict(BaseHTTPRequestHandler=BaseHTTPRequestHandler,json=json,secrets=secrets,urlsplit=urlsplit,
+               MAX_BODY=32768,OPERATOR_PATH='/dev/',mcu=mcu)
 exec(compile(ast.Module(body=[handler],type_ignores=[]),str(source),'exec'),namespace)
 
 

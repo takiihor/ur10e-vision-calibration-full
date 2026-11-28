@@ -6,8 +6,9 @@ runs. The **Main app loop** is planned for production and its owner ID
 `main-app-loop` is reserved. Katana retains the recipe and plan cursor. The
 IPC keeps job evidence and knows nothing about the next plan step.
 
-All clients use the same IPC HTTPS API on the line LAN. Katana uses its service
-key for `agv-page` and a separate derived key for `calibration`. The built-in
+All clients use the same IPC HTTPS API from the line LAN or the IPC itself.
+Katana uses its service key for `agv-page` and a separate derived key for
+`calibration`. The built-in
 Calibration module needs no extra key file. Developer modules use individual keys
 and do not use Katana's browser API. SSH is for administration and deployment.
 
@@ -30,15 +31,23 @@ anodizing-module-token --data-dir "$EXECUTOR_DATA" revoke example-module
 ```
 
 Give `module.key` and `ipc-cert.pem` to the account that runs the module.
-Keep the key file readable only by that account. Configure the clients with
-the pinned certificate and the IPC line-LAN address given by the administrator.
+Keep the key file readable only by that account. From the line LAN or the
+IPC itself, connect to `https://192.168.1.251:18875` with the same pinned IPC
+certificate. A module running in the IPC developer login still needs its
+own scoped module key. It follows the same lease, Arm confirmation, track and
+supervised travel-window rules as a module on the line LAN.
 A replacement key receives a new ID. Revocation denies subsequent requests
 using the old key. The operator can still see records attributed to that key.
 
-A module uses only keyed APIs for its operations. Module code has no direct
-access to devices, application files, databases, Bluetooth, SSH or other
-services. Installing its key and certificate is credential setup. Future
-camera, UR10e, tower light and PLC resources will use keyed APIs as well.
+Module developers must use the keyed APIs for module operations. Module code
+must not access devices, application files, databases, Bluetooth, SSH or
+other host services directly.
+The operator-approved IPC developer login retains its host privileges.
+Installing a module key and certificate is credential setup. Future
+camera, UR10e and PLC resources will use keyed APIs as well. The tower
+light reflects executor state. A module can read the cached `tower_light`
+field with its read scope. The gateway provides no tower light controls,
+including through the raw scope.
 
 ## API
 
@@ -57,6 +66,10 @@ POST bodies use JSON. The values below show the shape of API calls.
 | `POST /v1/release` | `jobs` | Send `{"lease_id":"your-lease"}` after work has settled. |
 | `POST /v1/stop` | Any valid key | Send `{}` or supply a unique `stop_id` to identify a retry. |
 
+`device.battery_trend` estimates the change in battery percentage from
+fresh reports. Values are `charging`, `in_use`, `steady` or `null` when
+an estimate is unavailable. See the [IPC touchscreen](MANUAL.md#ipc-touchscreen).
+
 ```json
 {
   "lease_id": "your-lease",
@@ -68,10 +81,14 @@ POST bodies use JSON. The values below show the shape of API calls.
 }
 ```
 
-A repeated job ID and identical payload returns the existing record. A
-changed payload conflicts. After an ambiguous response, read the original
-job ID and follow the operator's recovery procedure. Preserve the original
-job ID and evidence. Each job records the originating client and key ID.
+A repeated job ID and identical payload returns the current recorded disposition.
+A jobs-only key receives a minimal receipt on first acceptance and retry.
+A key with `read` scope can
+retrieve checkpoints and results. A refused submission keeps its refusal
+status on retry. A changed payload conflicts. After an ambiguous response,
+keep the original job ID and follow the operator's recovery procedure.
+Each job records the originating client and key ID. Refusals retain the
+reason, validated request fields and a request digest for retry checking.
 The operator page can see jobs from all clients.
 
 ## Ownership, Arm and Stop
@@ -80,16 +97,31 @@ Claim only when the executor is idle and available. On the AGV page the
 operator selects `agv-page` or `calibration`, or observes the name of the
 module that claimed the executor. Releasing or changing owner disarms the IPC.
 The operator at the physical e-stop connects and Arms for the current owner
-on the AGV page. The page shows **Armed for** that owner. Manual calls from
-the page keep their fresh per-call confirmation.
+on the AGV page. When a module holds control, choose **Armed**, verify the
+module's name, and enter the operator's name. Confirm “I am at the e-stop,
+the arm is folded, and the path and tank equipment are clear.”
+The page shows **Armed for** the module,
+the confirmation expiry in local time, and a countdown. Manual station calls
+from the AGV page keep their fresh per-call confirmation.
 
-The IPC admits module requests automatically when the current owner, Arm
-binding, fresh feedback, station range, battery, fault status, supervised
-travel window and other interlocks allow the job. Stop and Operator check
-fence positive commands. The isolated track currently uses a human's per-call
-folded-arm observation. Automatic module calls there require qualified
-physical evidence and otherwise receive a refusal. Live recipe travel and dips
-remain fenced.
+The IPC records the operator, browser enrollment, owner, lease, executor
+boot, confirmation time and expiry. The confirmation lasts at most 30
+minutes. Lease and confirmation deadlines count time spent in IPC suspend.
+Owner change, release, heartbeat loss, Stop, Operator check,
+disarm, disconnect or executor restart clears it. When it expires, the
+operator must Arm again before another move can start. A move already under
+way follows its existing arrival, interlock and Stop rules.
+
+Module station visits require that current confirmation, fresh feedback,
+station range, battery, fault status, the supervised travel window and the
+other configured interlocks. By default, the isolated track refuses module
+station visits and raw motion. If its administrator sets
+`ANODIZING_MODULE_TRAVEL_ON_ATTESTED_TRACK=1` on the IPC, the operator's
+Arm confirmation supplies the folded-arm, clear-path and clear-equipment
+checks in place of the hardware interlocks on that track. The window must
+be open and the reported battery above the floor. At the final send, the
+IPC rechecks the applicable track rules, current owner, lease, Stop
+generation and Arm confirmation. Live recipe travel and dips remain fenced.
 
 Keep heartbeats going during a job and while waiting to be Armed. Send one
 each second. Ten seconds without an advancing heartbeat causes IPC Stop,
@@ -99,20 +131,111 @@ even from an unenrolled browser. A pending Stop latches ahead of ordinary
 actions and stays pending across link loss until current-boot feedback after
 the halt confirms it. The physical e-stop is the emergency control.
 
+## Raw commands (dev only)
+
+The IPC administrator can issue a development key with `--scope raw` on
+`anodizing-module-token add`, or add it to an existing key with
+`anodizing-module-token grant NAME --scope raw`. Use `--expires HOURS` to
+set the lifetime. With the extended-grant setting off, the default is 8
+hours and the limit is 24 hours. To opt in on the IPC, give the key
+administration command `ANODIZING_RAW_GRANTS_USE_TRAVEL_WINDOW=1` and the
+IPC's configured `ANODIZING_MANUAL_TRAVEL_UNTIL` in its environment. The
+default request is still 8 hours. Any request that would run longer than
+the open supervised window expires at the window's end. The setting
+applies when the administrator issues or renews a grant.
+`list` shows the calendar cutoff in UTC. The IPC checks the calendar cutoff
+and the boot-time deadline at authentication and final send. The earlier
+deadline ends raw access and preserves ordinary scopes. The running executor
+latches expiry for the grant after either cutoff is reached. An IPC reboot
+or a grant from before this clock format requires a new grant. The IPC
+orders registry updates against the final send. During motion the speed and
+distance watcher checks samples and can halt without waiting for the registry
+or wire journal.
+Issue `jobs` as well if the client needs to claim
+ownership and renew its lease. The page and built-in Calibration credentials
+have no raw access. A new key registry starts empty.
+
+Send `POST /v1/raw` with a command name, an args object, and the current
+`lease_id` for motion or settings. Reads may omit the lease. The executor
+builds the frame and checksum. Raw reads return `reply_hex` and `decoded`.
+A client that also has `read` gets those fields for motion and settings,
+plus the snapshot for a speed change. A mutation without `read` returns
+a request `id`, `verified` and the snapshot ID if the speed changed.
+
+| Command | Class | Args and conditions |
+| --- | --- | --- |
+| `query_status` | Read | `{}`. Returns a fresh status report. |
+| `read_speed` | Read | `{}`. Reads the documented drive-speed register. |
+| `call_station` | Motion | `{"value":2}`. Integer station in the learned range and adjacent to the confirmed stopped station. Requires 500 m/h set speed and a measured speed at or below 500 m/h, with a 3 m sampled cutoff and 30 s travel timeout. |
+| `stop`, `pause` | Motion | `{}`. Uses the existing priority halt and confirmation path. Stop selects the wire halt by drive mode. Pause requires station-call mode. |
+| `set_speed` | Settings | `{"value":500}`. Integer m/h from 500 to 4,000, at or below the currently read setpoint. Requires a fresh, disarmed, stopped report from the same vehicle. |
+
+Raw motion requires a valid operator Arm confirmation for the current
+owner, lease and executor boot. The IPC checks it again before dispatch.
+Live admission keeps the supervised window, fresh feedback, fault, battery
+and obstacle checks. The isolated track also requires the explicit opt-in
+and battery above the floor. Outside that track live motion requires
+qualified local interlocks. The motion monitor halts when feedback breaches
+its caps or becomes unverified. Sampling,
+communications and braking affect the actual stopping point. The regular
+`/v1/stop` still accepts any valid key. Raw Stop and Pause use the
+bounded module receipt lane. Katana keeps its separate Stop transport
+and page receipt capacity.
+
+Forward and Reverse carry no bounded distance. Resume reuses an earlier
+target. Both are blocked, along with optional attachment and rotation
+commands, unverified registers and route or Bluetooth settings. The wired
+allowlist blocks changes to obstacle sensing, bumpers, e-stop protection,
+speed limits and auto-start.
+
+Before a speed write the IPC reads the old value and commits a snapshot. It
+sends one write and reads back the speed. To restore, send
+`POST /v1/raw/undo` with `{"lease_id":"your-lease","snapshot_id":"saved-id"}`.
+Use the original key and the latest applicable snapshot for that vehicle.
+The IPC verifies that the current value still equals the snapshot's written
+value. The undo may restore exactly the saved previous value. The IPC logs
+the undo and verifies it by read-back. For a different live value or an
+unverified result, review the AGV and saved evidence before trying again.
+
+The IPC refuses raw traffic while the main app or Calibration owns control,
+a job or recipe is active, Stop is pending, or Operator check is open. After
+raw access the next normal job needs a fresh status reply. Lease release,
+heartbeat loss or raw expiry raises Operator check if settings were written
+or their outcome is uncertain. The check names snapshot IDs and values.
+Resolve it before using a fresh lease to undo. The AGV page shows recent raw
+commands and speed snapshots. The IPC executor journal retains the raw
+request evidence. The gateway revalidates the grant after reading the
+body and at executor admission. A validated refusal records the command,
+client and key IDs, reason and request digest. The journal omits the body.
+The live wire log tags bytes during the request with UTC, client name,
+key ID and request ID.
+
+The fake executor uses simulated replies. The example can read status
+without claiming control. Use a fake key with `read` and `raw` scopes and
+connect the fake AGV before running it.
+
+```sh
+python examples/module_station_visit.py https://127.0.0.1:18875 module.key ipc-cert.pem --raw-status
+```
+
 ## Enroll the Katana operator browser
 
 The administrator generates the browser key once on Katana and stores it in
 a private file outside the application data directory. Configure the service
 with `ANODIZING_OPERATOR_KEY_FILE`. Run it as the operator desktop account
 and let the administrator access the file through the administrative account.
-The service uses this key only for browser enrollment and stores the browser
-session in an HttpOnly, SameSite=Strict cookie.
+The service uses this key only for browser enrollment. The browser stores
+the signed enrollment in the tab's session storage and sends it to the
+exact origin in `X-Operator-Enrollment`.
 
-Open the operator page in the desktop browser, choose the enrollment link,
-and paste the key. Confirm that the page leaves read-only mode. Keep
-**Stop** accessible from any browser on the authorized local operator origin.
-If a browser clears its cookie or uses a new profile, enroll again. To revoke
-old enrollment, replace the key file and restart the operator service.
+On the Katana desktop, open **Dev console** at **http://dev.localhost:8880/dev/**,
+choose **Enroll this browser**, and paste the key. Use this address for
+operator controls and enroll once on your first visit to the new origin.
+Old bookmarks redirect with their hash route and omit the query string.
+The enrollment survives reloads in that tab for up to 12 hours. Enroll
+again in a new tab or after expiry.
+The page keeps **Stop** available before enrollment and after expiry.
+To revoke enrollment, replace the key file and restart the operator service.
 Browser, Katana service and developer keys have separate uses.
 
 ## Transport and firewall
@@ -125,12 +248,17 @@ IP subject alternative name. Put `module-api-cert.pem` and the private
 mode-0600 `module-api-key.pem` in the executor data directory. Only the
 public certificate is copied to clients. Replace both configured pins
 before rotating the executor certificate.
+The reference module client requires the IPC certificate and refuses HTTP
+redirects.
 
-Apply an IPC input firewall rule allowing the gateway port only from the
-configured line subnet on the line interface, followed by a deny for other
-sources. The listener also rejects sources outside the configured subnet.
+Allow the configured line subnet on `br-ipc-dev` to reach the IPC line
+address on TCP 18875. Before the deny for other traffic to that address and
+port, also allow `lo` with the IPC line address as both source and
+destination. The listener rejects sources outside the configured subnet.
 Failed-key responses are rate-limited and logged without recording keys.
-The separate cached loopback status display remains available to the kiosk.
+The two IPC loopback HTTP listeners each admit up to four workers. On
+18875, IPC-local clients have a four-worker budget separate from line-LAN
+clients. The cached loopback status display remains available to the kiosk.
 
 Set Katana's executor port, `ANODIZING_EXECUTOR_CERT_FILE` and
 `ANODIZING_EXECUTOR_TOKEN_FILE`. Katana uses `line_network.ipc_address`
@@ -138,8 +266,30 @@ in its own private site profile. The IPC credential file holds two SHA-256 hashe
 key and one for the derived Calibration key. The lines use
 `sha256:<operator-digest>` and `calibration-sha256:<calibration-digest>`.
 The AGV controls and operator job list use the operator key. The Calibration client
-uses its derived key for its own jobs. Katana's browser cookie is a separate
+uses its derived key for its own jobs. Katana's browser enrollment is a separate
 credential.
+
+Set `line_network.stop_api_port` to 18876 on the IPC and Katana for
+reserved Stop delivery. The IPC uses the same TLS certificate as 18875
+and accepts only the static `line_network.katana_cidr` /32 and the Katana
+operator service key. The listener gives pre-authentication traffic a short
+deadline and authenticated Stop its own bounded capacity. It serves Stop
+and health. Katana's source address must differ from the IPC's address.
+On Katana, restrict outgoing TCP connections to the IPC's 18876 endpoint
+to the dedicated operator service UID. Katana serializes its Stop sends on
+that route. Use the operator service account for pinned health on 18876.
+On `br-ipc-dev`, allow that one source to the
+IPC line address on TCP 18876, then drop other traffic to that address and
+port. Install the firewall rule before enabling the listener.
+
+Katana sends Stop to 18876 first and retries a failed delivery on 18875
+with the same Stop ID. Both the fallback and later retries proceed while
+the witness write is pending. Confirmation stays pending until the evidence
+is durable. The AGV page reports a primary-route failure even after a
+successful fallback. Other gateway traffic and status checks use 18875.
+Remove the old `executor_link.stop_loopback_port` setting and disable the
+`anodizing-ipc-stop-forward.service` user unit once pinned health passes
+on both ports.
 
 ## Local fake instance
 
@@ -190,7 +340,9 @@ executor as described in the [architecture](ARCHITECTURE.md).
 
 ## Confirmed design
 
-The diagrams below record the design reviewed by the operator. The IPC requires a claimed owner before any Arm. An owner change disarms. The existing Stop path also leaves the IPC disarmed after halt confirmation, with the current owner retained until release. Controller and module lease expiry have their own recovery rules.
+The IPC requires a claimed owner before any Arm. Confirmation applies to the
+current module lease and boot. Stop leaves the IPC disarmed after halt
+confirmation, with the current owner retained until release or lease loss.
 
 ### 1. Modules and interfaces (class diagram)
 
@@ -294,20 +446,19 @@ sequenceDiagram
   participant GW as IPC job gateway
   participant Mod as Dev module
   participant AGV
-  Op->>Page: Connect, then Arm
-  Page->>GW: arm (operator credential)
   Mod->>GW: claim control (module token)
   alt nothing else holds control
     GW-->>Mod: ok, owner = module
     GW->>GW: owner changed, so disarm
     GW-->>Page: disarmed, owner = module
-    Op->>Page: Arm again for this module
-    Page->>GW: arm for module
+    Op->>Page: At the e-stop, confirm arm folded, path and equipment clear
+    Page->>GW: Arm with confirmation for the reviewed module lease
+    GW-->>Page: Armed for the module for up to 30 minutes
   else another owner holds control
     GW-->>Mod: refused, with the reason
   end
   Mod->>GW: submit job (e.g. go to station 5)
-  GW->>GW: auto-check: token, owner, armed, station range, battery, fault 0, fresh status, no open Stop or Operator check
+  GW->>GW: Check token, lease, confirmation, supervised window, station range, battery, fault, fresh status and recovery
   alt every check passes
     GW->>AGV: run the job
     loop while the job runs
@@ -332,15 +483,19 @@ stateDiagram-v2
   [*] --> Free
   Free --> Owned: a client claims control
   Owned --> Free: release
-  Owned --> Armed: operator Arms on the page
-  Armed --> Owned: Disarm, or owner changes
+  Owned --> Armed: operator Arms with module confirmation
+  Armed --> Owned: Disarm or confirmation expires
+  Armed --> Free: Release
   Armed --> Running: job passes the auto-check
-  Running --> Armed: job done
+  Running --> Armed: job done with valid confirmation
+  Running --> Owned: job done after confirmation expires
   Running --> Stopping: Stop from any client
-  Stopping --> Armed: halt confirmed
+  Armed --> Stopping: Stop from any client
+  Stopping --> Owned: halt confirmed and owner retained
   Stopping --> OperatorCheck: halt not confirmed
   Running --> OperatorCheck: owner heartbeat lost, or doubt
-  OperatorCheck --> Free: operator resolves it on the page (disarmed)
+  OperatorCheck --> Owned: operator resolves it and owner stays disarmed
+  OperatorCheck --> Free: operator resolves it with no remaining owner
 ```
 
 ### 4. Access rules
@@ -350,10 +505,11 @@ stateDiagram-v2
 | Talks to the IPC through | job API over line LAN, HTTPS + own key | job API over line LAN, HTTPS + own key | job API over line LAN, HTTPS + own key |
 | Read status and jobs | Yes | Yes | Yes |
 | Take control | Yes | If nothing else holds it | If nothing else holds it |
-| Submit a moving job | Yes, with the per-call confirmation | Yes, auto-checked | Yes, auto-checked |
+| Submit a moving job | Yes, with the per-call confirmation | Yes, with a valid Arm confirmation and interlocks | Yes, with a valid Arm confirmation and interlocks |
 | Arm / Disarm | Only here | No | No |
 | Stop | Yes, always wins | Yes | Yes |
-| Bluetooth, settings, raw AGV frames | Bluetooth page only | No | No |
+| Bluetooth maintenance | Bluetooth page only | No | No |
+| Allowlisted wired raw commands | No | No | Yes, with an explicit expiring raw grant and the command's interlocks |
 | Files, devices, SSH, databases directly | n/a | No, keyed API only | No, keyed API only |
-| Key scopes | operator | read + jobs | read and/or jobs, set by admin; Stop with any valid key |
-| Credential | saved operator key: the operator's browser enrols once, no daily login | built in | own saved key file, stored on the IPC as a hash; admin adds, lists, revokes; starts with none |
+| Key scopes | operator | read + jobs | read, jobs and/or expiring raw, set by admin. Stop with any valid key. |
+| Credential | saved operator key, with a 12-hour browser enrollment | built in | saved key file with its hash stored on the IPC. An administrator issues and revokes keys. |

@@ -1,4 +1,6 @@
 <script setup>
+import Disclosure from './Disclosure.vue';
+import Select from 'primevue/select';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import Button from 'primevue/button';
 import Card from 'primevue/card';
@@ -11,6 +13,7 @@ import { downloadBlob, request, requestDownload } from './api';
 const props = defineProps({ variables: Array, stateError: String, writeBlock: String });
 const emit = defineEmits(['outcome']);
 const rates = [0.2, 1, 5];
+const rateOptions = rates.map(value => ({ value, label: value + ' Hz' }));
 const formats = [
   { id: 'summary', label: 'Download summary', suffix: 'md' },
   { id: 'csv', label: 'Download CSV', suffix: 'csv' },
@@ -158,7 +161,7 @@ onUnmounted(() => {
 <template>
   <Message v-if="error" severity="error" role="alert">{{ error }}</Message>
   <Message v-if="catalog?.error" severity="warn" role="alert">{{ catalog.error }}</Message>
-  <div data-ui="recorder.page" class="home-grid recorder-grid">
+  <div data-ui="recorder.page" class="recorder-grid grid items-start gap-4 min-[36rem]:grid-cols-2">
     <Card data-ui="recorder.current.panel" class="panel home-card" aria-labelledby="record-current">
       <template #title><h2 id="record-current">Recording status</h2></template>
       <template #content>
@@ -181,7 +184,7 @@ onUnmounted(() => {
         <p v-else-if="!error" role="status">Checking recorder…</p>
         <Message v-if="!active && ended && ended !== 'stopped'" :severity="endedWithError ? 'error' : 'warn'"
           :role="endedWithError ? 'alert' : 'status'">{{ reasons[ended] }}</Message>
-        <p v-if="feedback" role="status">{{ feedback }}</p>
+        <Message severity="info" variant="simple" v-if="feedback" role="status">{{ feedback }}</Message>
         <Button data-ui="recorder.agv.checklist" as="a" href="#/agv" class="page-link" severity="secondary" label="AGV checklist and test exports" />
         <Button data-ui="recorder.agv.legacy" as="a" href="/agv" class="page-link legacy-record-link" severity="secondary" label="Open legacy AGV page" />
       </template>
@@ -192,9 +195,7 @@ onUnmounted(() => {
         <form data-ui="recorder.new.form" @submit.prevent="update('start')">
           <p>Record cached state and events for up to 2 hours or 50 MiB.</p>
           <label class="record-rate">Sample rate
-            <select data-ui="recorder.new.rate" v-model="rate" :disabled="Boolean(blocked)">
-              <option v-for="option in rates" :key="option" :value="option">{{ option }} Hz</option>
-            </select>
+            <Select :pt="{ label: { 'data-ui': 'recorder.new.rate' } }" aria-label="Sample rate" v-model="rate" :options="rateOptions" option-label="label" option-value="value" :disabled="Boolean(blocked)" />
           </label>
           <fieldset class="record-variables" :disabled="Boolean(blocked)">
             <legend>Variables to sample</legend>
@@ -206,13 +207,13 @@ onUnmounted(() => {
               </label>
             </div>
           </fieldset>
-          <details data-ui="recorder.new.metadata">
-            <summary data-ui="recorder.new.metadata.toggle">Session details and notes</summary>
+          <Disclosure data-ui="recorder.new.metadata" toggle-id="recorder.new.metadata.toggle">
+            <template #heading>Session details and notes</template>
             <label>Operator <InputText data-ui="recorder.new.operator" v-model="operator" maxlength="100" :disabled="Boolean(blocked)" /></label>
             <label>Site <InputText data-ui="recorder.new.site" v-model="site" maxlength="100" :disabled="Boolean(blocked)" /></label>
             <label>Devices <InputText data-ui="recorder.new.devices" v-model="devices" maxlength="200" :disabled="Boolean(blocked)" /></label>
             <label>Test notes <Textarea data-ui="recorder.new.notes" v-model="notes" maxlength="2000" rows="3" :disabled="Boolean(blocked)" /></label>
-          </details>
+          </Disclosure>
           <div class="control controls">
             <Button data-ui="recorder.new.start" id="record-start" type="submit" label="Start recording" :disabled="Boolean(startReason)"
               :aria-describedby="startReason ? 'record-start-why' : undefined" />
@@ -228,7 +229,7 @@ onUnmounted(() => {
         <ul v-if="unreadable.length">
           <li data-ui="recorder.history.unreadable.row" :data-ui-key="record.id" v-for="record in unreadable" :key="record.id">{{ record.id }} · Unreadable recording</li>
         </ul>
-        <p v-if="exportFeedback" role="status">{{ exportFeedback }}</p>
+        <Message severity="info" variant="simple" v-if="exportFeedback" role="status">{{ exportFeedback }}</Message>
         <ul v-if="finished.length">
           <li data-ui="recorder.history.row" :data-ui-key="record.id" v-for="record in finished" :key="record.id" class="record-history-item">
             <div>

@@ -52,7 +52,7 @@ async function loadProject() {
 </script>
 
 <template>
-  <div data-ui="scene.page" class="scene-grid">
+  <div data-ui="scene.page" class="scene-grid grid min-w-0 gap-4 min-[1181px]:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
     <Card data-ui="scene.view.panel" class="panel">
       <template #title><h2>Line view</h2></template>
       <template #content>
@@ -94,7 +94,7 @@ async function loadProject() {
           <label for="scene-project">Teaching project path</label>
           <InputText data-ui="scene.project.path" id="scene-project" v-model="projectPath" autocomplete="off" aria-describedby="scene-project-status" />
           <Button data-ui="scene.project.load" type="submit" label="Load project" severity="secondary" :disabled="loading || !projectPath.trim()" />
-          <p id="scene-project-status" role="status">{{ projectStatus || 'Enter a saved project to show its taught tank.' }}</p>
+          <Message severity="info" variant="simple" id="scene-project-status" role="status">{{ projectStatus || 'Enter a saved project to show its taught tank.' }}</Message>
         </form>
       </template>
     </Card>

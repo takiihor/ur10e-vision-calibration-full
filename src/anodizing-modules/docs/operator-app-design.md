@@ -1,6 +1,6 @@
 # Operator app stage 1
 
-The opt-in operator app provides Home at `/operator/#/` and AGV commissioning at `/operator/#/agv` and `/operator/#/tests/agv`. Calibration, Teaching and Pick/place keep their standalone pages and native module cores. The IPC owns hardware work, connection state and job admission. The browser uses the existing same-origin APIs and does not open a device connection.
+The Dev console on Katana is at `http://dev.localhost:8880/dev/`. Its Home route is `/dev/#/` and AGV commissioning is at `/dev/#/agv` and `/dev/#/tests/agv`. Calibration, Teaching and Pick/place keep their standalone pages and native module cores. The IPC owns hardware work, connection state and job admission. The browser uses the existing same-origin APIs and does not open a device connection.
 
 Home reads `GET /api/state`, a protected, cache-only projection. Each item has a stable ID, typed value, source, acquisition time, freshness and quality. Expired values become unknown and retain their acquisition time for historical display. The AGV connection worker receives timed reports and polls when necessary. Both commissioning pages use its cache, with explicit port discovery and inquiry controls.
 
@@ -14,7 +14,7 @@ See the [operator HCI guide](operator-page-hci.md) and [UI build instructions](.
 
 ## Scene and labels (Stage 2)
 
-Open `/operator/#/scene` or `/operator/#/tests/scene` for the same display. The service still opens the legacy landing page by default. The Scene page links to the legacy tool and collision preview. The display has no motion controls and shares the operator shell's AGV Stop and Pause.
+Open `/dev/#/scene` or `/dev/#/tests/scene` for the same display. The service still opens the legacy landing page by default. The Scene page links to the legacy tool and collision preview. The display has no motion controls and shares the operator shell's AGV Stop and Pause.
 
 The service reads a local drawing and its display configuration at startup. It verifies the drawing's size and SHA-256, then serves the single configured, self-contained GLB at its protected, versioned URL. The browser revalidates cached drawing bytes through the authenticated endpoint. Scene uses drawing-frame metres and +Y up. The AGV marker is the last confirmed arrival on the current connection. The map and text list label that historical placement on the AGV and mounted robot, including when an AGV stops between stations. Motion and its reported target are words. A stale report changes the live label to **Unknown** while the last confirmed station remains labelled as history. A new connection starts without that history.
 
@@ -26,7 +26,7 @@ Scene reads the optional canonical `tank` from an explicitly selected saved Teac
 
 ## Recorder (Stage 3)
 
-The operator and test routes, `/operator/#/records` and `/operator/#/tests/records`,
+The operator and test routes, `/dev/#/records` and `/dev/#/tests/records`,
 share one server-owned recording. The legacy landing page and AGV commissioning
 remain available. Recorder links to the AGV checklist and its two commissioning
 exports. That checklist, operator observations and link-quality summary use the
@@ -73,8 +73,8 @@ simulator line-test dispatch, feedback and restore events by test and request ID
 
 ## Line reads (Stage 4)
 
-The operator's overview, tank monitor, alarms and browser are at `/operator/#/line`.
-`/operator/#/tests/line-api` uses the same view and adds writable readbacks to the
+The operator's overview, tank monitor, alarms and browser are at `/dev/#/line`.
+`/dev/#/tests/line-api` uses the same view and adds writable readbacks to the
 catalog filters. Both views also show metadata, mapping warnings and recent
 read diagnostics. Bookmark a subview such as `#/line/tank`. The legacy console
 still runs separately. The service continues opening the legacy landing page.
@@ -155,7 +155,7 @@ grant no write authority. See [setup and import](../operator-ui/README.md#unifie
 
 ## Pick/place and Recipe (Stage 6)
 
-The Pick/place menu opens `/operator/#/pick-place`. The legacy
+The Pick/place menu opens `/dev/#/pick-place`. The legacy
 `/pick-place` page and service landing remain available. The test route
 `#/tests/pick-place` uses the same page. The Robot steps, MCU and Tool
 power test aliases open their corresponding control groups in the same layout.

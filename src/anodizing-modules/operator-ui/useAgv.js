@@ -1,8 +1,9 @@
 import { computed, onMounted, onUnmounted, reactive, shallowRef, ref } from 'vue';
 import { request, requestError, simulationEnabled } from './api';
+import { guidance, learnedRange, refused, teachStations } from './agvFeedback';
 import {
   badFrame, connectionKey, emptyJournal, eventText, faultText, isoNow, journalKey,
-  load, newSession, reads, resultText, save, seconds, sessionKey, stationCallRequired, stationLimit, stationRangeText, urgent,
+  load, newSession, reads, resultText, save, seconds, sessionKey, stationCallRequired, stationLimit, urgent,
   connectionKeyFor, pauseStationOnly, mergeJournal, savedRadioFields, rememberRadioOverrides, radioRouteError,
 } from '../app/anodizing_web/web/agv-record.mjs';
 
@@ -67,29 +68,48 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute, operatorReadOnl
   const freshReport = computed(() => state.value.connected && !stale.value ? state.value.status : null);
   const maximumStation = computed(() => stationLimit(freshReport.value));
 
+  const blockText = (key, raw = state.value[key]) => guidance(state.value.feedback?.[key], raw);
+  const executorDownReason = computed(() => blockText('error') ||
+    'The IPC on the AGV is not answering. Check AGV power.');
+  function staleReason() {
+    const elapsed = age.value == null ? 'There is no current status reading.' :
+      `The last status reading is ${seconds(age.value)} seconds old.`;
+    return `${elapsed} Press Query status, or check the link if no reply arrives.`;
+  }
+  function faultReason(report) {
+    if (report.fault_code !== 0) {
+      return `${report.fault_code == null ? 'The fault reading is unavailable.' : faultText(report) + '.'} Check the AGV, clear the fault when safe, then press Query status.`;
+    }
+    if (report.obstacle_stop !== false) {
+      const reason = report.obstacle_stop ? 'The AGV reports an obstacle stop.' : 'The obstacle-stop reading is unavailable.';
+      return `${reason} Check the track, clear it when safe, then press Query status.`;
+    }
+    return '';
+  }
   function manualFeedbackReason() {
     const report = freshReport.value;
-    if (!report || age.value == null) return 'Query fresh stopped status first.';
-    if (report.fault_code !== 0 || report.obstacle_stop !== false) {
-      return 'Clear the reported AGV fault or obstacle before continuing.';
-    }
+    if (!report || age.value == null) return staleReason();
+    const fault = faultReason(report);
+    if (fault) return fault;
     const floor = state.value.executor_health?.manual_travel_min_battery;
     const battery = report.battery_percent;
     if (Number.isFinite(floor) && (!Number.isFinite(battery) || battery < floor || battery > 100)) {
-      return `Manual travel requires a battery reading of at least ${floor}%.`;
+      const reading = Number.isFinite(battery) ? `${battery}%` : 'unavailable';
+      return `The reported battery is ${reading}. Manual travel requires at least ${floor}%. Charge if needed, then press Query status.`;
     }
     return '';
   }
 
-  const connectionLabel = computed(() => {
-    const elapsed = age.value == null ? 'no status report yet' : `last status report ${seconds(age.value)} s ago`;
-    if (serviceError.value || state.value.error) return 'Error · ' + elapsed;
-    if (!state.value.connected) return 'Disconnected';
-    return (stale.value ? 'Link stale · ' : 'Connected · ') + elapsed;
-  });
+  const connectionState = computed(() => serviceError.value || state.value.error || state.value.executor_reachable === false
+    ? 'Link lost' : !state.value.connected ? 'Disconnected' : stale.value ? 'Link stale' : 'Connected');
+  const connectionLabel = computed(() => state.value.connected && age.value != null
+    ? `${connectionState.value} · ${Math.round(age.value)} s` : connectionState.value);
+  const connectionDetail = computed(() => connectionState.value + (state.value.connected
+    ? age.value == null ? ' · no status report yet' : ` · last status report ${seconds(age.value)} s ago`
+    : ''));
   const alarms = computed(() => [
     [stale.value && 'Link stale. The AGV may still be moving. Use its e-stop if needed. Check the radio before moving again.', 'failed'],
-    [serviceError.value || state.value.error, 'failed'],
+    [serviceError.value || blockText('error'), 'failed'],
     [state.value.connected && state.value.status?.fault_code && faultText(state.value.status) +
       '. Check the machine and consult the manual before moving.', 'failed'],
     [state.value.connected && state.value.status?.obstacle_stop === true &&
@@ -99,8 +119,9 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute, operatorReadOnl
   const connectionLocked = computed(() => operatorKeyReason.value || (busy.value ? pendingWait :
     state.value.connected ? 'Disconnect to change link settings.' : ''));
   const connectReason = computed(() => {
-    if (state.value.bluetooth_block) return state.value.bluetooth_block;
+    if (state.value.bluetooth_block) return blockText('bluetooth_block');
     if (connectionLocked.value) return connectionLocked.value;
+    if (state.value.executor_reachable === false) return executorDownReason.value;
     if (!capability.value) return serviceError.value || 'Waiting for the page service.';
     const routeError = radioRouteError(form.mode, form, capability.value.radio_profile);
     if (routeError) return routeError;
@@ -116,20 +137,21 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute, operatorReadOnl
   const armed = computed(() => state.value.armed && (state.value.executor_link || armedHere.value));
   const armReason = computed(() => {
     if (operatorKeyReason.value) return operatorKeyReason.value;
-    if (state.value.bluetooth_block && !armed.value) return state.value.bluetooth_block;
-    if (!state.value.connected) return 'Connect first.';
+    if (state.value.bluetooth_block && !armed.value) return blockText('bluetooth_block');
+    if (!armed.value && state.value.executor_reachable === false) return executorDownReason.value;
+    if (!state.value.connected) return 'The AGV connection is closed. Choose Wired and press Connect.';
     if (busy.value || resetPending) return pendingWait;
     if (armed.value) return '';
     if (state.value.executor_link) {
       if (state.value.stop_unconfirmed) return 'Stop unconfirmed. Verify a safe halt first.';
       if (state.value.job_gateway && !state.value.owner) return 'Choose a job owner before arming.';
-      if (state.value.programme_motion_block && !state.value.calibration_awaiting_arm) return state.value.programme_motion_block;
-      if (state.value.operator_check) return state.value.operator_check.reason;
-      if (state.value.recovery_required) return state.value.motion_block || 'Complete the operator check before arming.';
+      if (state.value.programme_motion_block && !state.value.calibration_awaiting_arm) return blockText('programme_motion_block');
+      if (state.value.operator_check) return blockText('operator_check', state.value.operator_check.reason);
+      if (state.value.recovery_required) return blockText('motion_block') || 'A previous operation needs a physical check. Complete Operator check before arming.';
       if (supervisedRange.value) return manualFeedbackReason();
-      return freshReport.value ? '' : 'Query fresh stopped status first.';
+      return freshReport.value ? '' : staleReason();
     }
-    return state.value.motion_block || (stale.value ? 'Wait for a fresh status report.' : '');
+    return blockText('motion_block') || (stale.value ? staleReason() : '');
   });
 
   function setServiceError(error) {
@@ -263,8 +285,8 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute, operatorReadOnl
     if (state.value.executor_link && body.command !== 'query_status') {
       body = { ...body, request_id: crypto.randomUUID(), review_cursor: state.value.review_cursor };
       if (body.armed === true || body.command === 'call_station' || ['operator_check', 'claim_owner'].includes(body.action)) {
-        body = { ...body, executor_boot: state.value.executor_boot, executor_session: state.value.executor_session,
-          stop_generation: state.value.stop_generation, executor_owner: state.value.owner ?? null };
+        body = { executor_boot: state.value.executor_boot, executor_session: state.value.executor_session,
+          stop_generation: state.value.stop_generation, executor_owner: state.value.owner ?? null, ...body };
       }
     }
     const timeout = priority ? 4000 : 8000;
@@ -307,7 +329,7 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute, operatorReadOnl
         }
         if (body.action === 'arm') armedHere.value = Boolean(body.armed && current.armed && next.armed);
         const text = {
-          connect: current.connected ? `Connected · ${current.settings?.mode === 'simulator' ? 'Simulator' : 'Serial AGV'}` :
+          connect: current.connected ? 'Connection opened.' :
             'The link closed. Inspect the connection before trying again.',
           disconnect: current.connected ? 'The link changed. Inspect the connection.' : 'Disconnected.',
           arm: armed.value ? (next.executor_link && next.motion_block ? 'Armed · commissioning' : 'Armed. Movement controls are enabled.') : 'Disarmed.',
@@ -318,7 +340,13 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute, operatorReadOnl
       }
       if (!applied) lastPoll = -Infinity;
     } catch (error) {
-      const text = requestError(error, state.value.connected);
+      const action = body.command === 'call_station' ? `Call to station ${body.value}` : body.command ?
+        (commands.value.get(body.command)?.label ?? body.command) : ({
+          arm: body.armed ? 'Arm' : 'Disarm', connect: 'Connect', disconnect: 'Disconnect',
+          silence: 'Change link simulation', claim_owner: 'Change job owner',
+          acknowledge_station: 'Acknowledge station result', operator_check: 'Confirm Operator check',
+        })[body.action] ?? 'AGV action';
+      const text = refused(action, error, requestError(error, state.value.connected));
       if (!error.status || error.status === 403) setServiceError(text);
       if (outcomes.get(id) === pending) outcomes.set(id, { direct: { text, tone: 'failed' } });
       journal.value.log.push({ timestamp: isoNow(), direction: 'Page', hex: '', decode: { error: error.message } });
@@ -332,15 +360,18 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute, operatorReadOnl
     if (name !== 'stop' && operatorKeyReason.value) return operatorKeyReason.value;
     if (state.value.executor_link) {
       if (name === 'stop') return '';
+      if (state.value.executor_reachable === false) return executorDownReason.value;
       if (!['query_status', 'call_station'].includes(name)) return 'This control is unavailable on the executor link.';
       if (name === 'call_station') {
         if (state.value.job_gateway && state.value.armed_for !== 'agv-page') {
-          return 'Select the AGV page as job owner and Arm for it before calling a station.';
+          const owner = state.value.armed_for ? `Armed for ${state.value.armed_for}.` : 'The AGV is disarmed.';
+          return `${owner} Select the AGV page as job owner and Arm when the AGV is safely stopped.`;
         }
         if (manualTravel.value && Date.now() / 1000 >= state.value.executor_health.manual_travel_until) {
-          return 'The manual travel window expired.';
+          const when = new Date(state.value.executor_health.manual_travel_until * 1000).toLocaleTimeString();
+          return `The manual travel window ended at ${when} (local time). Ask the supervisor to review it.`;
         }
-        if (state.value.programme_motion_block) return state.value.programme_motion_block;
+        if (state.value.programme_motion_block) return blockText('programme_motion_block');
         if (state.value.stop_unconfirmed) return 'Stop unconfirmed. Verify a safe halt first.';
         const visit = state.value.manual_visit;
         if (visit && (visit.station !== value || visit.result?.outcome)) {
@@ -348,26 +379,28 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute, operatorReadOnl
         }
       }
     }
-    if (!state.value.connected) return 'Connect first.';
+    if (!state.value.connected) return 'The AGV connection is closed. Choose a transport and press Connect.';
     if (name === 'pause' && freshReport.value?.mode === 0) return pauseStationOnly;
     if (urgent.has(name)) return '';
     if (busy.value) return pendingWait;
     if (state.value.recipe_active) return 'The recipe is checking AGV status. Follow Current operation on Pick/place.';
     if (reads.has(name)) return '';
-    if (state.value.motion_block) return state.value.motion_block;
-    if (stale.value || !freshReport.value) return 'Wait for a fresh status report. Query status or check the radio.';
-    if (!armed.value) return 'Tick Armed to enable movement.';
+    if (state.value.motion_block) return blockText('motion_block');
+    if (stale.value || !freshReport.value) return staleReason();
+    if (!armed.value) return 'The AGV is disarmed. Verify it is safely stopped before arming.';
     const { mode, fault_code: fault, obstacle_stop: obstacle } = freshReport.value;
     if (![0, 2].includes(mode)) return 'Select standard or station-call mode in the XBOT app first.';
-    if (fault || obstacle) return 'Clear the reported AGV fault or obstacle before continuing.';
+    if (fault || obstacle) return faultReason(freshReport.value);
     if (name === 'resume' && mode !== 2) return 'Resume requires station-call mode.';
     if (name === 'call_station') {
       if (mode !== 2) return stationCallRequired;
       const manualReason = manualTravel.value && manualFeedbackReason();
       if (manualReason) return manualReason;
       const maximum = maximumStation.value;
-      if (!maximum) return 'Teach a route in the XBOT app before calling a station.';
-      if (!Number.isInteger(value) || value < 1 || value > maximum) return `Choose a learned station. ${stationRangeText(freshReport.value)}`;
+      if (!maximum || !Number.isInteger(value) || value < 1 || value > maximum) {
+        const range = learnedRange(freshReport.value?.max_stations);
+        return range ? `${range} ${teachStations}` : 'The learned range is unknown. Press Query status.';
+      }
     }
     if (name === 'set_speed' && (!Number.isInteger(value) || value < 500 || value > 4000)) {
       return 'Enter a whole number from 500 to 4000 m/h.';
@@ -558,16 +591,19 @@ export function useAgv(isAgv, isScene, alternateStop, pickRoute, operatorReadOnl
   }
 
   return reactive({
-    state, capability, form, commands, ports, age, stale, freshReport, connectionLabel, alarms,
-    connectionLocked, connectReason, armed, armReason, busy, haltRevision, stateError, portError, operatorReadOnly, operatorKeyReason,
+    state, capability, form, commands, ports, age, stale, freshReport, connectionState, connectionLabel, connectionDetail, alarms,
+    connectionLocked, connectReason, armed, armReason, executorDownReason, busy, haltRevision, stateError, portError, operatorReadOnly, operatorKeyReason,
     manualTravel, isolatedTrack, supervisedRange, maximumStation, variableInfo,
     line: computed(() => report.value?.line),
     variables: computed(() => [...(report.value?.variables.values() ?? [])]),
     variable: name => variableInfo('agv.' + name)?.value ?? null,
     session, journal, recordNote, sound, serviceError,
-    currentFeedback: computed(() => feedback(latest.value)),
+    currentFeedback: computed(() => {
+      const outcome = feedback(latest.value);
+      return latest.value === 'connect' && state.value.connected && outcome?.tone === 'done' ? null : outcome;
+    }),
     frameError: computed(() => clock.value < badFrameUntil ? badFrame : ''),
-    refreshPorts, changeTransport, commandReason, send, post, feedback, setSound,
+    refreshPorts, changeTransport, blockText, commandReason, send, post, feedback, setSound,
     enterAgv, persistSession, persistJournal, newRecord,
     showOutcome(id, outcome, select) {
       if (select) latest.value = id;

@@ -341,7 +341,7 @@ const status = {
   executor_link: true, connected: true, results: {},
   executor_stop: {received: true, halt_attempted: true, confirmed: false}
 };
-vm.runInNewContext(fs.readFileSync(process.argv[1], 'utf8'), {
+vm.runInNewContext(fs.readFileSync(process.argv[2], 'utf8') + '\\n' + fs.readFileSync(process.argv[1], 'utf8'), {
   document: {getElementById: field, addEventListener() {}, querySelector: () => ({content: 'test'})},
   window: {}, setTimeout() {},
   fetch: async (route, options) => ({
@@ -360,7 +360,7 @@ field('pick-agv-stop').click().then(() => {
   assert.equal(field('pick-agv-stop-outcome').dataset.state, 'waiting');
   assert.match(field('pick-agv-stop-outcome').textContent, /Halt attempted.*Stop unconfirmed/);
 }).catch(error => { process.exitCode = 1; console.error(error); });
-""", str(source)], capture_output=True, text=True, timeout=5)
+""", str(source), str(source.with_name('operator-auth.js'))], capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stderr
 
 

@@ -4,7 +4,7 @@
   const buttons=[...document.querySelectorAll('[data-robot-axis]')];
   let capability=null, owner=null, posting=false, defaultsApplied=false, requestJobId=null, awaitingInspection=false, requestError='', inspecting=false, definitiveRejection=false;
   const ids=['robot-ip','robot-tcp','robot-scene','robot-workspace-min','robot-workspace-max','robot-joint-min','robot-joint-max','robot-joint-source','robot-joint-speed','robot-translation-step','robot-rotation-step'];
-  async function get(){const r=await fetch('/api/robot-control',{headers:{'X-Module-Token':token}});const v=await r.json();if(!r.ok)throw Error(v.error||'Robot control unavailable.');return v;}
+  async function get(){const r=await window.operatorFetch('/api/robot-control',{headers:{'X-Module-Token':token}});const v=await r.json();if(!r.ok)throw Error(v.error||'Robot control unavailable.');return v;}
   function values(id,count,scale=1){const t=el(id).value.trim(),v=t.split(/[\s,]+/).map(Number);if(!t||v.length!==count||!v.every(Number.isFinite))throw Error(id+' needs '+count+' finite values.');return v.map(x=>x*scale);}
   function body(axis,increment){
     const lower=values('robot-joint-min',6,Math.PI/180),upper=values('robot-joint-max',6,Math.PI/180),tcp=values('robot-tcp',6);
@@ -34,7 +34,7 @@
   async function inspectOutcome(){
     if(!awaitingInspection||!requestJobId||inspecting)return;
     inspecting=true;
-    try{const r=await fetch('/api/jobs/'+encodeURIComponent(requestJobId),{headers:{'X-Module-Token':token}});
+    try{const r=await window.operatorFetch('/api/jobs/'+encodeURIComponent(requestJobId),{headers:{'X-Module-Token':token}});
       if(!r.ok)return;
       const job=await r.json();if(job.id!==requestJobId)return;
       requestError='';

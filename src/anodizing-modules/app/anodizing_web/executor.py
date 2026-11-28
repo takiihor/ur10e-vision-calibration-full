@@ -1,4 +1,5 @@
 """Versioned IPC job service and device boundaries."""
+from contextlib import contextmanager
 from copy import deepcopy
 from hashlib import sha256
 from itertools import count
@@ -11,14 +12,19 @@ from threading import TIMEOUT_MAX, Event, RLock, Thread
 import time
 from uuid import uuid4
 
+from . import agv, tower_light
 from .agv import RECIPE_STALE_S, station_limit
 from .job_gateway import Job, JobGateway, MODULE_LEASE_S
 from .jobs import ID, JobOwner, JobStop, atomic_json
+from .module_tokens import NAME
 
 PROTOCOL = 2
 HEARTBEAT_S = 1
 LEASE_S = 3
 MAX_BODY = 32768
+STOP_RECEIPTS_PER_LANE = 64
+MODULE_ATTESTATION_S = 30 * 60
+MODULE_ATTESTATION_EXPIRED = "The module Arm confirmation expired. Confirm and Arm again."
 PAIRED_ROLES = {'etch', 'desmut', 'anodize'}
 ROLES = PAIRED_ROLES | {'ultrasonic', 'rinse', 'seal'}
 
@@ -37,13 +43,14 @@ def finite(value):
     return type(value) in (int, float) and math.isfinite(value)
 
 
-def check_manual_feedback(state, battery_floor, station=None):
+def check_manual_feedback(state, battery_floor, station=None, *, above_floor=False):
     if state.get('connected') is not True or state.get('stale') is True:
         raise ValueError('Manual travel requires fresh AGV status.')
-    check_manual_report(state.get('status') or {}, state.get('status_age_s'), battery_floor, station)
+    check_manual_report(state.get('status') or {}, state.get('status_age_s'), battery_floor, station,
+                        above_floor=above_floor)
 
 
-def check_manual_report(report, age, battery_floor, station):
+def check_manual_report(report, age, battery_floor, station, *, above_floor=False):
     if not finite(age) or not 0 <= age < RECIPE_STALE_S:
         raise ValueError('Manual travel requires fresh AGV status.')
     fault = report.get('fault_code')
@@ -54,6 +61,8 @@ def check_manual_report(report, age, battery_floor, station):
     battery = report.get('battery_percent')
     if not finite(battery) or not battery_floor <= battery <= 100:
         raise ValueError(f'AGV battery reading is {battery!r}. Verify at least {battery_floor:g}% before travel.')
+    if above_floor and battery == battery_floor:
+        raise ValueError('AGV battery must be above the floor on the operator-checked track.')
     if station is not None:
         maximum = station_limit(report.get('max_stations'))
         if report.get('mode') != 2 or not 1 <= station <= maximum:
@@ -69,6 +78,14 @@ def check_manual_attestation(attestation, station, *, now):
             or not finite(attestation['confirmed_at']) or not 0 <= now - attestation['confirmed_at'] < 30):
         raise ValueError('Give a fresh confirmation for this station call. '
                          '"I am at the e-stop, the arm is folded, and the path and tank equipment are clear."')
+
+
+def valid_operator_name(value):
+    return isinstance(value, str) and value == value.strip() and 1 <= len(value) <= 80 and value.isprintable()
+
+
+def valid_browser_enrollment(value):
+    return isinstance(value, str) and re.fullmatch(r'[0-9a-f]{32}', value) is not None
 
 
 def validate_measured_rows(result, checkpoint):
@@ -141,6 +158,7 @@ def heartbeat_interval(interval, expiry):
 class FakeAGV:
     station = 0
     stopped = True
+    speed = agv.SIMULATOR_SPEED
 
     def visit(self, station):
         self.stopped = False
@@ -230,6 +248,7 @@ class FakeDevices:
         self.reserve_s = self.reserve_capacity_s
         self.hold_available = True
         self.baseline = None
+        self.raw_trace = None
 
     @classmethod
     def configured(cls, root):
@@ -255,6 +274,8 @@ class FakeDevices:
                 station, stopped = data['station'], data['stopped']
                 cycle, equipment_on, run_id = (data[key] for key in ('cycle', 'equipment_on', 'run_id'))
                 reserve = data['reserve_s']
+                speed = data.get('speed', agv.SIMULATOR_SPEED)
+                agv.command_frame('set_speed', speed, b'')
                 if reserve is not None and (not finite(reserve) or reserve < 0):
                     raise ValueError('Invalid simulated reserve reading.')
                 if (not isinstance(location, str) or not location or gripper not in ('held', 'released')
@@ -270,6 +291,7 @@ class FakeDevices:
                 return
             self.snapshot = data
             self.agv.station, self.agv.stopped = station, stopped
+            self.agv.speed = speed
             self.robot.location, self.robot.gripper, self.robot.basket = location, gripper, basket
             self.plc.cycle, self.plc.equipment_on = cycle, equipment_on
             self.run_id, self.reserve_s = run_id, reserve
@@ -293,6 +315,8 @@ class FakeDevices:
             equipment_on=self.plc.equipment_on, run_id=self.run_id,
             state_observed=self.state_observed,
             reserve_s=self.reserve_s if self.reserve_fresh and finite(self.reserve_s) else None)
+        if self.agv.speed != agv.SIMULATOR_SPEED:
+            state['speed'] = self.agv.speed
         try:
             atomic_json(self.state_path, state, sync_directory=True)
         except OSError as exc:
@@ -474,6 +498,9 @@ class FakeDevices:
         self.last_confirmed_station = None
 
     def stop(self):
+        trace = self.raw_trace
+        if trace:
+            trace('TX', agv.command_frame('pause', None, b'').encode())
         self.disarm()
         self.agv.stopped = True
         self.plc.equipment_on = False
@@ -488,6 +515,60 @@ class FakeDevices:
     def read(self):
         return self.status()
 
+    @contextmanager
+    def raw_audit(self, trace):
+        self.raw_trace = trace
+        try:
+            yield
+        finally:
+            self.raw_trace = None
+
+    def raw_exchange(self, name, value, authorize, *, expected=None, frame_authority=None):
+        authorize()
+        if not self.connected:
+            raise ValueError('Raw commands need an idle, connected wired link.')
+        if name == 'set_speed' and (self.armed or not self.agv.stopped or not self.fresh
+                                    or expected != (1, self.agv.speed)):
+            raise ValueError('The stopped vehicle or speed changed before write.')
+        self.raw_trace('TX', agv.command_frame(name, value, b'').encode())
+        if name == 'set_speed':
+            self.agv.speed = value
+            self._persist()
+            reply = agv.Frame(0x25, bytes((1,)))
+        elif name == 'read_speed':
+            reply = agv.Frame(0x21, bytes((0x7d,)) + self.agv.speed.to_bytes(2, 'little'))
+        else:
+            report = self.status()['status']
+            data = bytearray(26)
+            for offset, (field, size) in agv.STATUS_FIELDS.items():
+                number = report.get(field) or 0
+                data[offset - 4:offset - 4 + size] = int(number).to_bytes(size, 'little')
+            reply = agv.Frame(0x25, data)
+        self.raw_trace('RX', reply.encode())
+        return dict(reply_hex=reply.encode().hex(), decoded=agv.decode(reply))
+
+    def raw_motion(self, station, authorize, monitor, *, frame_authority=None):
+        self.check('station_visit', {'station': station})
+        self.check_reserve(self.reserve_reading(self.reserve_budget('station_visit', {'station': station})))
+        def fence():
+            try:
+                authorize(dispatch=True)
+            except ValueError as exc:
+                raise Stopped from exc
+
+        self.before_effect = fence
+        try:
+            monitor(self.status()['status'], dispatch=True)
+            self.raw_trace('TX', agv.command_frame('call_station', station, b'').encode())
+            try:
+                self.perform('station', station)
+            except Stopped as exc:
+                raise ValueError('Raw travel was stopped before dispatch.') from exc
+            monitor(self.status()['status'])
+            return self.raw_exchange('query_status', None, authorize)
+        finally:
+            self.before_effect = None
+
     def status(self):
         fresh = self.state_known and not self.effect_pending and self.fresh
         reserve = self.reserve_reading(self.recovery_margin_s) if fresh else None
@@ -498,10 +579,17 @@ class FakeDevices:
                     last_confirmed_station=self.last_confirmed_station,
                     status_age_s=0 if fresh else None, status_monotonic=time.monotonic() if fresh else None,
                     status=dict(
+                    vehicle_id=1, set_speed_m_h=self.agv.speed, position_units=max(0, self.agv.station - 1) * 100,
                     current_station=self.agv.station if fresh else None,
                     stopped=self.agv.stopped if fresh else None, station_arrival=self.last_confirmed_station is not None,
-                    fault_code=0, battery_percent=percent,
+                    fault_code=0, battery_percent=percent, paused=False,
                     obstacle_stop=False, actual_speed_m_h=0, mode=2, max_stations=20))
+
+    def tower_feedback(self):
+        state = self.status()
+        fresh = state['connected'] and not state['stale']
+        return dict(fresh=fresh, report=state['status'], link_lost=False,
+                    moving=fresh and tower_light.feedback_moving(state['status']))
 
 
 class SnapshotDamage(ValueError):
@@ -525,8 +613,12 @@ class _ExecutorJobs(JobOwner):
         self.append(dict(job=job))
 
 
+def boot_elapsed():
+    return time.clock_gettime(time.CLOCK_BOOTTIME)
+
+
 class Executor:
-    def __init__(self, root, devices, *, clock=time.monotonic, build='development', gateway_enabled=False):
+    def __init__(self, root, devices, *, clock=boot_elapsed, build='development', gateway_enabled=False, tower=None):
         self.lease_s = float(os.environ.get('ANODIZING_LEASE_S', LEASE_S))
         self.heartbeat_s = heartbeat_interval(float(os.environ.get('ANODIZING_HEARTBEAT_S', HEARTBEAT_S)),
                                               self.lease_s)
@@ -537,12 +629,14 @@ class Executor:
                 or not finite(self.manual_travel_min_battery) or not 0 <= self.manual_travel_min_battery <= 100):
             raise ValueError('Set a finite manual travel expiry and a battery floor from 0 to 100.')
         self.isolated_track = expires is not None and os.environ.get('ANODIZING_MANUAL_TRAVEL_ISOLATED_TRACK') == '1'
+        self.module_travel_on_attested_track = os.environ.get('ANODIZING_MODULE_TRAVEL_ON_ATTESTED_TRACK') == '1'
         self.manual_travel_until = expires if self.isolated_track or devices.simulated or devices.manual_travel_qualified else None
         self.manual_travel_missing_evidence = expires is not None and self.manual_travel_until is None
         if self.manual_travel_until is not None and not devices.simulated:
             devices.configure_manual_travel(self.manual_travel_until, self.manual_travel_min_battery, self.isolated_track)
         self.owner = _ExecutorJobs(root, self._append)
         self.devices, self.clock, self.build = devices, clock, build
+        self.tower = tower
         self.boot = uuid4().hex
         self.guard = RLock()
         self.admission = RLock()
@@ -554,12 +648,20 @@ class Executor:
         self.control_generation = self.stop_generation = 0
         self.generations = count(1)
         self.stop_lock = RLock()
+        self.stop_ingress_lock = RLock()
         self.stop_tickets = {}
+        self.module_attestation = None
+        self.module_arm_nonce = uuid4().hex
+        self.module_attestation_expired = False
         self.armed = self.arming = self.disarm_pending = False
         self.stop_result = None
+        self.stop_source = None
         self.stop_at = None
         self.stop_attempt_at = None
-        self.stop_workers = set()
+        self.stop_request = None
+        self.stop_inflight = None
+        self.stop_wakeup = Event()
+        self.stop_closing = False
         self.active = None
         self.loss = Event()
         self.closing = Event()
@@ -609,12 +711,20 @@ class Executor:
                     ((latest.get('result') or {}).get('hold') or {}).get('location') != 'output')):
             self._hold('The executor restarted during a basket or station visit.', job=latest)
         elif self.check:
-            self._hold(self.check['reason'], facts=self.check)
+            self._hold(self.check['reason'], facts=self.check, link_loss=self.check.get('link_loss') is True)
         elif isinstance(devices, FakeDevices) and devices.effect_pending:
             self._hold('The executor restarted with an unverified device effect.', job=latest)
+        if self.gateway.raw_access.outstanding():
+            self.gateway.raw_access.end_session()
         self._refresh_manual_check()
+        self.stop_worker = Thread(target=self._work_stop, daemon=True, name='executor-stop')
+        self.stop_worker.start()
         self.watch = Thread(target=self._watch, daemon=True, name='executor-lease')
+        self.maintenance = Thread(target=self._maintain, daemon=True, name='executor-maintenance')
         self.watch.start()
+        self.maintenance.start()
+        if tower is not None:
+            tower.start(self._tower_inputs)
 
     @staticmethod
     def _validate_saved_job(job):
@@ -691,6 +801,16 @@ class Executor:
                     if ident not in self.owner.jobs and job['state'] != 'refused':
                         self.accepted.append(ident)
                     self.owner.jobs[ident] = job
+                elif 'module_attestation' in entry:
+                    record = entry['module_attestation']
+                    if (not isinstance(record['owner'], str) or not NAME.fullmatch(record['owner'])
+                            or not all(isinstance(record[key], str) and ID.fullmatch(record[key])
+                                       for key in ('lease_id', 'boot'))
+                            or not valid_operator_name(record['operator'])
+                            or not valid_browser_enrollment(record['browser_enrollment'])
+                            or not all(finite(record[key]) for key in ('confirmed_at', 'expires_at'))
+                            or record['expires_at'] != record['confirmed_at'] + MODULE_ATTESTATION_S):
+                        raise ValueError('Invalid executor module Arm record.')
                 elif 'check' in entry:
                     self.check = entry['check']
                 elif 'choice' in entry:
@@ -698,8 +818,9 @@ class Executor:
                     if entry['choice']['choice'] == 'abort':
                         self.aborted_runs.add(entry['choice']['run_id'])
                     self.check = None
-                else:
+                elif 'raw_snapshot' not in entry and 'raw_activity' not in entry:
                     raise ValueError('Invalid executor journal event.')
+                self.gateway.raw_access.load(entry)
                 self.journal_hashes.append(previous)
                 self.journal_stamps.append(self._stamp(path))
             if len(paths) < tip['count']:
@@ -776,6 +897,57 @@ class Executor:
     @armed.setter
     def armed(self, armed):
         self.gateway.ownership.armed = armed
+        if not armed:
+            self.module_attestation = None
+            self.module_attestation_expired = False
+
+    def _module_lease_id(self):
+        lease = self.gateway.ownership.lease
+        return lease.id if lease else self.session
+
+    def _module_lease_review(self):
+        return sha256(f'{self.boot}:{self._module_lease_id()}:{self.module_arm_nonce}'.encode()).hexdigest()
+
+    def _review_module_arm(self, envelope):
+        owner = self.gateway.ownership.owner
+        confirmation = envelope.get('module_attestation')
+        if not self.gateway_enabled or owner in (None, 'agv-page'):
+            if confirmation is not None:
+                raise ValueError('The module owner changed. Review the AGV page before arming.')
+            return None
+        if (not isinstance(confirmation, dict)
+                or set(confirmation) != {'owner', 'lease_id', 'operator', 'browser_enrollment', 'confirmed'}
+                or confirmation['confirmed'] is not True
+                or not valid_operator_name(confirmation['operator'])
+                or not valid_browser_enrollment(confirmation['browser_enrollment'])):
+            raise ValueError('Enter the operator name and confirm at the e-stop before arming this module.')
+        if confirmation['owner'] != owner or confirmation['lease_id'] != self._module_lease_review():
+            raise ValueError('The module owner or lease changed. Review the AGV page before arming.')
+        now = time.time()
+        return dict(owner=owner, lease_id=self._module_lease_id(), boot=self.boot,
+                    operator=confirmation['operator'], browser_enrollment=confirmation['browser_enrollment'],
+                    confirmed_at=now, expires_at=now + MODULE_ATTESTATION_S)
+
+    def _check_module_attestation(self):
+        if self.module_attestation_expired:
+            raise ValueError(MODULE_ATTESTATION_EXPIRED)
+        attestation = self.module_attestation
+        if attestation is None:
+            raise ValueError('Confirm and Arm for this module at the e-stop before requesting a move.')
+        record, deadline = attestation
+        if self.clock() >= deadline:
+            raise ValueError(MODULE_ATTESTATION_EXPIRED)
+        if (record['owner'] != self.gateway.ownership.owner or record['lease_id'] != self._module_lease_id()
+                or record['boot'] != self.boot):
+            raise ValueError('The module owner or lease changed. Confirm and Arm again.')
+        return deadline
+
+    def _check_module_track(self):
+        if self.isolated_track:
+            if not self.module_travel_on_attested_track:
+                raise ValueError('Module and raw motion are disabled on the isolated track.')
+            if self.manual_travel_until is None or time.time() >= self.manual_travel_until:
+                raise ValueError('The manual travel window expired.')
 
     def health(self):
         return dict(protocol=PROTOCOL, build=self.build, boot=self.boot, job_types=self.devices.job_types,
@@ -791,18 +963,50 @@ class Executor:
     def recovery(self):
         return bool(self.check or self.damaged or self.owner.storage_error or self.write_fault)
 
+    def _tower_inputs(self):
+        feedback = self.devices.tower_feedback()
+        report = feedback['report']
+        check = self.check or {}
+        now = self.clock()
+        lease = self.gateway.ownership.lease
+        deadline = lease.deadline if lease is not None else self.deadline
+        attestation = self.module_attestation
+        fault = (self.quality_alarm is not None or feedback['fresh'] and
+                 (report.get('fault_code') not in (None, 0) or report.get('obstacle_stop') is True))
+        checking = self.recovery
+        stopped_feedback = (
+            feedback['fresh'] and report.get('stopped') is True and report.get('fault_code') == 0
+            and report.get('obstacle_stop') is False and report.get('actual_speed_m_h') == 0
+        )
+        return dict(
+            ready=stopped_feedback and not feedback['moving'] and self.active is None and self.owner.active is None,
+            armed=self.armed and feedback['fresh'] and deadline is not None and now < deadline
+            and (attestation is None or now < attestation[1]),
+            moving=feedback['moving'],
+            stopped=self.stop_result is not None, fault=fault, checking=checking,
+            loss=checking and (feedback['link_lost'] or check.get('link_loss') is True),
+        )
+
     def _watch(self):
         while not self.closing.wait(.1):
             with self.guard:
                 self._expire()
+
+    def _maintain(self):
+        while not self.closing.wait(.1):
+            with self.guard:
                 self._check_device_journal()
             try:
                 self._update_open_air()
                 if self.pending_check_write:
                     with self.admission, self.owner.lock:
-                        if self.pending_check_write and self.check:
-                            self._append(dict(check=self.check))
-                            self.pending_check_write = False
+                        with self.guard:
+                            check = self.check if self.pending_check_write else None
+                        if check:
+                            self._append(dict(check=check))
+                            with self.guard:
+                                if self.check is check:
+                                    self.pending_check_write = False
             except (OSError, ValueError):
                 pass
             if self.disarm_pending and self.admission.acquire(blocking=False):
@@ -877,6 +1081,14 @@ class Executor:
 
     def _expire(self):
         now = self.clock()
+        with self.stop_ingress_lock:
+            attestation = self.module_attestation
+            if attestation is not None and now >= attestation[1]:
+                self.module_attestation_expired = True
+                self.gateway.ownership.armed = False
+                if not (self.active or self.owner.active):
+                    self.module_attestation = None
+                    self.disarm_pending = True
         controller_expired = self.deadline is not None and now >= self.deadline
         if controller_expired:
             self.deadline = None
@@ -890,7 +1102,8 @@ class Executor:
             if armed or self.active or self.open_air or basket_active:
                 self.stop()
                 idle = not (basket_active or self.active or self.open_air)
-                self._hold('The controller lease expired.', facts=dict(idle=True, manual=True) if idle else None)
+                self._hold('The controller lease expired.', facts=dict(idle=True, manual=True) if idle else None,
+                           link_loss=True)
             else:
                 self.control_generation = next(self.generations)
 
@@ -1019,7 +1232,7 @@ class Executor:
             except (OSError, TypeError, ValueError):
                 self._fence_evidence(str(path.relative_to(self.journal.parent)))
 
-    def _hold(self, reason, *, job=None, facts=None, technician=False):
+    def _hold(self, reason, *, job=None, facts=None, technician=False, link_loss=False):
         facts = facts or {}
         ident = self.active.job_id if self.active else (self.accepted[-1] if self.accepted else None)
         if facts.get('idle') is True:
@@ -1049,6 +1262,8 @@ class Executor:
                      technician=technician or facts.get('technician') is True)
         if manual:
             value['manual'] = True
+        if link_loss:
+            value['link_loss'] = True
         self.armed = False
         self.disarm_pending = True
         self.loss.set()
@@ -1057,20 +1272,28 @@ class Executor:
         if not self.check or value['technician'] and self.check != value:
             self.control_generation = next(self.generations)
             self.check = value
+        elif link_loss and not self.check.get('link_loss'):
+            self.check = dict(self.check, link_loss=True)
         return self.check
 
     def _refresh_manual_check(self):
-        if not self.check or not self.check.get('manual') or self.active or self.owner.active:
-            return
+        with self.guard:
+            check = self.check
+            if not check or not check.get('manual') or self.active or self.owner.active:
+                return None, None
         try:
             evidence = self.devices.operator_station_hold()
         except (OSError, ValueError):
-            return
+            return check, None
         station = evidence['station']
         location = f"station {station}" if station is not None else evidence['location']
-        if self.check['location'] != location:
-            self.check = dict(self.check, location=location,
-                              earlier_location=self.check.get('earlier_location', self.check['location']))
+        with self.guard:
+            if self.check is not check or self.active or self.owner.active:
+                return None, None
+            if check['location'] != location:
+                self.check = dict(check, location=location,
+                                  earlier_location=check.get('earlier_location', check['location']))
+            return self.check, evidence
 
     def _check_simulated_snapshot(self):
         if (isinstance(self.devices, FakeDevices) and self.devices.state_known
@@ -1104,6 +1327,7 @@ class Executor:
                 self._scan_accepted()
                 self._check_simulated_snapshot()
                 self._require_intact_evidence()
+                sampled_check, station_evidence = self._refresh_manual_check()
                 with self.guard:
                     self._lease(envelope)
                     if (type(envelope.get('stop_generation')) is not int or
@@ -1129,13 +1353,10 @@ class Executor:
                     step = envelope.get('step')
                     if choice == 'resume' and (type(step) is not int or step < 1):
                         raise ValueError('Choose the step to resume.')
-                    self._refresh_manual_check()
                     if self.check.get('manual'):
-                        try:
-                            evidence = self.devices.operator_station_hold()
-                        except (OSError, ValueError) as exc:
-                            raise ValueError('The stopped station is not freshly verified.') from exc
-                        station = evidence['station']
+                        if self.check is not sampled_check or station_evidence is None:
+                            raise ValueError('The stopped station is not freshly verified.')
+                        station = station_evidence['station']
                         if station is None and choice != 'abort':
                             raise ValueError('Resume requires arrival at a station.')
                         observed = envelope['location']
@@ -1161,24 +1382,34 @@ class Executor:
                         elif (not self.devices.effect_pending and ((observed.basket is not None and
                                 envelope.get('basket') != observed.basket) or envelope['location'] != observed.location)):
                             raise ValueError('The confirmed basket or location conflicts with the observed hold.')
-                    if isinstance(self.devices, FakeDevices) and (self.devices.effect_pending or handoff):
-                        if envelope['location'] not in ('input', 'park', 'output'):
-                            raise ValueError('Confirm a safe, released hold before continuing.')
-                        self.devices.robot.location = envelope['location']
-                        self.devices.robot.gripper = 'released'
-                        self.devices.robot.basket = envelope.get('basket')
-                        self.devices.run_id = envelope.get('run_id')
-                        try:
-                            self.devices._persist()
-                        except SnapshotWriteError as exc:
-                            self._record_write_fault(*exc.args)
-                            raise
-                        self.devices.effect_pending = False
-                    self._append(dict(choice={key: envelope.get(key) for key in
-                                      ('choice', 'operator', 'basket', 'location', 'step', 'run_id')},
-                                      check_at_choice=self.check))
-                    if envelope['stop_generation'] != self.generation or self._stop_pending():
-                        raise ValueError('Stop cancelled the reviewed operator check.')
+                    check_at_choice = self.check
+                    persist_handoff = isinstance(self.devices, FakeDevices) and (self.devices.effect_pending or handoff)
+                if persist_handoff:
+                    if envelope['location'] not in ('input', 'park', 'output'):
+                        raise ValueError('Confirm a safe, released hold before continuing.')
+                    self.devices.robot.location = envelope['location']
+                    self.devices.robot.gripper = 'released'
+                    self.devices.robot.basket = envelope.get('basket')
+                    self.devices.run_id = envelope.get('run_id')
+                    try:
+                        self.devices._persist()
+                    except SnapshotWriteError as exc:
+                        self._record_write_fault(*exc.args)
+                        raise
+                    self.devices.effect_pending = False
+                decision = dict(choice={key: envelope.get(key) for key in
+                                       ('choice', 'operator', 'basket', 'location', 'step', 'run_id')},
+                                check_at_choice=check_at_choice)
+                outstanding = self.gateway.raw_access.outstanding()
+                if outstanding:
+                    decision['raw_reviewed'] = outstanding
+                self._append(decision)
+                with self.guard, self.stop_lock, self.stop_ingress_lock:
+                    if (envelope['stop_generation'] != self.generation or self._stop_pending()
+                            or self.check is not check_at_choice):
+                        self.pending_check_write = self.check is not None
+                        raise ValueError('Stop or lease expiry cancelled the reviewed operator check.')
+                    self.gateway.raw_access.load(decision)
                     if choice == 'abort' and envelope.get('run_id') is not None:
                         self.aborted_runs.add(envelope['run_id'])
                     self.choice_job_id = self.check['job_id']
@@ -1195,7 +1426,7 @@ class Executor:
             self._apply_disarm()
         return self.status()
 
-    def status(self, job_id=None, *, recent=False):
+    def status(self, job_id=None, *, recent=False, display=False):
         ident = job_id or self.owner.active
         with self.owner.lock:
             self._scan_accepted()
@@ -1207,17 +1438,32 @@ class Executor:
             manual_id = (latest_id if latest.get('type') == 'station_visit' and latest.get('client_name', 'agv-page') == 'agv-page' and
                          not (latest.get('params') or {}).get('run_id') else None)
             recent_jobs = self.gateway.records(summaries=True) if recent else None
+            if display:
+                finished = next((key for key in reversed(self.owner.jobs)
+                                 if self.owner.jobs[key]['state'] in
+                                 ('done', 'failed', 'stopped', 'interrupted', 'refused')), None)
+                last_job = self._public_job(finished)
+            self._refresh_manual_check()
         now = self.clock()
-        with self.guard, self.stop_lock:
+        with self.guard, self.stop_lock, self.stop_ingress_lock:
             faults = self._evidence_faults()
             if faults or self.owner.storage_error and not self.write_fault:
                 self._hold(" ".join(faults.values()) or self.owner.storage_error, technician=True)
-            self._refresh_manual_check()
             # The lease watcher and control operations own expiry.
             valid = self.deadline is not None and now < self.deadline
             ownership = self.gateway.ownership
             owner_valid = (now < ownership.lease.deadline) if ownership.lease is not None else valid
             armed = self.armed and owner_valid and not self._stop_pending()
+            module_attestation = None
+            expired = self.module_attestation_expired
+            attestation = self.module_attestation
+            if armed and attestation is not None:
+                record, deadline = attestation
+                expired = now >= deadline
+                if not expired:
+                    module_attestation = dict(owner=record['owner'], expires_at=record['expires_at'],
+                                              remaining_s=deadline - now)
+                armed = not expired
             result = dict(boot=self.boot, lease_valid=valid, armed=armed,
                           session=self.session, stop_generation=self.generation,
                           stop=deepcopy(self.stop_result), recovery_required=self.recovery,
@@ -1225,10 +1471,31 @@ class Executor:
                           quality_alarm=deepcopy(self.quality_alarm),
                           active_job_id=self.owner.active, latest_job_id=latest_id, latest_manual_job_id=manual_id)
             if self.gateway_enabled:
-                result.update(owner=ownership.owner, armed_for=ownership.armed_for if armed else None)
+                result.update(owner=ownership.owner, armed_for=ownership.armed_for if armed else None,
+                              module_lease_id=(self._module_lease_review()
+                                               if owner_valid and ownership.owner not in (None, 'agv-page') else None),
+                              module_attestation=module_attestation,
+                              module_attestation_expired=expired and owner_valid)
+            if display:
+                lease = ownership.lease
+                deadline = lease.deadline if lease is not None else self.deadline
+                last_heartbeat = (deadline - (MODULE_LEASE_S if lease is not None else self.lease_s)
+                                  if deadline is not None and (lease is None or lease.sequence >= 0) else None)
+                result.update(owner=ownership.owner, lease_alive=ownership.owner is not None and owner_valid,
+                              heartbeat_age_s=None if last_heartbeat is None else max(0, now - last_heartbeat),
+                              arm_confirmation_remaining_s=module_attestation['remaining_s'] if module_attestation else None,
+                              last_job=last_job, stop_latched=self.stop_result is not None)
             if recent:
                 result['recent_jobs'] = recent_jobs
-        return dict(result, job=job, device=self.devices.status())
+                raw = self.gateway.raw_access
+                result['recent_raw'] = [{key: row[key] for key in
+                                         ('id', 'utc', 'command', 'client_name', 'token_id', 'outcome')}
+                                        for row in reversed(tuple(raw.recent))]
+                result['raw_settings'] = [dict(row) for row in list(raw.snapshots.values())[-10:][::-1]]
+        light = self.tower.status() if self.tower is not None else dict(available=False, pattern='disabled')
+        if display:
+            result.update(build=self.build, display_pattern=tower_light.indication(**self._tower_inputs()))
+        return dict(result, job=job, device=self.devices.status(), tower_light=light)
 
     def control(self, action, envelope):
         with self.admission:
@@ -1254,7 +1521,7 @@ class Executor:
                     self._lease(envelope)
                     if self.gateway_enabled and self.gateway.ownership.owner is None:
                         raise ValueError('Claim an owner before arming.')
-                    with self.stop_lock:
+                    with self.stop_lock, self.stop_ingress_lock:
                         if self.disarm_pending:
                             raise ValueError('Wait for the device disarm to complete.')
                         if type(envelope.get('stop_generation')) is not int or envelope['stop_generation'] != self.generation:
@@ -1263,6 +1530,8 @@ class Executor:
                             raise ValueError('Complete the operator check before arming.')
                         if self._stop_pending() or (self.stop_result and not self.stop_result['confirmed']):
                             raise ValueError('Stop remains unconfirmed.')
+                        record = self._review_module_arm(envelope)
+                        deadline = self.clock() + MODULE_ATTESTATION_S
                         self.arming = True
                         self.armed = False
                 granted = False
@@ -1270,13 +1539,23 @@ class Executor:
                     if self.manual_travel_until is not None or not self.devices.simulated:
                         check_manual_feedback(self.devices.status(), self.manual_travel_min_battery)
                     self.devices.arm()
+                    if record:
+                        with self.owner.lock:
+                            self._append(dict(module_attestation=record))
                     with self.guard:
                         self._lease(envelope)
                         if self.gateway_enabled and self.gateway.ownership.owner is None:
                             raise ValueError('Claim an owner before arming.')
-                        with self.stop_lock:
+                        with self.stop_lock, self.stop_ingress_lock:
                             if self._stop_pending() or envelope['stop_generation'] != self.generation:
                                 raise ValueError('Stop or lease expiry cancelled the reviewed Arm generation.')
+                            if record:
+                                if self.clock() >= deadline:
+                                    raise ValueError(MODULE_ATTESTATION_EXPIRED)
+                                if self.recovery or self.disarm_pending:
+                                    raise ValueError('Complete the operator check before arming.')
+                                self.module_attestation = record, deadline
+                                self.module_arm_nonce = uuid4().hex
                             self.armed = granted = True
                             self.stop_result = None
                 finally:
@@ -1300,11 +1579,15 @@ class Executor:
                 raise ValueError('Unknown control operation.')
         return self.status()
 
+    @property
+    def stop_workers(self):
+        return self.stop_request is not None or self.stop_inflight is not None
+
     def _stop_pending(self):
-        return any(not registered.is_set() for registered, _ in tuple(self.stop_tickets.values()))
+        return self.stop_workers
 
     def _confirm_stop(self):
-        with self.guard, self.stop_lock:
+        with self.guard, self.stop_lock, self.stop_ingress_lock:
             report, requested, attempted = self.stop_result, self.stop_at, self.stop_attempt_at
             if (not report or report['confirmed'] or self.stop_workers or self._stop_pending()
                     or not report['halt_attempted']
@@ -1314,7 +1597,7 @@ class Executor:
             cutoff = self.devices.stop_evidence(requested, attempted)
         except (OSError, ValueError):
             return
-        with self.guard, self.stop_lock:
+        with self.guard, self.stop_lock, self.stop_ingress_lock:
             if (cutoff is not None and self.stop_result is report and not self.stop_workers and not self._stop_pending()
                     and not self.arming and self.active is None and self.owner.active is None):
                 # Current feedback after the last halt covers each earlier receipt from this boot.
@@ -1323,58 +1606,82 @@ class Executor:
                     if pending_report['generation'] <= report['generation']:
                         pending_report['confirmed'] = True
 
-    def _attempt_stop(self, registered, report):
-        attempted = False
-        try:
-            attempted = self.devices.stop()
-        except (OSError, ValueError):
-            pass
-        finally:
-            attempted_at = time.monotonic() if attempted else None
-            registered.wait()
-            with self.stop_lock:
+    def _work_stop(self):
+        while True:
+            self.stop_wakeup.wait()
+            with self.stop_ingress_lock:
+                self.stop_wakeup.clear()
+                report = self.stop_request
+                if report is None:
+                    if self.stop_closing:
+                        return
+                    continue
+                self.stop_inflight = report
+                self.stop_request = None
+            try:
+                attempted = self.devices.stop()
+            except Exception:
+                attempted = False
+            with self.stop_ingress_lock:
                 report['halt_attempted'] = attempted
                 if report is self.stop_result:
-                    self.stop_attempt_at = attempted_at
-                self.stop_workers.remove(report['generation'])
-            self._confirm_stop()
+                    self.stop_attempt_at = time.monotonic() if attempted else None
+                self.stop_inflight = None
+                if self.stop_request is not None or self.stop_closing:
+                    self.stop_wakeup.set()
 
     def stop(self, envelope=None, *, source=None):
         ident = (envelope or {}).get('stop_id', uuid4().hex)
         if not isinstance(ident, str) or not ID.fullmatch(ident):
             raise ValueError('Choose a valid Stop ID.')
-        generation = next(self.generations)
-        requested = time.monotonic()
-        report = dict(stop_report(False, False), stop_id=ident, boot=self.boot, generation=generation)
-        registered = Event()
-        ticket = registered, report
         ticket_id = ident if source is None else (source, ident)
-        original = self.stop_tickets.setdefault(ticket_id, ticket)
-        if original is not ticket:
-            registered, report = original
-            registered.wait()
-            with self.stop_lock:
-                if (report is self.stop_result and not report['confirmed'] and not report['halt_attempted']
-                        and report['generation'] not in self.stop_workers):
-                    self.stop_workers.add(report['generation'])
-                    Thread(target=self._attempt_stop, args=original, daemon=True, name='executor-stop').start()
-            return deepcopy(report)
-        # The ingress ticket fences authority and sends the halt before taking any shared operation lock.
-        self.armed = False
-        active = self.active
-        if active is not None:
-            active.requested.set()
-        self.stop_workers.add(generation)
-        Thread(target=self._attempt_stop, args=ticket, daemon=True, name='executor-stop').start()
-        with self.stop_lock:
-            if generation > self.stop_generation:
+        with self.stop_ingress_lock:
+            original = self.stop_tickets.get(ticket_id)
+            if original is not None:
+                _, report = original
+                latest = self.stop_result
+                if (latest and not latest['confirmed'] and not latest['halt_attempted']
+                        and (report is latest or source is None and not report['confirmed'])
+                        and not self.stop_workers):
+                    self.stop_request = latest
+                    self.stop_wakeup.set()
+                return deepcopy(report)
+            current = self.stop_result
+            if source is not None and self.stop_source is None and current and not current['confirmed']:
+                # The pending page halt also covers later module Stop requests while authority remains fenced.
+                report = dict(stop_report(False, False), stop_id=ident, boot=self.boot,
+                              generation=current['generation'])
+                if not current['halt_attempted'] and not self.stop_workers:
+                    self.stop_request = current
+                    self.stop_wakeup.set()
+            else:
+                generation = next(self.generations)
+                report = dict(stop_report(False, False), stop_id=ident, boot=self.boot, generation=generation)
+                # Fence positive dispatch independently of admission and journal I/O.
                 self.armed = False
+                active = self.active
+                if active is not None:
+                    active.requested.set()
                 self.stop_generation = generation
-                self.stop_at = requested
+                self.stop_at = time.monotonic()
                 self.stop_attempt_at = None
                 self.stop_result = report
+                self.stop_source = source
+                self.stop_request = report
+                self.stop_wakeup.set()
+            registered = Event()
             registered.set()
-        return deepcopy(report)
+            self.stop_tickets[ticket_id] = registered, report
+            lane = [key for key in self.stop_tickets if isinstance(key, tuple) == (source is not None)]
+            if len(lane) > STOP_RECEIPTS_PER_LANE:
+                del self.stop_tickets[lane[0]]
+            return deepcopy(report)
+
+    def _submission_receipt(self, ident, principal):
+        if principal is not None and 'read' not in principal.scopes:
+            return dict(job_id=ident, state=self.owner.jobs[ident]['state'], outcome=None,
+                        checkpoint=None, result={}, error=None)
+        return self._public_job(ident)
 
     def submit(self, envelope, *, client_name=None, principal=None, client_token_id='katana') -> Job:
         ident = envelope.get('job_id')
@@ -1392,6 +1699,7 @@ class Executor:
             if principal is None:
                 self._identity(envelope)
             if self.gateway_enabled:
+                self.gateway.revalidate(principal)
                 with self.guard:
                     self.gateway.check_owner(envelope, client_name, principal)
             self._scan_accepted()
@@ -1399,6 +1707,7 @@ class Executor:
                 self._check_simulated_snapshot()
             self._require_intact_evidence()
             if ident in self.owner.jobs:
+                self.gateway.revalidate(principal)
                 old = self.owner.jobs[ident]
                 previous = old.get('executor_payload', payload)
                 candidate = payload
@@ -1406,29 +1715,39 @@ class Executor:
                     fields = {'token_id'} if 'client_name' in previous else {'client_name', 'token_id'}
                     candidate = {key: value for key, value in payload.items() if key not in fields}
                     previous = {key: value for key, value in previous.items() if key not in fields}
-                if previous != candidate:
+                request_digest = old.get('request_digest')
+                matches = (request_digest == self._digest(payload) if request_digest is not None
+                           else previous == candidate)
+                if not matches:
                     raise ValueError('Request ID was already used for a different request.')
-                return self._public_job(ident)
+                if old['state'] == 'refused':
+                    raise AdmissionRefused(ident, old['error'])
+                return self._submission_receipt(ident, principal)
+            self.gateway.raw_access.before_normal_job()
             self._update_open_air()
             handle = JobStop('executor', ident)
             try:
                 if not isinstance(job_type, str) or type(version) is not int or version != self.devices.job_types.get(job_type):
                     raise ValueError('Incompatible job type or version.')
+                if auto_job and job_type == 'station_visit':
+                    try:
+                        self._check_module_track()
+                    except ValueError as exc:
+                        raise AdmissionRefused(ident, str(exc)) from exc
                 if self.manual_travel_until is not None:
                     if job_type != 'station_visit' or not isinstance(params, dict) or set(params) != {'station'}:
                         raise AdmissionRefused(ident, 'Recipe and programme travel and live dips are disabled.')
                     now = time.time()
                     if now >= self.manual_travel_until:
                         raise AdmissionRefused(ident, 'The manual travel window expired.')
-                    if auto_job and self.isolated_track and not self.devices.simulated:
-                        raise AdmissionRefused(ident, 'Live manual travel requires the operator’s per-call confirmation. Ask the operator to use the AGV page.')
                     try:
                         if not auto_job:
                             check_manual_attestation(attestation, params['station'], now=now)
                             if attestation['id'] != ident:
                                 raise ValueError('The confirmation must match the station call ID.')
                         self._validate(job_type, params)
-                        check_manual_feedback(self.devices.status(), self.manual_travel_min_battery, params['station'])
+                        check_manual_feedback(self.devices.status(), self.manual_travel_min_battery, params['station'],
+                                              above_floor=auto_job and self.isolated_track)
                     except ValueError as exc:
                         raise AdmissionRefused(ident, str(exc)) from exc
                 elif not self.devices.simulated:
@@ -1441,6 +1760,7 @@ class Executor:
                                                   params['station'] if job_type == 'station_visit' else None)
                         except ValueError as exc:
                             raise AdmissionRefused(ident, str(exc)) from exc
+                self.gateway.revalidate(principal)
                 with self.guard:
                     self.gateway.check_owner(envelope, client_name, principal)
                     generation = envelope.get('stop_generation')
@@ -1448,6 +1768,13 @@ class Executor:
                         raise ValueError('Complete the operator check before submitting.')
                     if self.open_air is not None and not self._matches_air(self.open_air, params):
                         raise ValueError('The requested job does not match the retained basket.')
+                    module_deadline = module_lease = None
+                    if auto_job and (self.gateway_enabled or self.isolated_track or not self.devices.simulated):
+                        try:
+                            module_deadline = self._check_module_attestation()
+                            module_lease = self._module_lease_id()
+                        except ValueError as exc:
+                            raise AdmissionRefused(ident, str(exc)) from exc
                     self.gateway.check_armed(generation)
                     if self.active is not None or self.owner.active is not None:
                         raise AdmissionRefused(ident, 'Executor busy.')
@@ -1460,7 +1787,8 @@ class Executor:
                     self.devices.check_reserve(reserve)
                 self.owner.submit(ident, 'executor', payload,
                                   lambda _: self._run(handle, loss, payload, reserve, generation,
-                                                      module_job=auto_job))
+                                                      module_job=auto_job, module_deadline=module_deadline,
+                                                      module_lease=module_lease))
                 self.accepted.append(ident)
             except (ValueError, TypeError, KeyError) as exc:
                 if self.active is handle:
@@ -1470,7 +1798,9 @@ class Executor:
                     raise
                 with self.owner.lock:
                     record = dict(id=ident, module='executor', state='refused', error=str(exc),
-                                  executor_payload=payload)
+                                  request_digest=self._digest(payload),
+                                  executor_payload={key: payload[key] for key in ('client_name', 'token_id')
+                                                    if key in payload})
                     self.owner._save(record)
                     self.owner.jobs[ident] = record
                 raise AdmissionRefused(ident, str(exc)) from exc
@@ -1478,7 +1808,7 @@ class Executor:
                 if self.active is handle:
                     self.active = None
                 raise
-        return self._public_job(ident)
+        return self._submission_receipt(ident, principal)
 
     @staticmethod
     def _validate(job_type, params):
@@ -1568,7 +1898,8 @@ class Executor:
                    incoming_air_s=incoming_air_s, plc=done, inspection=inspection or excursion)
         return row, excursion
 
-    def _run(self, handle, loss, payload, reserve, generation, *, module_job=False):
+    def _run(self, handle, loss, payload, reserve, generation, *, module_job=False, module_deadline=None,
+             module_lease=None):
         records, excursion = [], False
         checkpoint = dict(sequence=0, boot=self.boot, intent=None, confirmed=[], steps=records)
         job_type, params = payload['type'], payload['params']
@@ -1595,10 +1926,25 @@ class Executor:
             if self.manual_travel_until is not None:
                 if time.time() >= self.manual_travel_until:
                     raise ValueError('The manual travel window expired before dispatch.')
-                check_manual_feedback(self.devices.status(), self.manual_travel_min_battery, params['station'])
+                check_manual_feedback(self.devices.status(), self.manual_travel_min_battery, params['station'],
+                                      above_floor=module_job and self.isolated_track)
             elif module_job:
                 check_manual_feedback(self.devices.status(), self.manual_travel_min_battery,
                                       params['station'] if job_type == 'station_visit' else None)
+
+        def check_dispatch():
+            self._check_module_track()
+            now = self.clock()
+            if now >= module_deadline:
+                raise ValueError(MODULE_ATTESTATION_EXPIRED)
+            ownership = self.gateway.ownership
+            lease = ownership.lease
+            deadline = lease.deadline if lease is not None else self.deadline
+            if (ownership.owner != payload['client_name'] or self._module_lease_id() != module_lease
+                    or deadline is None or now >= deadline):
+                raise ValueError('The module owner or lease changed before dispatch.')
+            self._check_module_attestation()
+            self.gateway.check_armed(generation)
 
         def effect(name, value, confirm=None):
             nonlocal remaining
@@ -1612,9 +1958,17 @@ class Executor:
             checkpoint['sequence'] += 1
             self._checkpoint(handle.job_id, checkpoint, uncertain=True)
             before_effect()
+            if module_deadline is not None:
+                check_dispatch()
             if isinstance(self.devices, FakeDevices):
-                self.devices.before_effect = before_effect
-            if self.isolated_track and not self.devices.simulated:
+                def check_fake_dispatch():
+                    before_effect()
+                    if module_deadline is not None:
+                        check_dispatch()
+                self.devices.before_effect = check_fake_dispatch
+            if module_deadline is not None and not self.devices.simulated:
+                result = self.devices.perform(name, value, check_module_dispatch=check_dispatch)
+            elif self.isolated_track and not self.devices.simulated:
                 result = self.devices.perform(name, value, attestation=payload['attestation'])
             else:
                 result = self.devices.perform(name, value)
@@ -1762,10 +2116,17 @@ class Executor:
     def close(self):
         self.closing.set()
         self.watch.join()
+        self.maintenance.join()
         with self.guard:
             if self.active:
                 self.active.requested.set()
         self.owner.shutdown()
-        while self.stop_workers:
-            time.sleep(.01)
-        self.devices.close(final=True)
+        with self.stop_ingress_lock:
+            self.stop_closing = True
+            self.stop_wakeup.set()
+        self.stop_worker.join()
+        try:
+            self.devices.close(final=True)
+        finally:
+            if self.tower is not None:
+                self.tower.close()

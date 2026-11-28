@@ -22,7 +22,7 @@ def test_menu_order_and_travel_pose_location():
 @unittest.skipUnless(shutil.which('node'), 'Node is unavailable')
 class WebProfileTests(unittest.TestCase):
     def run_js(self, script, filename, *args):
-        result = subprocess.run(['node', '-e', script, str(WEB / filename), *args],
+        result = subprocess.run(['node', '-e', script, str(WEB / filename), str(WEB / 'operator-auth.js'), *args],
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -50,7 +50,7 @@ assert.doesNotThrow(() => context.values('camera'));
     def check_teacher_profile(self, mode):
         self.run_js(r"""
 const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
-const mode = process.argv[2];
+const mode = process.argv[3];
 const ids = ['test-profile-note', 'project', 'camera_provider', 'calibration', 'validation-collision-scene',
  'validation-workspace-min', 'validation-workspace-max', 'descent-joint-min', 'descent-joint-max', 'descent-joint-source'];
 const fields = Object.fromEntries(ids.map(id => [id, {id, value: '', defaultValue: '', dataset: {}}]));
@@ -72,7 +72,9 @@ const context = {window: {}, Event: class {}, document: {addEventListener: (type
        workspace_max_m: [.9, .9, 1.2], joint_bounds_rad: Array(6).fill([-Math.PI, Math.PI]),
        joint_bounds_source: 'reviewed fixture'}}};
  }};
-vm.createContext(context); vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), context);
+vm.createContext(context);
+vm.runInContext(fs.readFileSync(process.argv[2], 'utf8'), context);
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), context);
 context.window.applyTestProfile().then(() => {
  assert.equal(fields['validation-workspace-min'].value, mode === 'edit' ? '-80, ' : '-900, -900, 0');
  assert.equal(fields['validation-workspace-max'].value, '800, 800, 1100');

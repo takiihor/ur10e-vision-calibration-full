@@ -30,7 +30,7 @@ document.addEventListener('agv-motion-status',updateStarts);
 async function api(path,body){
   const opts={headers:{'X-Module-Token':token}};
   if(body!==undefined){opts.method='POST';opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(body);}
-  const response=await fetch(path,opts), value=await response.json();
+  const response=await window.operatorFetch(path,opts), value=await response.json();
   if(!response.ok){const error=new Error(value.error||'Request failed.');error.status=response.status;throw error;}
   return value;
 }
@@ -151,7 +151,7 @@ function render(job){
   else if(moduleName==='teaching'&&job.state==='done'&&(typeof job.result?.project==='string'||job.result?.project?.project)){
     if(imageJob!==job.id){
       imageJob=job.id;
-      fetch('/api/teaching-image?project='+encodeURIComponent(typeof job.result.project==='string'?job.result.project:job.result.project.project),{headers:{'X-Module-Token':token}})
+      window.operatorFetch('/api/teaching-image?project='+encodeURIComponent(typeof job.result.project==='string'?job.result.project:job.result.project.project),{headers:{'X-Module-Token':token}})
         .then(r=>{if(!r.ok)throw Error('No image');return r.blob();})
         .then(blob=>{if(imageUrl)URL.revokeObjectURL(imageUrl);imageUrl=URL.createObjectURL(blob);$('preview').src=imageUrl;$('preview').hidden=false;})
         .catch(()=>{$('preview').hidden=true;});

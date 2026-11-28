@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { selectOption } from './test-select';
 import { afterEach, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
@@ -55,12 +56,43 @@ it('offers enrollment and keeps Stop available for a read-only viewer', async ()
   expect(app.get('a[href="/operator-key"]').text()).toBe('Enroll this browser');
   expect(element('armed').element.disabled).toBe(true);
   expect(element('pause').element.disabled).toBe(true);
+  const notice = app.get('[data-ui="operator.readonly"]');
+  const enroll = notice.get('a[href="/operator-key"]');
+  const reasonId = enroll.attributes('aria-describedby');
+  expect(element('pause').attributes('aria-describedby').split(' ')).toContain(reasonId);
+  expect(app.get('#' + reasonId).text()).toBe('Enroll this browser to use operator controls.');
+  expect(notice.element.closest('[data-ui="safety.panel"]')).toBeTruthy();
   expect(element('query_status').element.disabled).toBe(true);
   expect(element('stop').element.disabled).toBe(false);
   expect(sent).toEqual([]);
   await element('stop').trigger('click');
   expect(sent).toEqual([expect.objectContaining({ action: 'send', command: 'stop' })]);
   expect(fetch.mock.calls[0][1].headers['X-Module-Token']).toBeUndefined();
+});
+
+it('shows the enrollment reason once and describes each read-only Connection control', async () => {
+  open('#/agv', async path => {
+    if (path === '/api/state') return { variables: [] };
+    if (path === '/api/status') return { owner: {}, operator_auth: { required: true, authorized: false } };
+    return { ...connected, armed: false, sequence: 1,
+      commands: commandNames.map(name => ({ name, motion: name === 'forward' })) };
+  }, { token: '' });
+  await flushPromises();
+  await app.get('[data-ui="agv.tabs.connection"]').trigger('click');
+  const panel = app.get('[data-ui="agv.link.panel"]');
+  await panel.get('[data-ui="agv.link.settings.toggle"]').trigger('click');
+  const message = 'Enroll this browser to use operator controls.';
+  expect(panel.text().split(message)).toHaveLength(2);
+  for (const id of ['agv.link.transport', 'agv.link.address', 'agv.link.channel',
+    'agv.link.simulator.stations', 'agv.link.disconnect', 'agv.link.silence', 'agv.read.command']) {
+    const controls = app.findAll(`[data-ui="${id}"]`);
+    expect(controls.length, id).toBeGreaterThan(0);
+    for (const control of controls) {
+      const descriptions = control.attributes('aria-describedby').split(' ');
+      expect(descriptions.some(identifier => document.getElementById(identifier)?.textContent === message), id).toBe(true);
+      expect(control.attributes('disabled') !== undefined || control.attributes('aria-disabled') === 'true', id).toBe(true);
+    }
+  }
 });
 
 it('disarms on opening an armed connection and only dispatches one labelled Esc Stop during a pending read', async () => {
@@ -135,7 +167,7 @@ it('keeps navigation, urgent controls and records available when storage is deni
   expect(element('stop').element.disabled).toBe(false);
 });
 
-it('keeps urgent controls outside the Sakai shell and routes between marked modules', async () => {
+it('keeps shared controls visible and routes through the four Sakai tabs and More', async () => {
   open('#/', async path => {
     if (path === '/api/state') return { variables: [] };
     if (path === '/api/status') return { app_id: 'anodizing_modules_v1' };
@@ -144,32 +176,62 @@ it('keeps urgent controls outside the Sakai shell and routes between marked modu
   });
   await flushPromises();
   const wrapper = app.get('.layout-wrapper');
-  const menu = wrapper.get('nav[aria-label="Modules"]');
-  const links = menu.findAll('a');
-  expect(links.slice(1).map(link => link.attributes('href'))).toEqual([
-    '#/calibration', '#/teaching', '#/agv', '#/scene', '#/line', '#/records', '#/pick-place',
+  const header = wrapper.get('[data-ui="layout.header"]');
+  expect(header.get('[data-ui="layout.home"]').attributes('href')).toBe('#/');
+  expect(header.get('[data-ui="layout.home"]').text()).toMatch(/^Dev console\s*DEV$/);
+  expect(document.title).toBe('Home · Dev console');
+  expect(header.get('nav[aria-label="Modules"]').findAll('.layout-tab').map(link => link.attributes('href'))).toEqual([
+    '#/agv', '#/calibration', '#/teaching', '#/pick-place',
   ]);
-  expect(links.slice(1).flatMap(link => link.findAll('.p-tag'))).toEqual([]);
-  expect(wrapper.find('.stop-bar').exists()).toBe(false);
-  expect(app.get('.stop-bar').find('#agv-stop').exists()).toBe(true);
-  expect(wrapper.findAll('.home-grid .p-card')).toHaveLength(2);
-  const toggle = wrapper.get('button[aria-controls="operator-nav"]');
-  expect(toggle.attributes('aria-expanded')).toBe('true');
-  await toggle.trigger('click');
+  const more = header.get('[data-ui="nav.more.toggle"]');
+  expect(more.element.tagName).toBe('BUTTON');
+  expect(more.attributes('aria-haspopup')).toBe('menu');
+  await more.trigger('click');
+  const popup = document.querySelector('[data-ui="nav.more"] [role="menu"]');
+  expect(Array.from(popup.querySelectorAll('a'), link => link.getAttribute('href'))).toEqual(['#/', '#/scene', '#/line', '#/records']);
+  popup.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+  expect(app.get('[data-ui="safety.panel"] #agv-stop').isVisible()).toBe(true);
+  expect(wrapper.findAll('[data-ui="home.page"] .p-card')).toHaveLength(2);
+  const toggle = header.get('[data-ui="layout.navigation.toggle"]');
   expect(toggle.attributes('aria-expanded')).toBe('false');
+  await toggle.trigger('click');
+  expect(toggle.attributes('aria-expanded')).toBe('true');
   expect(element('stop').isVisible()).toBe(true);
+  await header.get('[data-ui="layout.navigation.dismiss"]').trigger('click');
+  expect(toggle.attributes('aria-expanded')).toBe('false');
   await toggle.trigger('click');
   location.hash = '#/agv';
   window.dispatchEvent(new HashChangeEvent('hashchange'));
   await flushPromises();
-  expect(wrapper.get('a[href="#/agv"]').attributes('aria-current')).toBe('page');
+  expect(toggle.attributes('aria-expanded')).toBe('false');
+  expect(header.attributes('data-module')).toBe('agv');
+  expect(header.get('a[href="#/agv"]').attributes('aria-current')).toBe('page');
   expect(document.activeElement).toBe(wrapper.get('h1').element);
   location.hash = '#/tests/scene';
   window.dispatchEvent(new HashChangeEvent('hashchange'));
   await flushPromises();
-  expect(wrapper.get('a[href="#/scene"]').attributes('aria-current')).toBe('page');
+  await more.trigger('click');
+  expect(document.querySelector('[data-ui="nav.scene"]').getAttribute('aria-current')).toBe('page');
   expect(wrapper.get('h1').text()).toBe('Scene');
-  expect(app.get('.stop-bar').find('#agv-stop').exists()).toBe(true);
+  expect(element('stop').isVisible()).toBe(true);
+  expect(header.find('#agv-stop').exists()).toBe(false);
+  expect(wrapper.get('main h1').text()).toBe('Scene');
+});
+
+it.each([true, false])('keeps ownership and the applicable AGV link action in the shared controls (connected %s)', async online => {
+  open('#/agv', async path => {
+    if (path === '/api/state') return { variables: [] };
+    if (path === '/api/status') return { owner: {} };
+    return { ...connected, connected: online, armed: false, sequence: 1, commands: [] };
+  });
+  await flushPromises();
+  const panel = app.get('[data-ui="safety.panel"]');
+  expect(panel.get('button').attributes('id')).toBe('agv-stop');
+  expect(panel.get('#agv-pause').exists()).toBe(true);
+  expect(panel.get('#agv-link').exists()).toBe(true);
+  expect(panel.get(online ? '#agv-disconnect' : '#agv-connect').exists()).toBe(true);
+  expect(app.find(online ? '#agv-connect' : '#agv-disconnect').exists()).toBe(false);
+  expect(panel.get('[data-ui="agv.owner.panel"]').get('#agv-armed').exists()).toBe(true);
 });
 
 it('keeps Manual and Teacher Stop bound to their jobs while Escape targets the AGV across navigation', async () => {
@@ -299,7 +361,8 @@ it('opens Recorder and its test alias, starts selected variables, and reattaches
   window.dispatchEvent(new HashChangeEvent('hashchange'));
   await flushPromises();
   expect(app.get('h1').text()).toBe('Recorder');
-  expect(app.get('nav a[href="#/records"]').attributes('aria-current')).toBe('page');
+  await app.get('[data-ui="nav.more.toggle"]').trigger('click');
+  expect(document.querySelector('[data-ui="nav.recorder"]').getAttribute('aria-current')).toBe('page');
   await app.get('#record-stop').trigger('click');
   await flushPromises();
   expect(changes[1]).toEqual({ action: 'stop', id: 'fixture' });
@@ -325,7 +388,7 @@ it('shows read-only signals when leaving the writable test catalog in the same a
     return { connected: false, sequence: 1 };
   });
   await flushPromises();
-  await app.get('#line-access').setValue('W');
+  await selectOption(app, '#line-access', 'Writable readback');
   expect(app.text()).toContain('FixtureCommand');
   await navigate('#/line/signals');
   expect(app.find('#line-access').exists()).toBe(false);
@@ -488,7 +551,7 @@ it('reviews a recipe job before offering a separate run with the approved hash',
   await flushPromises();
   expect(app.get('h1').text()).toBe('Pick/place');
   expect(app.text()).toContain('Tank03');
-  expect(app.get('a[href="/pick-place"]').text()).toContain('Legacy');
+  expect(app.get('a[href="/pick-place"]').text()).toMatch(/legacy/i);
   const check = id => app.get('#' + id).setValue(true);
   await check('repeat-off');
   expect(element('recipe-start').element.disabled).toBe(true);
@@ -597,7 +660,8 @@ it('charges delayed AGV snapshots against freshness in polls, ports and command 
   await vi.advanceTimersByTimeAsync(850);
   receiveFirst(report());
   await flushPromises();
-  expect(element('link').text()).toMatch(/Link stale · last status report 3\.4|Link stale · last status report 3\.5/);
+  expect(element('link').text()).toMatch(/^Link stale · [34] s$/);
+  expect(element('link').attributes('aria-label')).toMatch(/last status report 3\.[45] s ago/);
   expect(element('stop').element.disabled).toBe(false);
   await element('stop').trigger('click');
   await vi.advanceTimersByTimeAsync(850);
@@ -789,7 +853,8 @@ it('shows line loss across pages, then shows recovery for 30 seconds', async () 
   open('#/', path => {
     if (path === '/api/status') return { owner: {}, line_link: link };
     if (path === '/api/state') return { variables: [] };
-    return { connected: false, executor_link: true, sequence: 1, commands: [] };
+    return { connected: false, executor_link: true, sequence: 1, commands: [],
+      error: link.state === 'lost' ? 'AGV link lost. Check the connection and power.' : null };
   });
   await flushPromises();
   expect(app.find('.line-link-alert').exists()).toBe(false);
@@ -800,6 +865,7 @@ it('shows line loss across pages, then shows recovery for 30 seconds', async () 
   const alert = () => app.get('.line-link-alert');
   expect(alert().attributes('role')).toBe('alert');
   expect(alert().text()).toMatch(/AGV link lost since.*\(1 s\).*USB Wi-Fi dongle/);
+  expect(app.findAll('[data-ui="safety.panel"] .p-message').filter(message => /AGV link lost/i.test(message.text()))).toHaveLength(1);
 
   location.hash = '#/agv';
   window.dispatchEvent(new HashChangeEvent('hashchange'));

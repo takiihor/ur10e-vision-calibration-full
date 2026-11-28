@@ -5,7 +5,8 @@ const vm = require('node:vm');
 
 const scenario = process.argv[2];
 const web = path.join(__dirname, '../anodizing_web/web');
-const source = fs.readFileSync(path.join(web, 'agv-record.mjs'), 'utf8').split(/^export /m)[0] +
+const operatorAuth = fs.readFileSync(path.join(web, 'operator-auth.js'), 'utf8');
+const source = operatorAuth + '\n' + fs.readFileSync(path.join(web, 'agv-record.mjs'), 'utf8').split(/^export /m)[0] +
   fs.readFileSync(path.join(web, 'agv.js'), 'utf8').replace(/^import .*?;\n/s, '');
 const storage = new Map();
 const requests = [];
@@ -21,7 +22,7 @@ async function load(ports) {
   function element(initialId) {
     const listeners = {};
     const field = {
-      value: '', checked: false, dataset: {}, classList: {toggle() {}},
+      value: '', checked: false, dataset: {}, nextElementSibling: {hidden: false, disabled: false}, classList: {toggle() {}},
       addEventListener(type, fn) { listeners[type] = fn; },
       emit(type, event = {}) {
         if (listeners[type]) return listeners[type]({currentTarget: this, ...event});
@@ -46,7 +47,7 @@ async function load(ports) {
   let sequence = 0, now = 0, tick, stopSent;
   vm.runInNewContext(source, {
     document: {getElementById: field, querySelector: () => ({content: 'fixture'}), createElement: () => element()},
-    window,
+    window, crypto: require('node:crypto').webcrypto,
     Option: class { constructor(text, value) { Object.assign(this, {text, value}); } },
     performance: {now: () => now}, setInterval(callback) { tick = callback; },
     localStorage: {
@@ -69,6 +70,11 @@ async function load(ports) {
       if (!body) {
         Object.assign(response, {serial_available: true, ports, commands: [],
           settings: {mode: 'simulator', address: '00 99', channel: '08', port: null}});
+        if (scenario === 'wired-priority-stop') Object.assign(response, {
+          connected: true, executor_link: true, wired_port: '/dev/example-wire', motion_block: 'Travel blocked',
+          settings: {mode: 'wired', port: '/dev/example-wire'},
+          commands: [{name: 'stop', label: 'Stop', motion: false}],
+        });
         if (scenario === 'radio-profile') response.radio_profile = {address: true, channel: true};
         if (scenario === 'requested-evidence') Object.assign(response, {
           connected: true, status_hex: 'station report', status_age_s: .2,
@@ -122,6 +128,11 @@ async function load(ports) {
       else if (scenario === 'motion-approval' && body.command === 'stop') Object.assign(response, {
         connected: true, armed: true, stop_generation: 8, urgent_command: 'pause', settings: {mode: 'simulator'},
         results: {pause: {tx_id: sequence, state: 'sent', sent_at: '2026-11-19T12:34:56.789Z'}},
+      });
+      else if (scenario === 'wired-priority-stop' && body.command === 'stop') Object.assign(response, {
+        connected: true, executor_link: true, wired_port: '/dev/example-wire', motion_block: 'Travel blocked',
+        settings: {mode: 'wired', port: '/dev/example-wire'},
+        executor_stop: {received: true, halt_attempted: true, confirmed: false},
       });
       else if (body.action === 'send') stopSent = Object.assign(response, {connected: true, connection_id: 2,
         settings: {mode: 'simulator', address: '42 19', channel: '0D', port: null},
@@ -247,6 +258,10 @@ async function run() {
     assert.equal(requests.at(-1).stop_generation, 7);
     await get('stop').emit('click');
     assert.match(get('stop-outcome').textContent, /Stop sent/);
+  } else if (scenario === 'wired-priority-stop') {
+    await get('stop').emit('click');
+    await get('mark-text').emit('keydown', {key: 'Escape', repeat: false, preventDefault() {}});
+    assert.equal(requests.filter(request => request.command === 'stop').length, 2);
   } else if (scenario === 'escape-stop') {
     const press = (key, repeat = false) => get('mark-text').emit('keydown', {key, repeat, preventDefault() {}});
     await press('Escape');
@@ -285,7 +300,7 @@ async function run() {
 }
 
 async function pickPlaceUrgent() {
-  const source = fs.readFileSync(path.join(__dirname, '../anodizing_web/web/manual-pick-place.js'), 'utf8');
+  const source = operatorAuth + '\n' + fs.readFileSync(path.join(web, 'manual-pick-place.js'), 'utf8');
   const fields = new Map();
   const field = id => {
     if (!fields.has(id)) fields.set(id, {id, value: '', valueAsNumber: NaN, checked: false, dataset: {},

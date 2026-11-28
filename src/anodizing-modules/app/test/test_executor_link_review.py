@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 
+from anodizing_web import server
 from anodizing_web.executor import Executor, FakeDevices
 from anodizing_web.executor_http import Client, control_listener
 from anodizing_web.server import Server
@@ -80,6 +81,23 @@ def arm(call):
                     executor_boot=state.get('executor_boot'), executor_session=state.get('executor_session'))
     assert call('agv', dict(reviewed, action='arm', armed=True))['armed']
     return reviewed
+
+
+def test_katana_battery_trend_clears_when_the_cached_report_ages(tmp_path):
+    with remote(tmp_path) as (client, _, devices):
+        devices.connected = True
+        devices_status = devices.status
+        age = .1
+
+        def battery_status():
+            return dict(devices_status(), status_age_s=age, battery_trend='charging')
+
+        devices.status = battery_status
+        with operator(tmp_path / 'katana', client) as call:
+            wait_for(lambda: call('agv?cached=1'), lambda state: state.get('battery_trend') == 'charging')
+            age = 4
+            state = wait_for(lambda: call('agv?cached=1'), lambda state: state.get('status_age_s', 0) >= 4)
+            assert state['battery_trend'] is None
 
 
 def test_stop_survives_katana_restart_and_is_delivered_before_next_heartbeat(tmp_path):
@@ -699,3 +717,199 @@ def test_old_boot_stop_confirmation_cannot_clear_pending_stop(tmp_path):
         wait_for(lambda: link.stop({'stop_id': stop_id}), lambda receipt: receipt['confirmed'])
         assert new_client('status')['stop']['stop_id'] == stop_id
         assert not link.status()['stop_unconfirmed']
+
+
+def test_stop_uses_separate_transport_and_preserves_after_send_callback(tmp_path):
+    from types import SimpleNamespace
+    from anodizing_web.executor_link import ExecutorLink
+
+    with remote(tmp_path) as (client, _, _):
+        root = tmp_path / 'katana-stop-route'
+        root.mkdir()
+        local = SimpleNamespace(owner=SimpleNamespace(root=root), commissioning=lambda **_: {})
+        calls = []
+        callbacks = []
+
+        def ordinary(operation, body=None, **kwargs):
+            calls.append(operation)
+            return client(operation, body, **kwargs)
+
+        def priority(operation, body=None, *, after_send=None):
+            calls.append('priority:' + operation)
+            callbacks.append(after_send)
+            return client(operation, body, after_send=after_send)
+
+        link = ExecutorLink(ordinary, local, stop_client=priority)
+        try:
+            link.stop({'stop_id': 'separate-transport-stop'})
+            wait_for(lambda: 'priority:stop' in calls)
+            assert callbacks[0] is not None
+            assert 'stop' not in calls
+            wait_for(lambda: 'status' in calls)
+        finally:
+            link.close()
+
+
+def test_configured_stop_route_uses_the_same_pinned_ipc_host_and_key(tmp_path):
+    from anodizing_web.executor_http import OperatorApp
+    from test_executor_lan import certificate
+
+    ordinary = OperatorApp(18875, TOKEN, host='192.168.1.251', certificate=certificate(tmp_path / 'tls'))
+    assert server._executor_stop_client(tmp_path, ordinary) is None
+    (tmp_path / 'site-profile.json').write_text(json.dumps({'line_network': {'stop_api_port': 18876}}))
+    client = server._executor_stop_client(tmp_path, ordinary)
+    assert isinstance(client, OperatorApp)
+    assert (client.host, client.port) == ('192.168.1.251', 18876)
+    assert client.certificate == ordinary.certificate and client.key == ordinary.key
+
+
+@pytest.mark.parametrize('port', [True, 0, 18875, 65536, '12345'])
+def test_configured_stop_route_rejects_invalid_port(tmp_path, port):
+    from anodizing_web.executor_http import OperatorApp
+    from test_executor_lan import certificate
+
+    ordinary = OperatorApp(18875, TOKEN, certificate=certificate(tmp_path / 'tls'))
+    (tmp_path / 'site-profile.json').write_text(json.dumps({'line_network': {'stop_api_port': port}}))
+    with pytest.raises(ValueError):
+        server._executor_stop_client(tmp_path, ordinary)
+
+
+def test_unavailable_separate_stop_transport_falls_back_to_ordinary(tmp_path):
+    from types import SimpleNamespace
+    from anodizing_web.executor_link import ExecutorLink
+
+    with remote(tmp_path) as (client, _, _):
+        root = tmp_path / 'katana-stop-fallback'
+        root.mkdir()
+        local = SimpleNamespace(owner=SimpleNamespace(root=root), commissioning=lambda **_: {})
+        calls = []
+
+        def ordinary(operation, body=None, **kwargs):
+            calls.append((operation, body))
+            return client(operation, body, **kwargs)
+
+        def unavailable(operation, body=None, *, after_send=None):
+            assert operation == 'stop' and body == {'stop_id': 'fallback-stop'}
+            raise OSError('Fixture transport unavailable')
+
+        link = ExecutorLink(ordinary, local, stop_client=unavailable)
+        try:
+            link.stop({'stop_id': 'fallback-stop'})
+            wait_for(lambda: ('stop', {'stop_id': 'fallback-stop'}) in calls)
+            wait_for(lambda: link.stop_written is not None)
+        finally:
+            link.close()
+
+
+def test_fallback_starts_while_stop_witness_is_blocked_and_reports_primary_error(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from anodizing_web import executor_link
+    from anodizing_web.executor_link import ExecutorLink
+
+    root = tmp_path / 'katana-fallback-blocked'
+    root.mkdir()
+    local = SimpleNamespace(owner=SimpleNamespace(root=root), commissioning=lambda **_: {})
+    entered, release, fallback = Event(), Event(), Event()
+    original = executor_link.atomic_json
+
+    def stalled(path, value, **kwargs):
+        if path.name == 'executor-stop-witness.json':
+            entered.set()
+            assert release.wait(5)
+        return original(path, value, **kwargs)
+
+    def unavailable(operation, body=None, *, after_send=None):
+        if after_send:
+            after_send()
+        raise OSError('primary fixture failure')
+
+    from anodizing_web.executor import Executor, FakeDevices
+    executor = Executor(tmp_path / 'ipc-fallback', FakeDevices(), gateway_enabled=True)
+    try:
+        def ordinary(operation, body=None, **kwargs):
+            if operation == 'stop':
+                fallback.set()
+                callback = kwargs.get('after_send')
+                if callback:
+                    callback()
+            return executor.dispatch(operation, body or {})
+
+        monkeypatch.setattr(executor_link, 'atomic_json', stalled)
+        link = ExecutorLink(ordinary, local, stop_client=unavailable)
+        worker = Thread(target=lambda: link.stop({'stop_id': 'blocked-fallback'}))
+        worker.start()
+        try:
+            assert entered.wait(3)
+            assert fallback.wait(1), 'fallback waited for the Stop witness write'
+        finally:
+            release.set()
+            worker.join(5)
+        try:
+            assert not worker.is_alive()
+            assert link.status()['stop_primary_error']
+        finally:
+            link.close()
+    finally:
+        executor.close()
+
+
+def test_stop_retries_network_while_witness_write_is_blocked(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from anodizing_web import executor_link
+    from anodizing_web.executor import Executor, FakeDevices
+    from anodizing_web.executor_link import ExecutorLink
+
+    root = tmp_path / 'katana-retry-blocked'
+    root.mkdir()
+    local = SimpleNamespace(owner=SimpleNamespace(root=root), commissioning=lambda **_: {})
+    witness_entered, release_witness, primary_failed, fallback_failed, retry_failed, recover, retried = (
+        Event() for _ in range(7))
+    original = executor_link.atomic_json
+    stop_id = 'retry-during-witness'
+
+    def stalled(path, value, **kwargs):
+        if path.name == 'executor-stop-witness.json' and value['id'] == stop_id:
+            witness_entered.set()
+            assert release_witness.wait(10)
+        return original(path, value, **kwargs)
+
+    executor = Executor(tmp_path / 'ipc-retry', FakeDevices(), gateway_enabled=True)
+
+    def primary(operation, body=None, *, after_send=None):
+        assert operation == 'stop' and body == {'stop_id': stop_id}
+        if after_send:
+            after_send()
+        if not recover.is_set():
+            primary_failed.set()
+            raise OSError('primary unavailable')
+        receipt = executor.dispatch(operation, body)
+        retried.set()
+        return receipt
+
+    def ordinary(operation, body=None):
+        if operation == 'stop':
+            assert body == {'stop_id': stop_id}
+            if fallback_failed.is_set():
+                retry_failed.set()
+            fallback_failed.set()
+            raise OSError('fallback unavailable')
+        return executor.dispatch(operation, body or {})
+
+    monkeypatch.setattr(executor_link, 'atomic_json', stalled)
+    link = ExecutorLink(ordinary, local, stop_client=primary)
+    worker = Thread(target=lambda: link.stop({'stop_id': stop_id}))
+    worker.start()
+    try:
+        assert primary_failed.wait(2)
+        assert fallback_failed.wait(2)
+        assert witness_entered.wait(2)
+        assert retry_failed.wait(3)
+        recover.set()
+        assert retried.wait(4), 'Stop retry waited for the witness write'
+        assert link.status()['stop_unconfirmed'] is True
+        assert link.stop_written is None
+    finally:
+        release_witness.set()
+        worker.join(5)
+        link.close()
+        executor.close()

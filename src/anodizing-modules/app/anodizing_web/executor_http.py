@@ -1,9 +1,10 @@
 """Separate HTTP surfaces for authenticated job control and cached IPC display."""
 from concurrent.futures import Future
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
+from dataclasses import replace
 import fcntl
 from http.client import HTTPConnection, HTTPSConnection, HTTPException
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 import json
 import math
 import os
@@ -13,18 +14,19 @@ from time import monotonic, time
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
-from . import agv
-from .executor import (AdmissionRefused, MAX_BODY, Executor, FakeDevices, Stopped, check_manual_attestation,
+from . import agv, tower_light
+from .executor import (AdmissionRefused, MAX_BODY, MODULE_ATTESTATION_S, Executor, FakeDevices, Stopped, check_manual_attestation,
                        check_manual_feedback, check_manual_report, finite, validate_measured_rows)
-from .executor_lan import GatewayNetwork, HttpsListener, client_context
+from .executor_lan import BoundedListener, GatewayNetwork, HttpsListener, client_context
 from .job_client import Client as JobClient, calibration_key
 from .job_gateway import GatewayForbidden
 from .jobs import ID
-from .module_tokens import KeyStore, ServicePrincipal
+from .module_tokens import KeyStore, ModulePrincipal, ServicePrincipal
+from .raw_agv import SPEED_CAP_M_H
 from .recipe_agv import POSE_FRESH_S, StationVisit, stopped
 
 CONTROLS = {'connect', 'disconnect', 'status_read', 'arm', 'disarm', 'submit', 'heartbeat',
-            'stop', 'hold', 'operator_check', 'claim', 'release'}
+            'stop', 'hold', 'operator_check', 'claim', 'release', 'raw', 'raw/undo'}
 READS = {'health', 'status', 'jobs'}
 
 
@@ -91,7 +93,8 @@ class WiredDevices:
         check_manual_feedback(self.status(), self.manual_travel_min_battery, station)
         return self._travel_interlocks()
 
-    def perform(self, effect, value, *, attestation=None):
+    def perform(self, effect, value, *, attestation=None, check_module_dispatch=None,
+                raw_guard=None, raw_monitor=None, frame_authority=None):
         if effect != 'station':
             raise ValueError('The wired handler accepts only a station visit.')
 
@@ -101,16 +104,18 @@ class WiredDevices:
                 raise ValueError('The isolated test track window expired.')
             if self.journal_error:
                 raise ValueError('AGV wire logging failed. Please call a technician.')
-            if dispatch:
+            if dispatch and check_module_dispatch is None:
                 check_manual_attestation(attestation, value, now=now)
             check_manual_report(report or {}, monotonic() - stamp if stamp is not None else None,
-                                self.manual_travel_min_battery, value)
+                                self.manual_travel_min_battery, value,
+                                above_floor=check_module_dispatch is not None)
 
-        if self.isolated_track:
+        if self.isolated_track and check_module_dispatch is None:
             check_manual_attestation(attestation, value, now=time())
         state = self.status()
         visit = StationVisit(self.link, self.cancel.set, connection_id=state['connection_id'],
                              stop_generation=state['stop_generation'], allow_wired=True,
+                             motion_monitor=raw_monitor,
                              check_attested_track=check_track if self.isolated_track else None)
         with visit.watch():
             try:
@@ -123,13 +128,18 @@ class WiredDevices:
                     visit.require_endpoint(value)
                     return self.hold()
                 def check_dispatch():
+                    if raw_guard:
+                        raw_guard()
                     return self._check_dispatch(value)
 
-                while not visit.start_leg(value, 1500, 30, check_dispatch(), self.cancel,
-                                          validate_travel=check_dispatch):
+                while not visit.start_leg(value, SPEED_CAP_M_H if raw_guard else 1500, 30,
+                                          check_dispatch(), self.cancel, validate_travel=check_dispatch,
+                                          check_start=check_module_dispatch, frame_authority=frame_authority):
                     if self.cancel.wait(.05):
                         raise Stopped
                 while not self.cancel.wait(.05):
+                    if raw_guard:
+                        raw_guard()
                     progress = visit.progress(self._travel_interlocks())
                     if progress.get('arrival_s') is not None:
                         return dict(self.hold(), acknowledgement_s=progress['ack_s'], arrival_s=progress['arrival_s'])
@@ -137,6 +147,28 @@ class WiredDevices:
             except BaseException:
                 visit.abort()
                 raise
+
+    @contextmanager
+    def raw_audit(self, trace):
+        with self.link.lock:
+            self.link.raw_trace = trace
+        try:
+            yield
+        finally:
+            with self.link.lock:
+                self.link.raw_trace = None
+
+    def raw_exchange(self, name, value, authorize, *, expected=None, frame_authority):
+        return self.link.raw_exchange(name, value, authorize, expected=expected, frame_authority=frame_authority)
+
+    def raw_motion(self, station, authorize, monitor, *, frame_authority):
+        try:
+            self.perform('station', station, raw_guard=authorize, raw_monitor=monitor,
+                         check_module_dispatch=lambda: authorize(dispatch=True, check_grant=False),
+                         frame_authority=frame_authority)
+        except Stopped as exc:
+            raise ValueError('Raw station travel was stopped. Verify the AGV hold.') from exc
+        return self.raw_exchange('query_status', None, authorize, frame_authority=frame_authority)
 
     def hold(self):
         hold = self.operator_station_hold()
@@ -205,6 +237,21 @@ class WiredDevices:
     def status(self):
         return self.link.commissioning()
 
+    def tower_feedback(self):
+        link = self.link
+        # Display samples may trail by one tick. Keep them off the Stop and transport locks.
+        transport, ident = link.transport, link.id
+        report, stamp = link.status or {}, link.status_at
+        last = stamp if stamp is not None else link.connected_at
+        sent = link.recipe_active and getattr(link, 'recipe_call_at', None) is not None
+        connected = transport is not None and link.transport is transport and link.id == ident
+        age = monotonic() - last if last is not None else None
+        stale = connected and age is not None and age >= agv.RECIPE_STALE_S
+        fresh = connected and stamp is not None and 0 <= age < agv.RECIPE_STALE_S
+        return dict(connected=connected, fresh=fresh, report=report,
+                    link_lost=link.error == agv.LINK_LOST or stale,
+                    moving=fresh and (sent or tower_light.feedback_moving(report)))
+
     def close(self, *, final=False):
         self.link.close()
         if final:
@@ -217,7 +264,7 @@ class WireLog:
         self.fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         self.pending = None
 
-    def __call__(self, direction, raw):
+    def __call__(self, direction, raw, audit=None):
         opened = os.fstat(self.fd)
         try:
             named = os.stat(self.path, follow_symlinks=False)
@@ -226,10 +273,12 @@ class WireLog:
         if not opened.st_nlink or (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
             raise FileNotFoundError(f'{self.path}: wire journal was replaced.')
         if self.pending is None:
-            line = json.dumps(dict(utc=agv.timestamp(), direction=direction, hex=raw.hex()))
-            self.pending = (direction, raw, (line + '\n').encode(), 0)
-        queued_direction, queued_raw, line, written = self.pending
-        if (direction, raw) != (queued_direction, queued_raw):
+            fields = dict(utc=agv.timestamp(), direction=direction, hex=raw.hex())
+            fields.update(audit or {})
+            line = json.dumps(fields)
+            self.pending = ((direction, raw, audit), (line + '\n').encode(), 0)
+        queued, line, written = self.pending
+        if (direction, raw, audit) != queued:
             raise OSError(f'{self.path}: retry the uncommitted wire frame first.')
         try:
             while written < len(line):
@@ -237,7 +286,7 @@ class WireLog:
                 if not count:
                     raise OSError('Short wire journal write.')
                 written += count
-                self.pending = (direction, raw, line, written)
+                self.pending = (queued, line, written)
             os.fsync(self.fd)
         except OSError as exc:
             raise OSError(f'{self.path}: {exc}') from exc
@@ -247,8 +296,8 @@ class WireLog:
         os.close(self.fd)
 
 
-class Loopback(ThreadingHTTPServer):
-    daemon_threads = False
+class Loopback(BoundedListener):
+    connection_limit = 4
 
     def __init__(self, port, handler):
         super().__init__(('127.0.0.1', port), handler)
@@ -283,7 +332,7 @@ class Reply(BaseHTTPRequestHandler):
         return host in self.server.hosts and self.headers.get('Origin') in (None, f'{scheme}://{host}')
 
 
-def control_handler(executor, token, token_store=None):
+def control_handler(executor, token, token_store=None, *, operator_stop_only=False):
     if executor.gateway_enabled:
         executor.gateway.configure_keys(token, token_store)
         authenticate = executor.gateway.authenticate
@@ -298,15 +347,25 @@ def control_handler(executor, token, token_store=None):
                 return self.send(403, {'error': 'Request is not authorized.'})
             provided = self.headers.get_all('Authorization', [])
             bearer = provided[0].removeprefix('Bearer ') if len(provided) == 1 and provided[0].startswith('Bearer ') else ''
-            principal = authenticate(bearer, allow_modules=executor.gateway_enabled and token_store is not None)
-            if principal is None or not executor.gateway_enabled and principal.name != 'agv-page':
+            url = urlsplit(self.path)
+            operation = url.path.removeprefix('/v1/')
+            limited = getattr(self.server, 'key_limited', None)
+            allow_modules = (executor.gateway_enabled and token_store is not None
+                             and (operation == 'stop' or not (limited and limited(self.client_address[0]))))
+            principal = authenticate(bearer, allow_modules=allow_modules)
+            if (principal is None
+                    or (not executor.gateway_enabled or operator_stop_only)
+                    and not (isinstance(principal, ServicePrincipal) and principal.name == 'agv-page')):
                 reject = getattr(self.server, 'reject_key', None)
                 status = reject(self.client_address[0]) if reject is not None else 403
                 return self.send(status, {'error': 'Request is not authorized.'})
-            url = urlsplit(self.path)
-            operation = url.path.removeprefix('/v1/')
             if not url.path.startswith('/v1/') or operation not in (READS if method == 'GET' else CONTROLS):
                 return self.send(404, {'error': 'Not found.'})
+            if operator_stop_only and operation not in ('health', 'stop'):
+                return self.send(404, {'error': 'Not found.'})
+            if operator_stop_only and method == 'POST' and operation == 'stop':
+                if not self.server.admit_stop(self.connection):
+                    return self.send(503, {'error': 'Operator Stop workers are busy.'})
             owner_header = self.headers.get_all('X-Client-Owner', [])
             if (operation != 'stop' and executor.gateway_enabled and isinstance(principal, ServicePrincipal)
                     and owner_header and owner_header != [principal.name]):
@@ -327,9 +386,13 @@ def control_handler(executor, token, token_store=None):
                     if query and (operation != 'status' or set(query) != {'job_id'} or len(query['job_id']) != 1):
                         raise ValueError('Select one job ID.')
                     body = {key: values[0] for key, values in query.items()}
+                if method == 'POST' and isinstance(principal, ModulePrincipal):
+                    if authenticate(bearer, allow_modules=True) != principal:
+                        raise GatewayForbidden('The module grant changed. Request authorization again.')
+                    principal = replace(principal, check_current=True)
                 if executor.gateway_enabled:
                     result = executor.gateway(operation, body, principal=principal)
-                elif operation not in ('claim', 'release', 'jobs'):
+                elif operation not in ('claim', 'release', 'jobs', 'raw', 'raw/undo'):
                     result = executor.dispatch(operation, body)
                 else:
                     return self.send(404, {'error': 'Job gateway unavailable.'})
@@ -356,65 +419,50 @@ def control_listener(port, executor, token, token_store=None):
     return Loopback(port, control_handler(executor, token, token_store))
 
 
-DISPLAY = b"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AGV status</title><link rel="stylesheet" href="/screen.css"><script src="/screen.js" defer></script></head>
-<body><main><h1>AGV status</h1><p id="link" role="status">Waiting for executor status.</p>
-<dl><dt>Station</dt><dd id="station">Unknown</dd><dt>Target</dt><dd id="target">Unknown</dd>
-<dt>Battery</dt><dd id="battery">Unknown</dd><dt>Motion</dt><dd id="motion">Unknown</dd>
-<dt>Fault</dt><dd id="fault">Unknown</dd><dt>Job</dt><dd id="job">Idle</dd></dl></main></body></html>"""
-STYLE = b"""body{color:#e6eaf1;background:#151b26;font:clamp(18px,3vw,38px) system-ui;margin:0}
-main{padding:6vw;max-width:24em;margin:auto}h1{margin:0}p{color:#b8cce5}
-dl{display:grid;grid-template-columns:1fr 1fr;gap:.5em}dt{color:#b8cce5}dd{margin:0}"""
-SCRIPT = rb"""const text = (id, value) => document.getElementById(id).textContent = value ?? 'Unknown';
-async function refresh() {
-  try {
-    const res = await fetch('/status', {cache:'no-store', signal:AbortSignal.timeout(2000)});
-    if (!res.ok) throw Error();
-    const state = await res.json();
-    const device = state.device;
-    const s = device.status || {};
-    const age = device.status_age_s;
-    const link = !device.connected ? 'Disconnected' : age == null ? 'Waiting for status' :
-      (age < 3 ? (state.armed ? 'Armed' : 'Disarmed') : 'Status stale') + ' \u00b7 ' + age.toFixed(1) + ' s ago';
-    const faults = Object.values(state.evidence_faults || {});
-    text('link', faults.length ? [link, ...faults].join(' \u00b7 ') : link + (state.recovery_required ? ' \u00b7 Operator check' : ''));
-    text('station', s.current_station);
-    text('target', s.target_station);
-    text('battery', s.battery_percent == null ? null : s.battery_percent + '%');
-    text('motion', s.stopped === true ? 'Stopped' : s.stopped === false ? 'Moving' : null);
-    text('fault', s.fault_code);
-    text('job', state.quality_alarm ? state.quality_alarm.reason + ' \u00b7 ' + state.quality_alarm.job_id :
-      state.job ? state.job.job_id + ' \u00b7 ' + (state.job.outcome || state.job.state) : 'Idle');
-  } catch { text('link', 'Executor status unavailable'); }
-  setTimeout(refresh, 1000);
+def stop_listener(network, root, executor, token):
+    return HttpsListener(network, root, control_handler(executor, token, operator_stop_only=True),
+                         port=network.stop_port, peer=network.katana_address)
+
+
+DISPLAY_ASSETS = {
+    '/': ('index.html', 'text/html; charset=utf-8'),
+    '/screen.css': ('screen.css', 'text/css; charset=utf-8'),
+    '/screen.js': ('screen.js', 'text/javascript; charset=utf-8'),
 }
-refresh();"""
 
 
 def display_listener(port, read):
+    directory = Path(__file__).with_name('kiosk')
+    assets = {route: ((directory / name).read_bytes(), mime) for route, (name, mime) in DISPLAY_ASSETS.items()}
+
     class Display(Reply):
         def do_GET(self):
             if not self.allowed_host():
                 return self.send(403, {'error': 'Request is not authorized.'})
-            if self.path == '/':
-                return self.send(200, DISPLAY, 'text/html; charset=utf-8')
-            if self.path == '/screen.css':
-                return self.send(200, STYLE, 'text/css')
-            if self.path == '/screen.js':
-                return self.send(200, SCRIPT, 'text/javascript')
+            asset = assets.get(self.path)
+            if asset:
+                return self.send(200, *asset)
             if self.path == '/status':
                 state = read()
                 if state is None:
                     return self.send(503, {'error': 'Executor status unavailable.'})
                 device = state['device']
-                allowed = ('status', 'status_age_s', 'connected', 'stale')
-                job = state.get('job')
+                allowed = ('status', 'status_age_s', 'connected', 'stale', 'battery_trend')
+                def summary(name):
+                    job = state.get(name)
+                    return {key: job[key] for key in ('job_id', 'state', 'outcome')} if job else None
+
                 return self.send(200, dict(boot=state['boot'], armed=state['armed'],
+                                           build=state.get('build'), display_pattern=state.get('display_pattern'),
                                            recovery_required=state['recovery_required'],
                                            evidence_faults=state.get('evidence_faults', {}),
                                            quality_alarm=state.get('quality_alarm'),
-                                           job={k: job[k] for k in ('job_id', 'state', 'outcome')} if job else None,
+                                           owner=state.get('owner'), lease_alive=state.get('lease_alive', False),
+                                           heartbeat_age_s=state.get('heartbeat_age_s'),
+                                           arm_confirmation_remaining_s=state.get('arm_confirmation_remaining_s'),
+                                           stop_latched=state.get('stop_latched', False),
+                                           job=summary('job'), last_job=summary('last_job'),
+                                           tower_light=state.get('tower_light'),
                                            device={key: device.get(key) for key in allowed}))
             return self.send(404, {'error': 'Not found.'})
 
@@ -561,6 +609,17 @@ def _validate_reply(operation, value):
             if value['armed_for'] != (value['owner'] if value['armed'] else None) or (
                     value['armed'] and value['owner'] is None):
                 raise ValueError('The executor Arm and owner do not agree.')
+        if 'module_attestation' in value:
+            _reply_fields(value, module_attestation=(dict, empty), module_attestation_expired=(bool,))
+            if 'module_lease_id' in value:
+                _reply_fields(value, module_lease_id=(str, empty))
+            attestation = value['module_attestation']
+            if attestation is not None:
+                _reply_fields(attestation, owner=(str,), expires_at=(int, float), remaining_s=(int, float))
+                if (attestation['owner'] != value.get('armed_for') or value['module_attestation_expired']
+                        or not finite(attestation['expires_at']) or not finite(attestation['remaining_s'])
+                        or not 0 < attestation['remaining_s'] <= MODULE_ATTESTATION_S):
+                    raise ValueError('Invalid executor module Arm confirmation.')
         check = value['operator_check']
         if check is not None:
             _reply_fields(check, reason=(str,), location=(str, empty), basket=(str, empty),
@@ -765,17 +824,23 @@ def serve(args):
     with (root / '.executor.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         wire = None if args.fake_executor else WireLog(root / 'agv-wire.jsonl')
+        tower = (tower_light.TowerLight(tower_light.open_serial, tower_light.active_low())
+                 if wire is not None and tower_light.enabled() else None)
         executor = Executor(root, FakeDevices.configured(root) if wire is None else WiredDevices(root, wire),
-                            build=args.executor_build, gateway_enabled=network is not None)
+                            build=args.executor_build, gateway_enabled=network is not None, tower=tower)
         try:
             with ExitStack() as stack:
                 control = stack.enter_context(control_listener(args.port, executor, token))
-                listeners = [(stack.enter_context(display_listener(args.status_display_port, executor.status)),
+                listeners = [(stack.enter_context(display_listener(args.status_display_port,
+                                                                  lambda: executor.status(display=True))),
                               'ipc-status-display')]
                 if network is not None:
                     handler = control_handler(executor, token, executor.gateway.keys)
                     lan = stack.enter_context(HttpsListener(network, root, handler))
                     listeners.append((lan, 'ipc-job-api'))
+                    if network.stop_port is not None:
+                        priority = stack.enter_context(stop_listener(network, root, executor, token))
+                        listeners.append((priority, 'ipc-stop-api'))
                 workers = []
                 try:
                     for listener, name in listeners:

@@ -1,0 +1,147 @@
+:root {
+  color-scheme: dark;
+  --background: #000000;
+  --surface: #111315;
+  --text: #f6f8fa;
+  --muted: #afb5bc;
+  --stale: #a4aab0;
+  --charging: #78efad;
+  --in-use: #8ed4ff;
+  --battery-low: #ffc358;
+  --battery-critical: #ff8e83;
+  font-family: system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+* { box-sizing: border-box }
+body { margin: 0; background: var(--background); color: var(--text); overflow: hidden }
+main {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 2vh, 23px);
+  padding: clamp(16px, 2.8vh, 32px) clamp(18px, 3.15vw, 42px);
+}
+.banner {
+  --banner-bg: #202427;
+  --banner-text: #edf0f3;
+  --accent: #aeb8bf;
+  position: relative;
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  min-height: clamp(140px, 28vh, 270px);
+  padding: clamp(15px, 3.5vw, 36px);
+  background: var(--banner-bg);
+  color: var(--banner-text);
+  border-radius: 20px;
+}
+.banner::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 9px;
+  border-radius: 20px 0 0 20px;
+  background: var(--accent);
+}
+[data-state="ready"] .banner {
+  --banner-bg: #10271c;
+  --banner-text: #dbffeb;
+  --accent: #78efad;
+}
+[data-state="armed"] .banner,
+[data-state="moving"] .banner {
+  --banner-bg: #312409;
+  --banner-text: #fff0ca;
+  --accent: #ffc358;
+}
+[data-state="alarm"] .banner,
+[data-state="recovery"] .banner {
+  --banner-bg: #371517;
+  --banner-text: #ffe3df;
+  --accent: #ff8e83;
+}
+.signal {
+  display: flex;
+  gap: clamp(10px, 2.3vw, 25px);
+  align-items: center;
+}
+.icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.5em;
+  height: 1.5em;
+  border: .055em solid var(--accent);
+  color: var(--banner-text);
+  border-radius: 50%;
+  font-size: clamp(30px, min(4.9vw, 7vh), 54px);
+  line-height: 1;
+}
+h1 {
+  margin: 0;
+  font-size: clamp(32px, min(6.4vw, 9.1vh), 74px);
+  line-height: 1.06;
+  letter-spacing: -.04em;
+}
+#instruction, #stale-age {
+  margin: 12px 0 0;
+  font-weight: 600;
+  font-size: clamp(19px, min(3.35vw, 4.8vh), 38px);
+  line-height: 1.16;
+}
+#instruction:empty { display: none }
+#stale-age { margin: 0 0 0 auto }
+.readouts {
+  display: grid;
+  grid-template-columns: 1.42fr .96fr 1fr;
+  gap: clamp(8px, 1.65vw, 20px);
+  margin: 0;
+}
+.readouts > div { min-width: 0; background: var(--surface); border-radius: 14px; padding: clamp(12px, 2.4vw, 26px) }
+dt { color: var(--muted); font-size: clamp(16px, min(2.5vw, 3.5vh), 27px) }
+dd { margin: 6px 0 0; font-size: clamp(26px, min(5.4vw, 7.7vh), 61px); font-weight: 700; line-height: 1.12 }
+#fault { font-size: clamp(22px, min(4vw, 5.5vh), 44px) }
+.battery-reading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px }
+#battery-direction { color: var(--muted); font-size: clamp(16px, min(2.65vw, 4vh), 30px) }
+#battery-direction[data-trend="charging"] { color: var(--charging) }
+#battery-direction[data-trend="in_use"] { color: var(--in-use) }
+#charging-icon { margin-right: .25em }
+#battery-warning {
+  margin: 0;
+  padding: clamp(10px, 1.5vw, 16px);
+  border-left: 5px solid currentColor;
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--battery-low);
+  font-size: clamp(17px, min(2.4vw, 3.5vh), 26px);
+}
+#battery-warning[data-battery-level="critical"] { color: var(--battery-critical) }
+#battery-warning strong { display: block }
+#battery-warning span { color: var(--text) }
+.job {
+  margin: 0;
+  padding: clamp(10px, 2vw, 22px);
+  border: 1px solid #35383c;
+  border-radius: 14px;
+  font-size: clamp(19px, min(3.2vw, 4.5vh), 36px);
+}
+footer {
+  margin-top: auto;
+  padding-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 16px;
+  font-size: clamp(13px, 1.6vw, 18px);
+  color: var(--muted);
+}
+footer span { max-width: 100%; overflow-wrap: anywhere }
+footer b { font-weight: 500 }
+[data-state="stale"] :is(.readouts, .readouts dt, .job, footer) { color: var(--stale) }
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-state="moving"] .banner::before,
+  [data-state="recovery"] .banner::before { animation: pulse 2.5s ease-in-out infinite }
+}
+@keyframes pulse { 50% { opacity: .42 } }

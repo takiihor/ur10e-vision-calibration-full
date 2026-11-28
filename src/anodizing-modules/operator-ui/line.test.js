@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
+import { selectOption } from './test-select';
 import { flushPromises, mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { nextTick, reactive } from 'vue';
 import * as api from './api';
 import LinePage from './LinePage.vue';
 import { sceneLabels } from './sceneState';
 
 let page;
+beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => {
   page?.unmount();
   vi.restoreAllMocks();
@@ -39,19 +41,19 @@ function open(test = false) {
         water_level_blocked: 'FixtureWaterBlock' }, Tank22: {} },
         warnings: [{code: 'alias', message: 'Tank21 door uses ExampleTank22_ExampleDoor.' }] },
   })));
-  page = mount(LinePage, { global: { plugins: [PrimeVue] }, props: { test, state, variable, onOutcome: outcomes } });
+  page = mount(LinePage, { attachTo: document.body, global: { plugins: [PrimeVue] }, props: { test, state, variable, onOutcome: outcomes } });
   return { state, sample, variable, outcomes };
 }
 
 it.each([false, true])('shows a water-level block on the mapped tank with API test mode %s', async test => {
   const { sample } = open(test);
   await flushPromises();
-  await page.get('#line-view').setValue('tank');
+  await selectOption(page, '#line-view', 'Tank monitor');
   const reading = () => page.get('[data-tag="FixtureWaterBlock"] .line-value').text();
   expect(reading()).toContain('Blocked: water level not met');
-  await page.get('#line-tank').setValue('Tank22');
+  await selectOption(page, '#line-tank', 'Tank22');
   expect(page.text()).not.toContain('Blocked: water level not met');
-  await page.get('#line-tank').setValue('Tank21');
+  await selectOption(page, '#line-tank', 'Tank21');
   sample.value = 0;
   await nextTick();
   expect(reading()).toContain('Water-level block inactive');
@@ -71,10 +73,10 @@ it('browses raw readbacks with combined filters, advanced metadata and stable se
   await flushPromises();
   expect(page.text()).toContain('Simulation');
   expect(page.text()).not.toContain('Synthetic command');
-  await page.get('#line-view').setValue('catalog');
-  await page.get('#line-access').setValue('W');
+  await selectOption(page, '#line-view', 'Tag catalog');
+  await selectOption(page, '#line-access', 'Writable readback');
   await page.get('#line-query').setValue('m8');
-  await page.get('#line-type').setValue('Bool');
+  await selectOption(page, '#line-type', 'Bool');
   expect(page.text()).toContain('ExampleTank21A_ExampleCommand');
   expect(page.text()).not.toContain('Synthetic basket');
   await page.get('#line-advanced').setValue(true);
@@ -86,7 +88,7 @@ it('browses raw readbacks with combined filters, advanced metadata and stable se
 it('shows the mapped values with the same expiry as Scene and queues one catalog refresh', async () => {
   const { state, sample, variable, outcomes } = open();
   await flushPromises();
-  await page.get('#line-view').setValue('tank');
+  await selectOption(page, '#line-view', 'Tank monitor');
   expect(page.text()).toContain('ExampleTank22_ExampleDoor');
   expect(page.text()).toContain('0.6 s ago');
   const config = { tanks: [{ id: 'Tank21', label: 'Tank 21' }] };
@@ -110,7 +112,7 @@ it('exports communication diagnostics in both legacy formats', async () => {
   const download = vi.spyOn(api, 'downloadBlob').mockImplementation(() => {});
   open(true);
   await flushPromises();
-  await page.get('#line-view').setValue('diagnostics');
+  await selectOption(page, '#line-view', 'Communication log');
   await flushPromises();
   for (const [format, mime] of [['JSON', 'application/json'], ['CSV', 'text/csv']]) {
     await page.findAll('button').find(button => button.text() === 'Download log ' + format).trigger('click');
@@ -135,4 +137,18 @@ it('displays the verified clock correction beside the original supplier timestam
   expect(page.get('#line-source-at').text()).toBe('2026-01-01T12:00:00+00:00');
   expect(page.get('#line-clock-offset').text()).toBe('-1250 ms');
   expect(page.get('#line-corrected-source-at').text()).toBe('2026-01-01T11:59:58.750+00:00');
+});
+
+it('clears an empty filtered catalog without refreshing the service', async () => {
+  open(true);
+  await flushPromises();
+  await selectOption(page, '#line-view', 'Tag catalog');
+  await selectOption(page, '#line-access', 'Writable readback');
+  await page.get('#line-query').setValue('not a matching signal');
+  expect(page.text()).toContain('No signals match the current filters.');
+  await page.findAll('button').find(button => button.text() === 'Clear filters').trigger('click');
+  expect(page.get('#line-query').element.value).toBe('');
+  expect(page.text()).toContain('ExampleTank21_ExampleBasket');
+  expect(page.text()).toContain('ExampleTank21A_ExampleCommand');
+  expect(fetch.mock.calls.every(([, options]) => options.method !== 'POST')).toBe(true);
 });

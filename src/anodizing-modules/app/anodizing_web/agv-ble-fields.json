@@ -1,4 +1,8 @@
 {
+  "18": ["Controller status and profile word", "The vendor app checks the sign to choose the supported route-clear and settings behavior."],
+  "55": ["Outbound route count", "Stored outbound records. The single-line preview also includes the start."],
+  "56": ["Return route count", "Stored return records."],
+  "5E": ["Turn off music when parked", "0 selects Off and 1 selects On."],
   "6B": ["Version word on profile 2", "The generic details view formats high byte, high low-byte nibble and low low-byte nibble as a version. AGV2 offers no direct setting display for this word."],
   "6C": ["Laser obstacle-avoidance distance", "Distance in cm."],
   "6D": ["Master sound switch", "0 selects Off, nonzero selects On. The driving sound prompt control dims and its handler exits at zero."],
@@ -49,7 +53,7 @@
   "9B": ["Command index in the app's AGV update workflow", "UpdataAGV writes the index. Settings display and the live word's meaning are unresolved."],
   "9C": ["Command index in the app's AGV update workflow", "UpdataAGV writes the index. Settings display and the live word's meaning are unresolved."],
   "9D": ["Target station command index", "The vendor RS485 protocol uses 9D for target station. The BLE word’s relation to live target station is unverified."],
-  "9E": ["Track memory", "0 selects Off, 1 selects On. The native row refresh also checks multi-station mode and the status word at 18 for row availability. The stored learned route was outside these reads."],
+  "9E": ["Track memory", "0 selects Off, 1 selects On. The native row refresh also checks multi-station mode and the status word at 18 for row availability. With memory off, the route may have to be learned again after power is cycled. Undo restores the setting only."],
   "9F": ["Vehicle number", "Vehicle number. The app formats it as three digits."],
   "A7": ["Send 485 regularly", "0 selects the app's On texture and produced periodic reports. 1 selects Off and suppressed unsolicited reports in the live trial. 9A bit 2 gates the control."],
   "A8": ["Unidentified word", "Units and settings-page display unresolved."],

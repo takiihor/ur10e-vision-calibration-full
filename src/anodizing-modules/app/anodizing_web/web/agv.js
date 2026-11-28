@@ -218,6 +218,7 @@ function disabled(id, reason) {
 }
 
 function commandReason(name, preset) {
+  if (name === 'stop' && state.executor_link) return '';
   if (!state.connected) return 'Connect first.';
   if (state.wired_port && !reads.has(name)) return state.motion_block;
   if (name === 'pause' && !statusStale() && state.status?.mode === 0) return pauseStationOnly;
@@ -355,6 +356,21 @@ function render() {
   disabled('armed', (!state.armed && state.bluetooth_block) || (!state.connected ? 'Connect first.' : busy ? 'Wait for the current request.' : state.motion_block || ''));
   disabled('silence', busy ? 'Wait for the current request.' : '');
   $('armed').checked = state.armed || false;
+  const armStatus = $('module-arm-status');
+  const confirmation = state.module_attestation;
+  armStatus.hidden = !confirmation && !state.module_attestation_expired;
+  if (confirmation) {
+    const time = new Date(confirmation.expires_at * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', hour12: false});
+    const seconds = Math.max(0, Math.ceil(confirmation.remaining_s - (performance.now() - receivedAt) / 1000));
+    armStatus.textContent = `Armed for ${moduleOwnerLabel(confirmation.owner)} · confirmation valid until ${time} (${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} remaining)`;
+  } else {
+    armStatus.textContent = 'The module Arm confirmation expired. Confirm and Arm again.';
+  }
+  if (moduleArmReview && (JSON.stringify(moduleArmReview) !== JSON.stringify(moduleArmSnapshot()) || $('armed').disabled)) {
+    dismissModuleArm();
+  }
+  $('module-arm-enroll').hidden = state.module_arm_enrolled !== false;
+  $('module-arm-confirm').disabled = state.module_arm_enrolled === false;
   $('movement').dataset.armed = String(!!state.armed);
   $('silence-label').hidden = !state.connected || state.settings.mode !== 'simulator';
   $('silence').checked = state.silent || false;
@@ -446,8 +462,8 @@ function apply(next) {
       if (next.wired_port) {
         const serialOption = $('wired-mode').nextElementSibling;
         if (serialOption) serialOption.textContent = 'Serial port (LoRa)';
-        $('stop-shortcut').hidden = true;
-        $('stop').removeAttribute('aria-keyshortcuts');
+        $('stop-shortcut').hidden = !next.executor_link;
+        if (!next.executor_link) $('stop').removeAttribute('aria-keyshortcuts');
       }
       if (next.wired_port && !next.connected) {
         $('mode').value = 'wired';
@@ -499,7 +515,7 @@ async function api(body, refreshPorts = false) {
     options.body = JSON.stringify(body);
   }
   const route = body ? '/api/agv' : refreshPorts ? '/api/agv?ports=1' : '/api/agv?cached=1';
-  const response = await fetch(route, options);
+  const response = await window.operatorFetch(route, options);
   const value = await response.json();
   if (!response.ok) throw Object.assign(new Error(value.error || 'AGV request failed.'), {api: true, status: response.status});
   return value;
@@ -526,6 +542,7 @@ function requestError(error) {
 
 async function post(body, {id, priority = false, viaEsc = false} = {}) {
   if (busy && !priority) return;
+  if (body.command === 'stop') dismissModuleArm();
   if (!priority) busy = true;
   let pending;
   if (id) {
@@ -539,8 +556,8 @@ async function post(body, {id, priority = false, viaEsc = false} = {}) {
     if (state.executor_link && body.command !== 'query_status') {
       body = { ...body, request_id: crypto.randomUUID(), review_cursor: state.review_cursor };
       if (body.armed === true || body.command === 'call_station') {
-        body = { ...body, executor_boot: state.executor_boot, executor_session: state.executor_session,
-          stop_generation: state.stop_generation };
+        body = { executor_boot: state.executor_boot, executor_session: state.executor_session,
+          stop_generation: state.stop_generation, executor_owner: state.owner ?? null, ...body };
       }
     }
     const result = await api({connection_id: state.connection_id, ...body});
@@ -631,7 +648,7 @@ window.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
   event.preventDefault();
   if (event.repeat) return;
-  if (state.connected && !state.wired_port) return sendCommand('stop', 'stop', undefined, true);
+  if (state.executor_link || (state.connected && !state.wired_port)) return sendCommand('stop', 'stop', undefined, true);
   lastPressed = 'stop';
   outcomes.set('stop', {direct: {text: commandReason('stop'), tone: 'waiting'}});
   renderOutcome('stop');
@@ -651,7 +668,38 @@ $('connect').addEventListener('click', () => post({action: 'connect', mode: $('m
   port: $('port').value, stations: Number($('stations-config').value),
   ...radioOverrides(radioFieldsInForm())}, {id: 'connect'}));
 $('disconnect').addEventListener('click', () => post({action: 'disconnect'}, {id: 'disconnect'}));
-$('armed').addEventListener('change', event => post({action: 'arm', armed: event.currentTarget.checked}, {id: 'armed'}));
+let moduleArmReview = null;
+const moduleOwnerLabel = owner => owner === 'calibration' ? 'Calibration module' : owner;
+const moduleArmSnapshot = () => ({
+  executor_owner: state.owner, executor_boot: state.executor_boot, executor_session: state.executor_session,
+  stop_generation: state.stop_generation, connection_id: state.connection_id, lease_id: state.module_lease_id,
+});
+function dismissModuleArm() {
+  moduleArmReview = null;
+  $('module-arm').hidden = true;
+  $('module-arm-operator').value = '';
+}
+$('armed').addEventListener('change', event => {
+  if (event.currentTarget.checked && state.job_gateway && state.owner && state.owner !== 'agv-page') {
+    event.currentTarget.checked = false;
+    moduleArmReview = moduleArmSnapshot();
+    $('module-arm-heading').textContent = `Arm for ${moduleOwnerLabel(state.owner)}`;
+    $('module-arm').hidden = false;
+    $('module-arm-heading').focus();
+  } else {
+    void post({action: 'arm', armed: event.currentTarget.checked}, {id: 'armed'});
+  }
+});
+$('module-arm').addEventListener('submit', event => {
+  event.preventDefault();
+  const operator = $('module-arm-operator').value.trim();
+  if (!moduleArmReview || $('module-arm-confirm').disabled || !operator) return;
+  const {lease_id, ...review} = moduleArmReview;
+  dismissModuleArm();
+  void post({action: 'arm', armed: true, ...review,
+    module_attestation: {confirmed: true, operator, owner: review.executor_owner, lease_id}}, {id: 'armed'});
+});
+$('module-arm-cancel').addEventListener('click', dismissModuleArm);
 $('silence').addEventListener('change', event => post({action: 'silence', silent: event.currentTarget.checked}));
 $('sound').addEventListener('change', () => {
   if (!$('sound').checked || !window.AudioContext) return;

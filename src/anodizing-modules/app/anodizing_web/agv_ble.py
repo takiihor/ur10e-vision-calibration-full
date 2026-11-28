@@ -1,4 +1,4 @@
-"""Katana-only XBOT AGV2 settings over Bluetooth."""
+"""Katana-only XBOT AGV2 maintenance over Bluetooth."""
 import asyncio
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -14,10 +14,35 @@ from uuid import uuid4
 from .jobs import atomic_json
 
 NUS = '6e40000{}-b5a3-f393-e0a9-e50e24dcca9e'
-BLOCKS = {0x6B: 0x34, 0x86: 0x34, 0xA7: 0x34}
-WRITABLE = {'8C', '90', 'A7'}
-FIRST = ('6F', '72', '86', '8C', '90', '9E', '6E', 'A7')
+BLOCKS = {0x05: 0x28, 0x51: 0x34, 0x6B: 0x34, 0x86: 0x34, 0xA7: 0x34}
+FIELD_BLOCKS = {f'{index:02X}': start for start, size in BLOCKS.items()
+                for index in range(start, start + size // 2)}
+LEGACY_FIELDS = {field for field, start in FIELD_BLOCKS.items() if start >= 0x6B}
+WRITABLE = {
+    '5E': (0, 1), '73': (0, 1), '77': (0, 1), '86': (0, 1), '8A': (0, 100),
+    '8C': (0, 1), '8D': (0, 2), '90': (0, 1), '9E': (0, 1), 'A7': (0, 1),
+}
+FIRST = ('55', '56', '6F', '72', '86', '8C', '90', '9E', '6E', 'A7', 'B4', 'BB', '18')
 FIELDS = json.loads(Path(__file__).with_name('agv-ble-fields.json').read_text())
+READ_ONLY = {
+    '6C': 'Changing the laser distance could weaken obstacle detection.',
+    '6D': 'The effect of muting all sound on the obstacle warning is unverified.',
+    '6E': 'Auto-start can move the AGV after a stop.',
+    '74': 'The direction change is unverified on this controller profile.',
+    '79': 'The unlock timer range and steps are unverified on this unit.',
+    '87': 'The Bluetooth stop is unverified.',
+    '88': 'This is a sensor status word. Keep obstacle sensing, bumpers and the e-stop enabled.',
+    '8B': 'Shortening this duration could weaken the audible obstacle warning.',
+    '91': 'Sensor limits and calibration are unverified.',
+    '94': 'Changing chemistry could give an incorrect battery reserve reading.',
+    '95': 'The voltage calibration scale is unverified.',
+    '96': 'The route type choices are unverified on this unit.',
+    '9F': 'Changing the vehicle number can break the configured wired link.',
+}
+SPEED_FIELDS = {'7D', '89', '8E', '8F'}
+ROUTE_COUNTS = ('55', '56')
+ROUTE_INDEX_LIMIT = 256
+ROUTE_DIRECTIONS = (('outbound', 0x21), ('return', 0x23))
 LEASE_SECONDS = 15
 CONTROL_BLOCK = 'Disconnect the Bluetooth maintenance session before connecting or arming RS485.'
 SESSION = re.compile(r'[A-Za-z0-9_-]{16,80}')
@@ -34,6 +59,10 @@ def mask(data):
 
 def checksum(data):
     return (~sum(data[2:]) & 0xffff).to_bytes(2, 'little')
+
+
+class NoBluetoothReply(ValueError):
+    pass
 
 
 class BlueZ:
@@ -99,6 +128,8 @@ class Bluetooth:
         self.expires = 0
         self.values = {}
         self.undo = None
+        self.clear_review = self.clear_result = None
+        self.route_records = self.route_error = None
         self.audit_failed = False
         self.incoming = bytearray()
 
@@ -115,22 +146,48 @@ class Bluetooth:
                 raise ValueError(self.reason)
             yield
 
+    def _field_status(self, field, values):
+        name, meaning = FIELDS.get(field, ('Unidentified word', 'Meaning unresolved on this profile.'))
+        raw = values.get(field)
+        value = int.from_bytes(raw, 'little') if raw is not None else None
+        row = dict(field=field, name=name, meaning=meaning, raw=raw.hex(' ') if raw is not None else None,
+                   value=value, writable=field in WRITABLE)
+        if field in WRITABLE:
+            row.update(minimum=WRITABLE[field][0], maximum=WRITABLE[field][1],
+                       readback=f'{FIELD_BLOCKS[field]:02X}', undoable=True)
+        else:
+            row['read_only_reason'] = self._read_only_reason(field, value)
+        return row
+
+    @staticmethod
+    def _read_only_reason(field, value):
+        if field in SPEED_FIELDS:
+            current = f'The current setpoint is {value} m/h. ' if value is not None else ''
+            return current + 'Speed changes require an agreed way to undo a reduction without a speed increase.'
+        if field in ('18', '55', '56', '6B', '9A', 'B4', 'BB'):
+            return 'The controller reports this value.'
+        return READ_ONLY.get(field, 'The meaning, permitted values or restore behavior is unverified on this unit.')
+
+    @staticmethod
+    def _counts(values):
+        if all(field in values for field in ROUTE_COUNTS):
+            return [int.from_bytes(values[field], 'little') for field in ROUTE_COUNTS]
+        return None
+
     def status(self, blocked=None):
         values = self.values
         return dict(connected=self.connected, busy=self.busy, configured=bool(self.identity),
                     blocked=blocked, active=self.session is not None,
-                    fields=[dict(field=field, name=FIELDS[field][0], meaning=FIELDS[field][1],
-                                 raw=values[field].hex(' ') if field in values else None,
-                                 value=int.from_bytes(values[field], 'little') if field in values else None,
-                                 writable=field in WRITABLE)
-                            for field in (*FIRST, *(key for key in FIELDS if key not in FIRST))],
-                    undo=self.undo)
+                    fields=[self._field_status(field, values)
+                            for field in (*FIRST, *(key for key in FIELD_BLOCKS if key not in FIRST))],
+                    route=dict(counts=self._counts(values), records=self.route_records, error=self.route_error),
+                    clear_result=self.clear_result, undo=self.undo)
 
     def _control_block(self):
         try:
             return self.control_state()
         except (OSError, ValueError):
-            return 'Could not verify that the executor is disconnected and disarmed.'
+            return 'Executor unavailable. Restore its link and verify it is disconnected and disarmed before writing.'
 
     def _run(self, coroutine):
         return asyncio.run_coroutine_threadsafe(coroutine, self.loop).result()
@@ -177,12 +234,11 @@ class Bluetooth:
             before_send()
         await self.transport.send(wire)
 
-    async def _read(self, field):
-        size = BLOCKS[field]
-        prefix = bytes((0x55, 0xAA, size + 2, 0x21, 1, field))
+    async def _exchange(self, operation, index, request, size):
+        prefix = bytes((0x55, 0xAA, size + 2, 0x21, operation, index))
         self.incoming.clear()
         self.data_ready.clear()
-        await self._send(frame(1, field, bytes((size,))))
+        await self._send(frame(operation, index, request))
         deadline = self.loop.time() + 3
         while True:
             if self.audit_failed:
@@ -191,20 +247,123 @@ class Bluetooth:
             while cursor >= 0 and len(self.incoming) - cursor >= size + 8:
                 reply = self.incoming[cursor:cursor + size + 8]
                 if reply[-2:] == checksum(reply[:-2]):
-                    return {f'{field + pos // 2:02X}': bytes(reply[6 + pos:8 + pos])
-                            for pos in range(0, size, 2)}
+                    return bytes(reply[6:-2])
                 cursor = self.incoming.find(prefix, cursor + 1)
             self.data_ready.clear()
             try:
                 await asyncio.wait_for(self.data_ready.wait(), max(0, deadline - self.loop.time()))
             except TimeoutError as exc:
-                raise ValueError(f'No valid Bluetooth settings reply for block {field:02X}.') from exc
+                raise NoBluetoothReply(f'No valid Bluetooth reply for {operation:02X} {index:02X}. Check the link and read again.') from exc
+
+    async def _read(self, start, size=None):
+        size = BLOCKS[start] if size is None else size
+        try:
+            payload = await self._exchange(1, start, bytes((size,)), size)
+        except NoBluetoothReply:
+            if start != 0xA7:
+                raise
+            payload = await self._exchange(1, start, bytes((size,)), size)
+        return {f'{start + offset // 2:02X}': payload[offset:offset + 2]
+                for offset in range(0, size, 2)}
 
     async def _read_all(self):
         values = {}
-        for start in BLOCKS:
-            values.update(await self._read(start))
+        try:
+            for start in BLOCKS:
+                values.update(await self._read(start))
+        except ValueError:
+            self.values = {}
+            self.route_records = self.route_error = None
+            raise
+        if self._counts(values) != self._counts(self.values):
+            self.route_records = self.route_error = None
         self.values = values
+
+    async def _read_route_records(self, counts):
+        records = {}
+        for (direction, operation), count in zip(ROUTE_DIRECTIONS, counts):
+            if count > ROUTE_INDEX_LIMIT:
+                raise ValueError(f'The {direction} count is {count}. The Bluetooth row index only covers 256 records.')
+            rows = []
+            for index in range(0, count, 4):
+                length = min(4, count - index)
+                payload = await self._exchange(operation, index, bytes((length,)), length * 16)
+                rows.extend(payload[pos:pos + 16].hex(' ') for pos in range(0, len(payload), 16))
+            records[direction] = rows
+        return records
+
+    async def _read_page(self):
+        await self._read_all()
+        self.route_records = self.route_error = None
+        try:
+            self.route_records = await asyncio.wait_for(self._read_route_records(self._counts(self.values)), 20)
+        except (TimeoutError, ValueError) as exc:
+            self.route_error = str(exc) or 'Reading the route took too long. Check the link and read again.'
+
+    async def _read_counts(self):
+        self.values = {key: data for key, data in self.values.items() if key not in ROUTE_COUNTS}
+        readback = await self._read(0x55, 4)
+        self.values = dict(self.values, **readback)
+        return self._counts(readback)
+
+    def _require_live_session(self):
+        if self.expires <= monotonic():
+            raise ValueError('The Bluetooth page session expired. Reconnect before writing.')
+
+    def _check_clear(self):
+        if blocked := self._control_block():
+            raise ValueError(blocked)
+        profile = self._run(self._read(0x05))
+        self.values = dict(self.values, **profile)
+        if int.from_bytes(profile['18'], 'little', signed=True) < 0:
+            raise ValueError(f"Route clear is unavailable for controller profile 18 = {profile['18'].hex(' ')}. "
+                             'Use the vendor procedure for this controller.')
+        previous = self._counts(self.values)
+        counts = self._run(self._read_counts())
+        if counts != previous:
+            self.route_records = self.route_error = None
+        if max(counts) > ROUTE_INDEX_LIMIT:
+            raise ValueError(f'Outbound {counts[0]} and return {counts[1]} exceed the supported route count. '
+                             'Read settings again and check the route before clearing.')
+        return counts
+
+    def _review_clear(self):
+        self.clear_review = None
+        counts = self._check_clear()
+        if counts == [0, 0]:
+            raise ValueError('Outbound 0 and return 0. The stored route is already empty.')
+        self.clear_review = dict(token=uuid4().hex, before=counts)
+        return self.clear_review
+
+    def _clear(self, body):
+        review, self.clear_review = self.clear_review, None
+        if review is None or body.get('token') != review['token'] or body.get('confirmed') is not True:
+            raise ValueError('Review the current route counts, then confirm the clear.')
+        before = self._check_clear()
+        if before != review['before']:
+            raise ValueError(f"Counts changed from {review['before']} to {before} (outbound, return). Review again.")
+        if blocked := self._control_block():
+            raise ValueError(blocked)
+        self.clear_result = None
+
+        def before_send():
+            self._require_live_session()
+            self.values = {key: data for key, data in self.values.items() if key not in ROUTE_COUNTS}
+            self.route_records = self.route_error = None
+            self.clear_result = dict(before=before, after=None)
+
+        try:
+            self._run(self._send(frame(0x25, 0, b''), before_send))
+            after = self._run(self._read_counts())
+        except ValueError as exc:
+            if self.clear_result is None:
+                raise
+            raise ValueError('Route clear is unconfirmed. Read the counts again before taking any further action.') from exc
+        self.clear_result = dict(before=before, after=after)
+        if after != [0, 0]:
+            raise ValueError(f'Route clear is unconfirmed. Read-back was outbound {after[0]}, return {after[1]}. '
+                             'Check the route before taking any further action.')
+        self.route_records = {'outbound': [], 'return': []}
 
     def _renew(self):
         if self.timer is not None:
@@ -233,6 +392,8 @@ class Bluetooth:
             self.timer.cancel()
         self.connected = False
         self.values = {}
+        self.clear_review = self.clear_result = None
+        self.route_records = self.route_error = None
         self.fingerprint = self.undo = self.session = self.transport = None
 
     def close(self):
@@ -302,43 +463,62 @@ class Bluetooth:
             saved = json.loads(snapshot.read_text())
             field, old, value = saved['field'], saved['old'], saved['value']
             if (saved.get('device') != self.fingerprint or field not in WRITABLE
-                    or type(old) is not int or type(value) is not int or old not in (0, 1) or value not in (0, 1)
-                    or set(saved['fields']) != set(FIELDS)
+                    or not self._valid_change(field, old, value)
+                    or set(saved['fields']) not in (LEGACY_FIELDS, FIELD_BLOCKS.keys())
                     or saved['fields'][field] != old.to_bytes(2, 'little').hex(' ')):
                 raise ValueError()
         except (OSError, ValueError, TypeError, KeyError) as exc:
             raise ValueError('The Bluetooth undo snapshot is unreadable.') from exc
         return dict(field=field, old=value, value=old)
 
+    @staticmethod
+    def _valid_change(field, old, value):
+        minimum, maximum = WRITABLE[field]
+        return (type(old) is int and type(value) is int and old != value
+                and minimum <= old <= maximum and minimum <= value <= maximum)
+
     def _write(self, body):
         field, old, value = (body.get(key) for key in ('field', 'old', 'value'))
         undoing = body['action'] == 'undo'
         if body.get('confirmed') is not True:
             raise ValueError('Confirm the old and new setting values before writing.')
-        if (not isinstance(field, str) or field not in WRITABLE or type(old) is not int or type(value) is not int
-                or old not in (0, 1) or value not in (0, 1) or old == value):
-            raise ValueError('Choose a supported setting and distinct values of 0 or 1.')
+        if not isinstance(field, str) or field not in WRITABLE:
+            if isinstance(field, str) and field in FIELD_BLOCKS:
+                raise ValueError(f'Field {field} is read-only. {self._read_only_reason(field, None)} Choose an editable setting.')
+            raise ValueError('Choose an editable Bluetooth setting.')
+        if not self._valid_change(field, old, value):
+            minimum, maximum = WRITABLE[field]
+            raise ValueError(f'Field {field} received {old!r} → {value!r}. Choose distinct whole numbers from '
+                             f'{minimum} to {maximum} and review again.')
         if undoing and self.undo != dict(field=field, old=old, value=value):
             raise ValueError('Review the latest Bluetooth write before undoing.')
         if blocked := self._control_block():
             raise ValueError(blocked)
         self._run(self._read_all())
-        if self.values[field] != old.to_bytes(2, 'little'):
-            raise ValueError('The previous value changed. Refresh settings and confirm again.')
+        current = int.from_bytes(self.values[field], 'little')
+        if current != old:
+            raise ValueError(f'Field {field} changed from {old} to {current}. Read settings and review again.')
         if value == 1 and field == '90' and self.values['8C'] != b'\x01\x00':
             raise ValueError('Enable multi-station mode before enabling its remote.')
         if value == 0 and field == '8C' and self.values['90'] != b'\x00\x00':
             raise ValueError('Disable the multi-station remote before disabling multi-station mode.')
-        if self.expires <= monotonic():
-            raise ValueError('The Bluetooth page session expired. Reconnect before writing.')
+        if field == '73' and self.values['86'] != b'\x00\x00':
+            raise ValueError('Front/rear key swap requires double-button mode (86 = 0). Check button mode and review again.')
+        if field == '8D' and self.values['6D'] == b'\x00\x00':
+            raise ValueError('Master sound is off (6D = 0). The driving sound pattern cannot be changed in this mode.')
+        if field in ('86', '9E') and int.from_bytes(self.values['18'], 'little', signed=True) < 0:
+            raise ValueError(f"Field {field} is unavailable for controller profile 18 = {self.values['18'].hex(' ')}.")
+        if field == '9E' and self.values['8C'] != b'\x00\x00':
+            raise ValueError('Track memory requires standard mode (8C = 0). Check multi-station mode and review again.')
+        self._require_live_session()
+        self.clear_review = None
         snapshot_id = uuid4().hex
         self._save(f'snapshot-{snapshot_id}.json', dict(device=self.fingerprint, field=field, old=old, value=value,
                    fields={key: data.hex(' ') for key, data in self.values.items()}))
         if blocked := self._control_block():
             raise ValueError(blocked)
         def before_send():
-            if self.expires <= monotonic():
-                raise ValueError('The Bluetooth page session expired. Reconnect before writing.')
+            self._require_live_session()
             if not undoing:
                 self._save('undo.json', dict(device=self.fingerprint, snapshot=snapshot_id))
                 self.undo = dict(field=field, old=value, value=old)
@@ -347,14 +527,15 @@ class Bluetooth:
         index = int(field, 16)
         payload = value.to_bytes(2, 'little')
         self._run(self._send(frame(3, index, payload), before_send))
-        start = next(start for start, size in BLOCKS.items() if start <= index < start + size // 2)
+        start = FIELD_BLOCKS[field]
         try:
             verified = self._run(self._read(start))
         except ValueError as exc:
             raise ValueError('Write not confirmed by read-back. Read settings again before retrying.') from exc
         self.values = dict(self.values, **verified)
         if verified[field] != payload:
-            raise ValueError('Write not confirmed by read-back. Review the current setting.')
+            actual = int.from_bytes(verified[field], 'little')
+            raise ValueError(f'Field {field} read-back was {actual}, expected {value}. Read settings and review again.')
         if undoing:
             self._save('undo.json', None)
             self.undo = None
@@ -380,6 +561,7 @@ class Bluetooth:
                 self._disconnect()
                 raise ValueError('Bluetooth connection was lost. Connect again.')
             self.busy = action != 'heartbeat'
+            extra = {}
             try:
                 if action == 'connect':
                     self._connect(session)
@@ -388,11 +570,17 @@ class Bluetooth:
                 else:
                     self._renew()
                     if action == 'read':
-                        self._run(self._read_all())
+                        self._run(self._read_page())
+                    elif action == 'review-clear':
+                        extra['clear_review'] = self._review_clear()
+                    elif action == 'clear':
+                        self._clear(body)
                     elif action in ('write', 'undo'):
                         self._write(body)
                     elif action != 'heartbeat':
                         raise ValueError('Choose a Bluetooth settings action.')
             finally:
                 self.busy = False
-            return self.status()
+                if action not in ('connect', 'disconnect') and self.session is not None:
+                    self._renew()
+            return dict(self.status(), **extra)

@@ -1,4 +1,6 @@
 <script setup>
+import Message from 'primevue/message';
+import Disclosure from './Disclosure.vue';
 import { onMounted, onUnmounted, ref, watch } from 'vue';
 import Checkbox from 'primevue/checkbox';
 import Select from 'primevue/select';
@@ -134,8 +136,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <details data-ui="pick.tools.panel" :data-ui-key="kind" v-for="{ kind, name, commands } in tools" :key="kind" class="panel" :open="tool === kind || undefined">
-    <summary data-ui="pick.tools.toggle" :data-ui-key="kind">{{ name }}</summary>
+  <Disclosure data-ui="pick.tools.panel" :data-ui-key="kind" v-for="{ kind, name, commands } in tools" :key="kind" class="panel" :open="tool === kind || undefined" toggle-id="pick.tools.toggle" :toggle-key="kind">
+    <template #heading>{{ name }}</template>
     <template v-if="kind === 'mcu'">
       <p>Each click sends one command. Automatic tests issue their own MCU commands. A reply does not verify grip or release.</p>
       <label class="pick-check" for="mcu-off"><Checkbox :pt="{ input: { 'data-ui': 'pick.tools.agv.off', 'data-ui-key': kind } }" v-model="off" input-id="mcu-off" binary
@@ -157,7 +159,7 @@ onUnmounted(() => {
       <OperatorButton data-ui="pick.tools.check" :data-ui-key="kind" :id="kind + '-check'" label="Check request" :why="busy ? 'Wait for the current request.' :
         !ids[kind].value ? 'No saved request ID yet.' : ''" :outcome="outcomes[kind + '-check']" @press="inspect(kind)" />
     </div>
-    <p v-if="pending[kind].value.request_id" role="status">Submission outcome unconfirmed. Check the request ID or explicitly retry the same request.</p>
+    <Message severity="warn" variant="simple" v-if="pending[kind].value.request_id" role="status">Submission outcome unconfirmed. Check the request ID or explicitly retry the same request.</Message>
     <p v-if="ids[kind].value">Request ID · {{ ids[kind].value }}</p>
     <template v-if="state[kind].value?.last_known">
       <template v-if="kind === 'mcu'">
@@ -169,9 +171,9 @@ onUnmounted(() => {
         · {{ timestamp(state[kind].value.last_known.observed_at) }}.</p>
     </template>
     <p v-else>No {{ kind === 'mcu' ? 'MCU reply' : 'voltage reading' }} recorded.</p>
-    <details data-ui="pick.tools.evidence" :data-ui-key="kind" v-if="state[kind].value?.last_known || evidence[kind].value">
-      <summary data-ui="pick.tools.evidence.toggle" :data-ui-key="kind">Recorded request and reply</summary>
+    <Disclosure data-ui="pick.tools.evidence" :data-ui-key="kind" v-if="state[kind].value?.last_known || evidence[kind].value" toggle-id="pick.tools.evidence.toggle" :toggle-key="kind">
+      <template #heading>Recorded request and reply</template>
       <pre>{{ JSON.stringify(evidence[kind].value ?? state[kind].value.last_known, null, 2) }}</pre>
-    </details>
-  </details>
+    </Disclosure>
+  </Disclosure>
 </template>

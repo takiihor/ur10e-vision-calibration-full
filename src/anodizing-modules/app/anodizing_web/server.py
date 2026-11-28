@@ -16,9 +16,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from pathlib import Path
 from threading import Lock, Thread
+import time
 from urllib.parse import parse_qs, urlsplit
 
 from . import agv_ble, calibration, teaching, pick_place, manual_pick_place, tool_power, mcu, robot_control, agv, travel_pose, operator_state, operator_records, operator_line_archive
+from . import agv_feedback
 from .jobs import JobOwner, atomic_json
 from .operator_line import Line
 from .operator_line_test import LineTest
@@ -31,8 +33,10 @@ OPERATOR_TYPES = {'.js': 'text/javascript; charset=utf-8', '.css': 'text/css; ch
                   '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf',
                   '.eot': 'application/vnd.ms-fontobject', '.svg': 'image/svg+xml'}
 MAX_BODY = 32768
-OPERATOR_COOKIE = 'anodizing_operator'
-OPERATOR_COOKIE_MAX_AGE = 365 * 24 * 60 * 60
+SIMULATOR_ENROLLMENT_COOKIE = 'anodizing_simulated_operator'
+OPERATOR_ENROLLMENT_SECONDS = 12 * 60 * 60
+OPERATOR_HOST = 'dev.localhost'
+OPERATOR_PATH = '/dev/'
 
 
 def read_operator_key(path, root):
@@ -173,7 +177,7 @@ class Server(ThreadingHTTPServer):
         if stop:
             Thread(target=stop, daemon=True, name='katana-operator-journal-stop').start()
 
-    def __init__(self, port, root, *, allow_camera=False, allow_teaching=False, allow_manual=False, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False, allow_agv_in_recipe=False, simulate_scene=False, line_mode='disabled', allow_line_api_test_writes=False, executor_client=None, programme_steps=None, local_fake_programme=False, operator_key_file=None):
+    def __init__(self, port, root, *, allow_camera=False, allow_teaching=False, allow_manual=False, allow_auto_calibration=False, robot_model=None, allow_teacher_motion=False, allow_manual_pick_place=False, allow_agv_in_recipe=False, simulate_scene=False, line_mode='disabled', allow_line_api_test_writes=False, executor_client=None, programme_steps=None, local_fake_programme=False, operator_key_file=None, executor_stop_client=None):
         lock_path = Path(tempfile.gettempdir()) / f'anodizing-modules-{os.getuid()}.lock'
         self.lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         self.data_lock_fd = None
@@ -189,8 +193,6 @@ class Server(ThreadingHTTPServer):
                 raise RuntimeError('Another anodizing module service is already running.') from exc
             self.root = Path(root).resolve()
             self.operator_key = read_operator_key(operator_key_file, self.root) if operator_key_file else None
-            self.operator_cookie = (hmac.digest(self.operator_key, b'anodizing operator browser', 'sha256').hex()
-                                    if self.operator_key else None)
             self.root.mkdir(parents=True, exist_ok=True)
             self.operator_actions = OperatorActions(self.root, self._operator_action_fault) if executor_client or programme_steps is not None else None
             job_dir = self.root / '.jobs'
@@ -258,13 +260,14 @@ class Server(ThreadingHTTPServer):
             self.allow_camera, self.allow_teaching, self.allow_manual = allow_camera, allow_teaching, allow_manual
             super().__init__(('127.0.0.1', port), Handler)
             port = self.server_address[1]
-            self.hosts = {f'127.0.0.1:{port}', f'localhost:{port}'}
+            self.hosts = ({f'{OPERATOR_HOST}:{port}'} if self.operator_key
+                          else {f'127.0.0.1:{port}', f'localhost:{port}'})
             self.line.start()
             if executor_client is not None:
                 from .executor_link import ExecutorLink
                 route_address = section(self.root, 'executor_link').get('route_address')
                 self.executor_link = ExecutorLink(executor_client, self.agv, bluetooth=self.bluetooth,
-                                                  route_address=route_address)
+                                                  route_address=route_address, stop_client=executor_stop_client)
             if programme_steps is not None:
                 from .executor import Executor, FakeDevices
                 from .programme import Programme
@@ -338,11 +341,10 @@ class Server(ThreadingHTTPServer):
             blocker = 'Resolve the current executor job or operator check before changing Bluetooth settings.'
         elif self.programme_uses_executor and self.programme and self.programme.control_owned():
             blocker = 'The Calibration module owns the executor. Resolve the basket before changing Bluetooth settings.'
-        latest = (self.executor_link or self.agv).last_rs485_station_count
-        if latest:
-            latest = dict(latest, stale=not state['connected'] or state['stale']
-                          or latest['observed_at'] != state.get('status_time'))
-        return dict(status or self.bluetooth.status(), blocked=blocker, max_stations=latest)
+        latest = (state.get('wired_station') if self.executor_link else
+                  agv_feedback.station_snapshot(self.agv.last_rs485_station_count, state))
+        return agv_feedback.status_feedback(
+            dict(status or self.bluetooth.status(), blocked=blocker, max_stations=latest), bluetooth=True)
 
     def server_close(self):
         super().server_close()
@@ -419,7 +421,7 @@ class Handler(BaseHTTPRequestHandler):
                           last_modified=formatdate(mtime, usegmt=True) if mtime is not None else None)
 
     def operator_asset(self, path):
-        name = path.removeprefix('/operator/')
+        name = path.removeprefix(OPERATOR_PATH)
         try:
             if not name:
                 data, _, _ = self.server.cached_asset(OPERATOR_DIST / 'index.html')
@@ -451,28 +453,55 @@ class Handler(BaseHTTPRequestHandler):
         token = b'' if self.operator_key_required else self.server.token.encode()
         return data.replace(b'__TOKEN__', token).replace(b'__TEACH_TOKEN__', token)
 
+    def _operator_signature(self, value):
+        key = self.server.operator_key if self.operator_key_required else self.server.token.encode()
+        origin = f'http://{self.headers["Host"]}' if self.operator_key_required else 'simulator'
+        return hmac.digest(key, f'anodizing operator enrollment {origin} {value}'.encode(), 'sha256').hex()
+
+    def operator_enrollment(self):
+        if self.operator_key_required:
+            supplied = self.headers.get_all('X-Operator-Enrollment', [])
+            value = supplied[0] if len(supplied) == 1 else ''
+        else:
+            try:
+                cookie = SimpleCookie(self.headers.get('Cookie', '')).get(SIMULATOR_ENROLLMENT_COOKIE)
+            except CookieError:
+                return None
+            value = cookie.value if cookie else ''
+        match = re.fullmatch(r'([0-9]{1,12})\.([a-f0-9]{32})\.([a-f0-9]{64})', value)
+        if match:
+            expires, ident, signature = match.groups()
+            if int(expires) > time.time() and secrets.compare_digest(
+                    signature, self._operator_signature(f'{expires}.{ident}')):
+                return ident
+        return None
+
     def operator_has_key(self):
-        try:
-            cookie = SimpleCookie(self.headers.get('Cookie', '')).get(OPERATOR_COOKIE)
-        except CookieError:
-            return False
-        return bool(cookie and secrets.compare_digest(cookie.value.encode(), self.server.operator_cookie.encode()))
+        return self.operator_enrollment() is not None
+
+    def _new_operator_enrollment(self):
+        expires = int(time.time()) + OPERATOR_ENROLLMENT_SECONDS
+        value = f'{expires}.{secrets.token_hex(16)}'
+        return f'{value}.{self._operator_signature(value)}'
 
     def authorized(self, *, token):
         host = self.headers.get('Host')
         origin = self.headers.get('Origin')
-        if host not in self.server.hosts or origin not in (None, f'http://{host}'):
+        if (len(self.headers.get_all('Host', [])) != 1 or host not in self.server.hosts
+                or origin not in (None, f'http://{host}')):
             return False
         return not token or secrets.compare_digest(self.headers.get('X-Module-Token', '').encode(), self.server.token.encode())
 
     def operator_key_page(self):
         return self.reply(200, b'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Enroll operator browser</title>
-<link rel="stylesheet" href="/style.css"></head><body><main><h1>Enroll operator browser</h1>
-<form method="post" action="/operator-key" autocomplete="off">
+<link rel="stylesheet" href="/style.css"><script src="/operator-auth.js" defer></script></head>
+<body><main><h1>Enroll operator browser</h1>
+<form id="operator-enrollment" method="post" action="/operator-key" autocomplete="off">
 <label for="key">Saved operator key</label>
 <input id="key" name="key" type="password" maxlength="128" required spellcheck="false">
-<button type="submit">Enroll this browser</button></form><p><a href="/operator/">Return to operator app</a></p>
+<button type="submit">Enroll this browser</button><p id="enrollment-status" role="status"></p></form>
+<p><a href="/dev/">Return to Dev console</a></p>
 </main></body></html>''', 'text/html; charset=utf-8')
 
     def enroll_operator(self):
@@ -489,21 +518,37 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, {'error': 'Submit the operator key form.'})
         if not secrets.compare_digest(key.encode(), self.server.operator_key):
             return self.reply(403, {'error': 'Operator key refused. Return to the enrollment page and try again.'})
-        cookie = (f'{OPERATOR_COOKIE}={self.server.operator_cookie}; Path=/; HttpOnly; SameSite=Strict; '
-                  f'Max-Age={OPERATOR_COOKIE_MAX_AGE}')
-        return self.reply(303, b'', location='/operator/', cookie=cookie)
+        return self.reply(200, {'enrollment': self._new_operator_enrollment()})
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        legacy_path = path in ('/operator', '/operator/')
         if not self.authorized(token=path.startswith('/api/') and not self.operator_key_required):
-            return self.reply(403, {'error': 'Request is not authorized.'})
+            if self.operator_key_required:
+                port = self.server.server_port
+                address = f'http://{OPERATOR_HOST}:{port}{OPERATOR_PATH}'
+                legacy_host = f'operator.localhost:{port}'
+                hosts = self.headers.get_all('Host', [])
+                if (legacy_path and hosts == [legacy_host]
+                        and self.headers.get('Origin') in (None, f'http://{legacy_host}')):
+                    # Omit the query and let the browser retain its hash route.
+                    return self.reply(302, b'', location=address)
+                if (path in ('/', '/agv', '/dev', OPERATOR_PATH, '/operator', '/operator/')
+                        and hosts in ([f'127.0.0.1:{port}'], [f'localhost:{port}'])):
+                    notice = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Dev console moved</title>'
+                              '</head><body><main><h1>Dev console moved</h1>'
+                              f'<p>Open the <a href="{address}">Dev console</a> at {address}.</p></main></body></html>')
+                    return self.reply(200, notice.encode(), 'text/html; charset=utf-8')
+            return self._reply_action_error(path, 403, 'Request is not authorized.')
+        if legacy_path or path == '/dev':
+            return self.reply(302, b'', location=OPERATOR_PATH)
         operator_auth = {'required': self.operator_key_required,
                          'authorized': not self.operator_key_required or self.operator_has_key()}
         if path == '/operator-key' and self.operator_key_required:
             return self.operator_key_page()
         if path == '/api/operator-auth':
             return self.reply(200, operator_auth)
-        if path.startswith('/operator/'):
+        if path.startswith(OPERATOR_PATH):
             return self.operator_asset(path)
         if path == '/api/programme':
             programme = getattr(self.server, 'programme', None)
@@ -572,18 +617,23 @@ class Handler(BaseHTTPRequestHandler):
             result = travel_pose.state(self.server.owner, check_live=operator_auth['authorized']
                                        and urlsplit(self.path).query != 'cached=1')
             if getattr(self.server, 'executor_link', None):
-                result['agv'] = self.server.executor_link.status()
+                result['agv'] = self._executor_status()
             return self.reply(200, result)
         if path == '/api/agv-bluetooth':
             return self.reply(200, self.server.bluetooth_status())
         if path == '/api/agv':
             if getattr(self.server, 'executor_link', None):
-                return self.reply(200, self._executor_status())
+                state = self._executor_status()
+                if (not self.operator_key_required and not self.operator_enrollment()
+                        and state.get('executor_health', {}).get('simulated') is True):
+                    cookie = (f'{SIMULATOR_ENROLLMENT_COOKIE}={self._new_operator_enrollment()}; '
+                              f'Path=/; HttpOnly; SameSite=Strict; Max-Age={OPERATOR_ENROLLMENT_SECONDS}')
+                    return self.reply(200, state, cookie=cookie)
+                return self.reply(200, state)
             query = urlsplit(self.path).query
             if query in ('cached=1', 'ports=1') or not operator_auth['authorized']:
-                return self.reply(200, dict(self.server.agv.commissioning(ports=query == 'ports=1'),
-                                            bluetooth_block=self.server.bluetooth.reason))
-            return self.reply(200, dict(self.server.agv.capability(), bluetooth_block=self.server.bluetooth.reason))
+                return self.reply(200, self._local_agv_status(self.server.agv.commissioning(ports=query == 'ports=1')))
+            return self.reply(200, self._local_agv_status(self.server.agv.capability()))
         if path == '/api/agv-link':
             if getattr(self.server, 'executor_link', None):
                 return self.reply(200, self._executor_status())
@@ -797,6 +847,7 @@ class Handler(BaseHTTPRequestHandler):
                  '/teaching': ('teaching.html', 'text/html; charset=utf-8'),
                  '/pick-place': ('pick-place.html', 'text/html; charset=utf-8'),
                  '/agv': ('agv.html', 'text/html; charset=utf-8'),
+                 '/operator-auth.js': ('operator-auth.js', 'text/javascript; charset=utf-8'),
                  '/agv-motion.js': ('agv-motion.js', 'text/javascript; charset=utf-8'),
                  '/teaching-travel-pose.js': ('teaching-travel-pose.js', 'text/javascript; charset=utf-8'),
                  '/agv-record.mjs': ('agv-record.mjs', 'text/javascript; charset=utf-8'),
@@ -832,6 +883,7 @@ class Handler(BaseHTTPRequestHandler):
             fragment = editor[editor.index(b'<section id="tool-editor"'):editor.index(b'<footer>')]
             data = data.replace(b'__TOOL_EDITOR__', fragment.replace(b'id="message"', b'id="tool-message"'))
         if name.endswith('.html'):
+            data = data.replace(b'</head>', b'<script src="/operator-auth.js"></script></head>', 1)
             if not self.simulation_enabled:
                 data = re.sub(rb'<!--simulation-->.*?<!--/simulation-->', b'', data, flags=re.DOTALL)
             for placeholder, fragment in ((b'__ROBOT_CARD__','robot-card.html'), (b'__MANUAL_JOB_PANEL__','manual-job-panel.html')):
@@ -900,6 +952,10 @@ class Handler(BaseHTTPRequestHandler):
         cursor = self.server.operator_actions.cursor
         original_action = (state or {}).get('operator_action')
         state = self.server.executor_link.status()
+        if self.operator_key_required and not self.operator_has_key():
+            state.pop('module_lease_id', None)
+            state.pop('executor_session', None)
+        state['module_arm_enrolled'] = self.operator_enrollment() is not None
         if original_action:
             state['operator_action'] = original_action
         programme = self.server.programme if self.server.programme_uses_executor else None
@@ -907,7 +963,19 @@ class Handler(BaseHTTPRequestHandler):
             state['programme_motion_block'] = programme.history_fault or 'The Calibration module owns the executor. Resolve the basket or use Stop.'
             state['calibration_awaiting_arm'] = programme.awaiting_arm()
         state['calibration_available'] = bool(programme)
-        return dict(state, review_cursor=cursor, bluetooth_block=self.server.bluetooth.reason)
+        return agv_feedback.status_feedback(dict(state, review_cursor=cursor, bluetooth_block=self.server.bluetooth.reason))
+
+    def _local_agv_status(self, state):
+        return agv_feedback.status_feedback(dict(state, bluetooth_block=self.server.bluetooth.reason,
+            wired_station=agv_feedback.station_snapshot(self.server.agv.last_rs485_station_count, state)))
+
+    def _reply_action_error(self, path, http_status, error):
+        result = {'error': error}
+        if path in ('/api/agv', '/api/agv-bluetooth'):
+            link = getattr(self.server, 'executor_link', None)
+            state = link.status() if link and http_status == 400 else None
+            result.update(agv_feedback.describe(error, state))
+        return self.reply(http_status, result)
 
     def _programme_action(self, body):
         if (self.server.programme_uses_executor and body.get('action') in ('start', 'resume')
@@ -946,6 +1014,8 @@ class Handler(BaseHTTPRequestHandler):
             if body.get('owner') == 'calibration' and not programme:
                 raise ValueError('Configure the Calibration module before assigning the executor to it.')
             return link.select_owner(body)
+        if arm and ('module_attestation' in body or body.get('executor_owner') not in (None, 'agv-page')):
+            return link.submit(body, browser_enrollment=self.operator_enrollment())
         return link.submit(body)
 
     def read_body(self, limit):
@@ -959,7 +1029,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlsplit(self.path).path
         if not self.authorized(token=not self.operator_key_required):
-            return self.reply(403, {'error': 'Request is not authorized.'})
+            return self._reply_action_error(path, 403, 'Request is not authorized.')
         if path == '/operator-key':
             return self.enroll_operator()
         try:
@@ -973,7 +1043,7 @@ class Handler(BaseHTTPRequestHandler):
                 action == 'stop' and path in ('/api/programme', '/api/tests/line', '/api/manual-control',
                                               '/api/teacher-control', '/api/calibration-control'))
             if self.operator_key_required and not stop and not self.operator_has_key():
-                return self.reply(403, {'error': 'Enroll this browser with the saved operator key to make changes.'})
+                return self._reply_action_error(path, 403, 'Enroll this browser with the saved operator key to make changes.')
             owner = self.server.owner
             if path == '/api/programme':
                 programme = getattr(self.server, 'programme', None)
@@ -1045,8 +1115,7 @@ class Handler(BaseHTTPRequestHandler):
                 if (body.get('action') == 'connect' and body.get('mode', 'simulator') == 'simulator'
                         and not self.simulation_enabled):
                     raise PermissionError('Simulation is disabled on this service.')
-                return self.reply(200, dict(self.server.agv.submit(body),
-                                            bluetooth_block=self.server.bluetooth.reason))
+                return self.reply(200, self._local_agv_status(self.server.agv.submit(body)))
             if path == '/api/mcu':
                 return self.reply(202, mcu.submit(owner, body))
             if path not in ('/api/calibration', '/api/teaching', '/api/pick-place', '/api/manual-pick-place', '/api/robot-control'):
@@ -1069,9 +1138,21 @@ class Handler(BaseHTTPRequestHandler):
             job = owner.submit(request_id, module, body, function)
             self.reply(202, job)
         except PermissionError as exc:
-            self.reply(403, {'error': str(exc)})
+            self._reply_action_error(path, 403, str(exc))
         except (ValueError, TypeError, KeyError, OSError, json.JSONDecodeError) as exc:
-            self.reply(400, {'error': str(exc)})
+            self._reply_action_error(path, 400, str(exc))
+
+
+def _executor_stop_client(root, client):
+    from .executor_http import OperatorApp
+    from .site_profile import section
+
+    port = section(root, 'line_network').get('stop_api_port')
+    if port is None:
+        return None
+    if port == client.port:
+        raise ValueError('Choose a separate fixed port for the Katana Stop API.')
+    return OperatorApp(port, client.key, host=client.host, certificate=client.certificate)
 
 
 def main():
@@ -1128,7 +1209,7 @@ def main():
         return
     if args.executor_port and not args.executor_token_file:
         parser.error('Configure a service token file for the IPC executor.')
-    executor_client = None
+    executor_client = executor_stop_client = None
     if args.executor_port:
         from .executor_http import Client, OperatorApp
         from .site_profile import section
@@ -1145,16 +1226,21 @@ def main():
                 parser.error('Configure the pinned IPC certificate for the live executor API.')
             address = '127.0.0.1'
         client_type = OperatorApp if args.executor_cert_file else Client
-        executor_client = client_type(args.executor_port, Path(args.executor_token_file).read_text().strip(),
+        operator_key = Path(args.executor_token_file).read_text().strip()
+        executor_client = client_type(args.executor_port, operator_key,
                                       host=address, certificate=args.executor_cert_file)
+        if args.executor_cert_file:
+            executor_stop_client = _executor_stop_client(args.data_dir, executor_client)
     programme_steps = None
     if args.programme_file:
         programme_steps = json.loads(Path(args.programme_file).read_text())
     server = Server(args.port, args.data_dir, allow_camera=args.allow_camera, allow_teaching=args.allow_teaching, allow_manual=args.allow_manual, allow_auto_calibration=args.allow_auto_calibration, robot_model=args.robot_model, allow_teacher_motion=args.allow_teacher_motion, allow_manual_pick_place=args.allow_manual_pick_place, allow_agv_in_recipe=args.allow_agv_in_recipe, simulate_scene=args.simulate_scene, line_mode=args.line_mode,
                     allow_line_api_test_writes=args.allow_line_api_test_writes,
                     executor_client=executor_client, programme_steps=programme_steps,
-                    local_fake_programme=args.local_fake_programme, operator_key_file=args.operator_key_file)
-    print(f'Anodizing modules: http://127.0.0.1:{args.port}/  data: {server.root}', flush=True)
+                    local_fake_programme=args.local_fake_programme, operator_key_file=args.operator_key_file,
+                    executor_stop_client=executor_stop_client)
+    host = OPERATOR_HOST if server.operator_key else '127.0.0.1'
+    print(f'Anodizing modules: http://{host}:{args.port}{OPERATOR_PATH}  data: {server.root}', flush=True)
     try:
         server.serve_forever(poll_interval=.2)
     except KeyboardInterrupt:

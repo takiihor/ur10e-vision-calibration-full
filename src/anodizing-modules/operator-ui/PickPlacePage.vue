@@ -1,9 +1,20 @@
 <script setup>
+import Disclosure from './Disclosure.vue';
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import Badge from 'primevue/badge';
+import Button from 'primevue/button';
+import Card from 'primevue/card';
+import Tab from 'primevue/tab';
+import TabList from 'primevue/tablist';
+import TabPanel from 'primevue/tabpanel';
+import TabPanels from 'primevue/tabpanels';
+import Tabs from 'primevue/tabs';
+import Tag from 'primevue/tag';
 import Checkbox from 'primevue/checkbox';
 import InputText from 'primevue/inputtext';
 import Message from 'primevue/message';
 import Select from 'primevue/select';
+import { usePageTab } from './usePageTab';
 import OperatorButton from './OperatorButton.vue';
 import PickPlaceFields from './PickPlaceFields.vue';
 import PickPlaceJob from './PickPlaceJob.vue';
@@ -16,6 +27,10 @@ import {
 } from './pickPlace';
 
 const props = defineProps({ owner: Object, agv: Object, stopId: String, tool: String });
+const tab = usePageTab('pick-place', ['overview', 'transfer', 'single', 'motion', 'evidence']);
+watch(() => props.tool, tool => {
+  if (tool) tab.value = 'motion';
+}, { immediate: true });
 const emit = defineEmits(['outcome', 'changed']);
 const inspectKey = 'ano-manual-inspect-id';
 const lostKey = 'ano-pick-place-unconfirmed';
@@ -538,158 +553,191 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <p><a data-ui="pick.legacy.open" href="/pick-place">Legacy Pick/place</a> · <a data-ui="pick.agv.open" href="#/agv">AGV commissioning</a></p>
-  <Message v-if="owner?.execution_uncertain || owner?.storage_error" severity="error" role="alert">{{ ownerReason(owner) }}</Message>
-  <Message v-if="lost && !busy" severity="warn">
-    Submission outcome unconfirmed. Inspect operation {{ lost }} in Current operation before sending another request.
-  </Message>
-  <div data-ui="pick.page" class="agv-grid pick-grid">
-    <div class="agv-main">
-      <section data-ui="pick.setup.panel" class="panel" aria-labelledby="pick-setup-heading">
-        <h2 id="pick-setup-heading">Teaching inputs</h2>
-        <p>Paths refer to the service data directory.</p>
-        <PickPlaceFields data-ui="pick.setup.field" :fields="sources" :values="form" prefix="pick" @edit="edit" />
-        <p>{{ loadNote }}</p>
-        <details data-ui="pick.motion.panel">
-          <summary data-ui="pick.motion.toggle">Motion settings</summary>
-          <PickPlaceFields data-ui="pick.motion.field" :fields="[...boundsFields, ['verticalSpeed', 'Vertical speed (mm/s)', 1, 20]]"
-            :values="form" prefix="pick" @edit="edit" />
-        </details>
-      </section>
-
-      <ProgrammePanel @changed="emit('changed')" />
-      <section data-ui="pick.recipe.panel" class="panel" aria-labelledby="recipe-heading">
-        <h2 id="recipe-heading">Automatic rod transfer test</h2>
-        <p>The rod starts at A. One transfer is one pickup and placement. Two transfers run A → B → A.</p>
-        <PickPlaceFields data-ui="pick.recipe.field" :fields="recipeFields" :values="recipeForm" prefix="recipe" @edit="editRecipe" />
-        <div class="field-row">
-          <label v-for="endpoint in endpoints" :key="endpoint.label" :for="'recipe-station-' + endpoint.label">
-            Endpoint {{ endpoint.label }} AGV station ({{ endpoint.label === 'B' ? 'blank uses A' : '1–255' }})
-            <InputText data-ui="pick.recipe.station" :data-ui-key="endpoint.label" :id="'recipe-station-' + endpoint.label" :model-value="endpoint.station" type="number" min="1" max="255" step="1"
-              :aria-describedby="'recipe-source-' + endpoint.label" @update:model-value="value => setStation(endpoint, value)" />
-            <small :id="'recipe-source-' + endpoint.label">{{ endpoint.meta?.tank || 'Tank not taught' }} · {{ stationSource(endpoint) }}</small>
-          </label>
-        </div>
-        <label class="pick-check" for="repeat-off"><Checkbox :pt="{ input: { 'data-ui': 'pick.recipe.agv.off' } }" v-model="repeatOff" input-id="repeat-off" binary :disabled="Boolean(common)" />
-          AGV is switched off for this recipe.</label>
-        <p :data-state="motion?.parked ? 'done' : ''">{{ agvReason(motion, repeatOff) || (repeatOff ? 'AGV switched off · operator declaration.' : motion?.detail) }}</p>
-        <p>{{ travel?.allow_agv_in_recipe ? 'Approved recipes can call AGV stations.' : 'AGV check-only mode. Use one station for both endpoints.' }}</p>
-        <details data-ui="pick.recipe.travel">
-          <summary data-ui="pick.recipe.travel.toggle">Travel pose and recipe limits</summary>
-          <PickPlaceFields data-ui="pick.recipe.limit" :fields="recipeLimits" :values="recipeForm" prefix="recipe" @edit="editRecipe" />
-          <p v-if="travel?.pose">Travel pose saved {{ new Date(travel.pose.saved_at).toLocaleString() }} · joints (degrees)
-            {{ travel.pose.joints_rad?.map(value => (value * 180 / Math.PI).toFixed(1)).join(', ') }}.</p>
-          <p v-else>No saved travel pose available.</p>
-          <p v-if="liveTravel">Live check at {{ liveTravel.readAt.toLocaleTimeString() }} ·
-            {{ liveTravel.at_pose === true ? 'At travel pose and still' : 'Travel pose not confirmed' }}.</p>
-          <OperatorButton data-ui="pick.recipe.travel.check" id="travel-live" label="Check live travel pose" :why="liveTravelWhy" :outcome="outcomes['travel-live']" @press="checkLiveTravel" />
-          <a data-ui="pick.recipe.travel.teaching" href="/teaching#agv-travel-settings">Change travel pose in Teaching</a>
-          <p>Settling is a delay. Tight/Open replies provide no proof of hold or release. The test uses no FSR threshold.</p>
-        </details>
-        <details data-ui="pick.recipe.sequence">
-          <summary data-ui="pick.recipe.sequence.toggle">Motion sequence</summary>
-          <ol>
-            <li>If the station changes, fold to the saved travel pose and wait for AGV arrival.</li>
-            <li>Move to the saved observation joints, capture the marker and check the fresh path.</li>
-            <li>Move above the endpoint and descend by the saved approach height. PICK opens at hover and closes with command 1.</li>
-            <li>PLACE opens with command 3. Lift or retract vertically by 100 mm.</li>
-          </ol>
-        </details>
-        <div class="controls">
-          <OperatorButton data-ui="pick.recipe.review" id="recipe-review" label="Review bounded recipe" :why="reviewWhy" :outcome="outcomes['recipe-review']" @press="reviewRecipe" />
-        </div>
-        <div data-ui="pick.recipe.reviewed" v-if="reviewed" class="pick-readout" aria-label="Reviewed recipe">
-          <p>{{ reviewed.transfers }} commanded transfer(s). Final commanded rod endpoint {{ reviewed.A === reviewed.B && !cross ? 'A (same tank)' : reviewed.end }} (unverified).</p>
-          <p data-ui="pick.recipe.endpoint.row" :data-ui-key="endpoint.label" v-for="(endpoint, index) in endpoints" :key="endpoint.label">
-            {{ endpoint.label }} · {{ reviewed[endpoint.label] }} · {{ endpoints[index].meta?.tank || 'Tank not taught' }} ·
-            {{ reviewed.stations[endpoint.label] == null ? 'Station unspecified' : 'Station ' + reviewed.stations[endpoint.label] }} ·
-            {{ reviewed.approach_mm[endpoint.label] }} mm approach.
-          </p>
-          <p>Close 1 · open 3 · settling {{ reviewed.settle_s }} s · withdrawal {{ reviewed.withdrawal_mm ?? 100 }} mm.
-            The server checks each fresh path. The automatic test runs through grip and release without individual approvals.</p>
-          <p v-if="reviewed.agv_motion === 'off'">AGV switched off for this job.</p>
-          <p v-else>Travel timeout {{ reviewed.agv_timeout_s }} s · set-speed cap {{ reviewed.agv_speed_cap_m_h }} m/h
-            ({{ reviewed.agv_speed_cap_m_h / 1000 }} km/h).</p>
-          <label class="pick-check" for="recipe-approved"><Checkbox :pt="{ input: { 'data-ui': 'pick.recipe.approval' } }" v-model="approved" input-id="recipe-approved" binary
-            :disabled="Boolean(common)" />
-            I checked the recipe, scene, bounds, TCP and clear path. The rod is at A, the gripper is empty and the tool and rod fit the saved tool box.
-            I approve this supervised test, including motion and MCU commands at the stations shown.</label>
-          <label v-if="cross && travel?.allow_agv_in_recipe" class="pick-check" for="recipe-travel-approved">
-            <Checkbox :pt="{ input: { 'data-ui': 'pick.recipe.travel.approval' } }" v-model="travelApproved" input-id="recipe-travel-approved" binary :disabled="Boolean(common)" />
-            {{ reviewed.agv_approval }}</label>
-        </div>
-        <div class="controls">
-          <OperatorButton data-ui="pick.recipe.start" id="recipe-start" label="Start automatic test" :why="startWhy" :outcome="outcomes['recipe-start']" primary @press="startRecipe" />
-        </div>
-        <p>Keep the physical e-stop accessible. The server continues accepted automatic tests after a page disconnect.
-          Completed transfer counts record commands. Check rod position physically.</p>
-      </section>
-
-      <details data-ui="pick.robot.panel" class="panel" :open="tool === 'robot' || undefined">
-        <summary data-ui="pick.robot.toggle">Robot steps</summary>
-        <p>Each click prepares one endpoint. Approve the checked step in Current operation. XYZ uses robot-base axes.
-          Rotation uses tool axes and holds the TCP endpoint position. The checked joint path can curve and change height or orientation.</p>
-        <PickPlaceFields data-ui="pick.robot.field" :fields="robotFields" :values="robot" prefix="step" @edit="editRobot" />
-        <div class="field-row">
-          <label for="step-xyz">XYZ step (mm)
-            <Select :pt="{ label: { 'data-ui': 'pick.robot.translation' } }" v-model="translation" input-id="step-xyz" :options="[1, 5, 10]" @change="revision++" />
-          </label>
-          <label for="step-rotation">Tool rotation (degrees)
-            <Select :pt="{ label: { 'data-ui': 'pick.robot.rotation' } }" v-model="rotation" input-id="step-rotation" :options="[1, 2, 5]" @change="revision++" />
-          </label>
-        </div>
-        <label class="pick-check" for="step-off"><Checkbox :pt="{ input: { 'data-ui': 'pick.robot.agv.off' } }" v-model="robotOff" input-id="step-off" binary :disabled="Boolean(common)" />
-          AGV is switched off for this step.</label>
-        <p role="status">{{ robotWhy || 'Ready to prepare a finite step for approval.' }}</p>
-        <div class="controls">
-          <template v-for="axis in robotAxes" :key="axis">
-            <OperatorButton data-ui="pick.robot.step" :data-ui-key="axis + '.' + direction" v-for="direction in [-1, 1]" :key="direction" :id="'step-' + axis + '-' + direction"
-              :label="(direction === -1 ? '−' : '+') + (axis.length === 1 ? axis.toUpperCase() : ' tool ' + axis[1].toUpperCase() + ' rotation')"
-              :why="robotWhy" :outcome="outcomes['step-' + axis + '-' + direction]" @press="step(axis, direction)" />
-          </template>
-        </div>
-      </details>
-
-      <details data-ui="pick.single.panel" class="panel">
-        <summary data-ui="pick.single.toggle">Single PICK / PLACE</summary>
-        <PickPlaceFields data-ui="pick.single.field" :fields="[['pickTag', 'Pick tag'], ['placeTag', 'Place tag']]" :values="form" prefix="pick" @edit="edit" />
-        <label for="pick-item">Operator-confirmed initial item state</label>
-        <Select :pt="{ label: { 'data-ui': 'pick.single.item' } }" :model-value="form.item" input-id="pick-item" :options="itemOptions" option-label="label" option-value="value"
-          placeholder="Choose current state" @update:model-value="value => edit('item', value)" />
-        <p>Keep the tool, camera, TCP and support height fixed. The tool and item must fit the saved tool box.
-          Check the scene, operating bounds and workspace. Review the fresh route and confirm grip or release separately.</p>
-        <label class="pick-check" for="single-setup"><Checkbox :pt="{ input: { 'data-ui': 'pick.single.setup' } }" v-model="setup" input-id="single-setup" binary :disabled="Boolean(common)" />
-          I checked this operation’s physical setup and clear path.</label>
-        <label class="pick-check" for="single-off"><Checkbox :pt="{ input: { 'data-ui': 'pick.single.agv.off' } }" v-model="singleOff" input-id="single-off" binary :disabled="Boolean(common)" />
-          AGV is switched off for this operation.</label>
-        <p>Fresh observation requires ≥3 pixels/module for pose and ≥4 for the taught reference.
-          The robot aligns above the endpoint, descends along base −Z and lifts or retracts along +Z by 100 mm after confirmation.</p>
-        <div class="controls">
-          <OperatorButton data-ui="pick.single.action" :data-ui-key="action" v-for="action in ['PICK', 'PLACE']" :key="action" :id="'single-' + action" :label="action + ' · fresh observation'"
-            :why="singleWhy(action)" :outcome="outcomes['single-' + action]" :primary="action === 'PICK'" @press="single(action)" />
-          <OperatorButton data-ui="pick.single.prepare" id="pick-prepare" label="Check saved role inputs (read only)"
-            :why="common || (!setup ? 'Confirm the taught-offset setup first.' : '')" :outcome="outcomes['pick-prepare']" @press="prepare" />
-        </div>
-        <details data-ui="pick.single.evidence" v-if="prepareResult"><summary data-ui="pick.single.evidence.toggle">Saved role evidence</summary><pre>{{ JSON.stringify(prepareResult, null, 2) }}</pre></details>
-      </details>
-
-      <PickPlaceTools :owner="owner" :motion="motion" :project="form.project.trim()" :item="form.item" :tool="tool"
-        :busy="busy" :fence="fence" :perform="perform" :outcomes="outcomes" @mcu-status="mcuBlocked = $event"
-        @mcu-actuation="revision++" @item="value => edit('item', value)" />
-    </div>
-
-    <aside data-ui="pick.status.panel" class="operation">
-      <PickPlaceJob v-model:id="inspected" :owner="owner" :job="job" :problem="jobProblem" :running="busy"
-        :mcu-blocked="mcuBlocked" :revision="revision" :stop-id="stopId" :outcomes="outcomes" :clock="clock" :evidence="rawEvidence"
-        @inspect="inspect" @confirm="confirm">
-        <template #recovery>
-          <div v-if="lost" class="controls">
-            <OperatorButton data-ui="pick.request.cancel" id="pick-cancel-unconfirmed" label="Cancel unaccepted request"
-              :why="busy ? 'Wait for the current request.' : ''" :outcome="outcomes['pick-cancel-unconfirmed']"
-              @press="cancelUnconfirmed" />
-          </div>
-        </template>
-      </PickPlaceJob>
-    </aside>
+  <div data-ui="pick.page" class="pick-grid">
+    <Tabs v-model:value="tab" :show-navigators="false" class="page-tabs min-w-0">
+      <TabList data-ui="pick.tabs.list" :pt="{ tabList: { 'aria-label': 'Pick/place panels' } }">
+        <Tab data-ui="pick.tabs.overview" value="overview">Overview
+          <Badge v-if="loadNote && (loadNote.includes('unavailable') || loadNote.includes('simulated'))" value="Warning" severity="warn" />
+        </Tab>
+        <Tab data-ui="pick.tabs.transfer" value="transfer">Rod transfer test
+          <Badge v-if="reviewed && agvReason(motion, repeatOff)" value="Warning" severity="warn" />
+        </Tab>
+        <Tab data-ui="pick.tabs.single" value="single">Single PICK / PLACE</Tab>
+        <Tab data-ui="pick.tabs.motion" value="motion">Motion settings
+          <Badge v-if="mcuBlocked" value="Warning" severity="warn" />
+        </Tab>
+        <Tab data-ui="pick.tabs.evidence" value="evidence">Evidence</Tab>
+      </TabList>
+      <Message v-if="owner?.execution_uncertain || owner?.storage_error" severity="error" role="alert">{{ ownerReason(owner) }}</Message>
+      <Message v-if="lost && !busy" severity="warn">
+        Submission outcome unconfirmed. Inspect operation {{ lost }} in Current operation before sending another request.
+      </Message>
+      <div class="agv-grid tab-workspace my-4">
+        <TabPanels>
+          <TabPanel value="overview">
+            <Card data-ui="pick.setup.panel" class="panel" aria-labelledby="pick-setup-heading">
+              <template #title>
+                <h2 id="pick-setup-heading">Teaching inputs</h2>
+              </template>
+              <template #content>
+                <p>Paths refer to the service data directory.</p>
+                <PickPlaceFields data-ui="pick.setup.field" :fields="sources" :values="form" prefix="pick" @edit="edit" />
+                <p>{{ loadNote }}</p>
+              </template>
+            </Card>
+          </TabPanel>
+          <TabPanel value="transfer">
+            <Card data-ui="pick.recipe.panel" class="panel" aria-labelledby="recipe-heading">
+              <template #title>
+                <h2 id="recipe-heading">Automatic rod transfer test</h2>
+              </template>
+              <template #content>
+                <p>The rod starts at A. One transfer is one pickup and placement. Two transfers run A → B → A.</p>
+                <PickPlaceFields data-ui="pick.recipe.field" :fields="recipeFields" :values="recipeForm" prefix="recipe" @edit="editRecipe" />
+                <div class="field-row">
+                  <label v-for="endpoint in endpoints" :key="endpoint.label" :for="'recipe-station-' + endpoint.label">
+                    Endpoint {{ endpoint.label }} AGV station ({{ endpoint.label === 'B' ? 'blank uses A' : '1–255' }})
+                    <InputText data-ui="pick.recipe.station" :data-ui-key="endpoint.label" :id="'recipe-station-' + endpoint.label" :model-value="endpoint.station" type="number" min="1" max="255" step="1"
+                      :aria-describedby="'recipe-source-' + endpoint.label" @update:model-value="value => setStation(endpoint, value)" />
+                    <small :id="'recipe-source-' + endpoint.label">{{ endpoint.meta?.tank || 'Tank not taught' }} · {{ stationSource(endpoint) }}</small>
+                  </label>
+                </div>
+                <label class="pick-check" for="repeat-off"><Checkbox :pt="{ input: { 'data-ui': 'pick.recipe.agv.off' } }" v-model="repeatOff" input-id="repeat-off" binary :disabled="Boolean(common)" />
+                  AGV is switched off for this recipe.</label>
+                <p :data-state="motion?.parked ? 'done' : ''">{{ agvReason(motion, repeatOff) || (repeatOff ? 'AGV switched off · operator declaration.' : motion?.detail) }}</p>
+                <p>{{ travel?.allow_agv_in_recipe ? 'Approved recipes can call AGV stations.' : 'AGV check-only mode. Use one station for both endpoints.' }}</p>
+                <Disclosure data-ui="pick.recipe.travel" toggle-id="pick.recipe.travel.toggle">
+                  <template #heading>Travel pose and recipe limits</template>
+                  <PickPlaceFields data-ui="pick.recipe.limit" :fields="recipeLimits" :values="recipeForm" prefix="recipe" @edit="editRecipe" />
+                  <p v-if="travel?.pose">Travel pose saved {{ new Date(travel.pose.saved_at).toLocaleString() }} · joints (degrees)
+                    {{ travel.pose.joints_rad?.map(value => (value * 180 / Math.PI).toFixed(1)).join(', ') }}.</p>
+                  <p v-else>No saved travel pose available.</p>
+                  <p v-if="liveTravel">Live check at {{ liveTravel.readAt.toLocaleTimeString() }} ·
+                    {{ liveTravel.at_pose === true ? 'At travel pose and still' : 'Travel pose not confirmed' }}.</p>
+                  <OperatorButton data-ui="pick.recipe.travel.check" id="travel-live" label="Check live travel pose" :why="liveTravelWhy" :outcome="outcomes['travel-live']" @press="checkLiveTravel" />
+                  <a data-ui="pick.recipe.travel.teaching" href="/teaching#agv-travel-settings">Change travel pose in Teaching</a>
+                  <p>Settling is a delay. Tight/Open replies provide no proof of hold or release. The test uses no FSR threshold.</p>
+                </Disclosure>
+                <Disclosure data-ui="pick.recipe.sequence" toggle-id="pick.recipe.sequence.toggle">
+                  <template #heading>Motion sequence</template>
+                  <ol>
+                    <li>If the station changes, fold to the saved travel pose and wait for AGV arrival.</li>
+                    <li>Move to the saved observation joints, capture the marker and check the fresh path.</li>
+                    <li>Move above the endpoint and descend by the saved approach height. PICK opens at hover and closes with command 1.</li>
+                    <li>PLACE opens with command 3. Lift or retract vertically by 100 mm.</li>
+                  </ol>
+                </Disclosure>
+                <div class="controls">
+                  <OperatorButton data-ui="pick.recipe.review" id="recipe-review" label="Review bounded recipe" :why="reviewWhy" :outcome="outcomes['recipe-review']" @press="reviewRecipe" />
+                </div>
+                <div data-ui="pick.recipe.reviewed" v-if="reviewed" class="pick-readout" aria-label="Reviewed recipe">
+                  <p>{{ reviewed.transfers }} commanded transfer(s). Final commanded rod endpoint {{ reviewed.A === reviewed.B && !cross ? 'A (same tank)' : reviewed.end }} (unverified).</p>
+                  <p data-ui="pick.recipe.endpoint.row" :data-ui-key="endpoint.label" v-for="(endpoint, index) in endpoints" :key="endpoint.label">
+                    {{ endpoint.label }} · {{ reviewed[endpoint.label] }} · {{ endpoints[index].meta?.tank || 'Tank not taught' }} ·
+                    {{ reviewed.stations[endpoint.label] == null ? 'Station unspecified' : 'Station ' + reviewed.stations[endpoint.label] }} ·
+                    {{ reviewed.approach_mm[endpoint.label] }} mm approach.
+                  </p>
+                  <p>Close 1 · open 3 · settling {{ reviewed.settle_s }} s · withdrawal {{ reviewed.withdrawal_mm ?? 100 }} mm.
+                    The server checks each fresh path. The automatic test runs through grip and release without individual approvals.</p>
+                  <p v-if="reviewed.agv_motion === 'off'">AGV switched off for this job.</p>
+                  <p v-else>Travel timeout {{ reviewed.agv_timeout_s }} s · set-speed cap {{ reviewed.agv_speed_cap_m_h }} m/h
+                    ({{ reviewed.agv_speed_cap_m_h / 1000 }} km/h).</p>
+                  <label class="pick-check" for="recipe-approved"><Checkbox :pt="{ input: { 'data-ui': 'pick.recipe.approval' } }" v-model="approved" input-id="recipe-approved" binary
+                    :disabled="Boolean(common)" />
+                    I checked the recipe, scene, bounds, TCP and clear path. The rod is at A, the gripper is empty and the tool and rod fit the saved tool box.
+                    I approve this supervised test, including motion and MCU commands at the stations shown.</label>
+                  <label v-if="cross && travel?.allow_agv_in_recipe" class="pick-check" for="recipe-travel-approved">
+                    <Checkbox :pt="{ input: { 'data-ui': 'pick.recipe.travel.approval' } }" v-model="travelApproved" input-id="recipe-travel-approved" binary :disabled="Boolean(common)" />
+                    {{ reviewed.agv_approval }}</label>
+                </div>
+                <div class="controls">
+                  <OperatorButton data-ui="pick.recipe.start" id="recipe-start" label="Start automatic test" :why="startWhy" :outcome="outcomes['recipe-start']" primary @press="startRecipe" />
+                </div>
+                <p>Keep the physical e-stop accessible. The server continues accepted automatic tests after a page disconnect.
+                  Completed transfer counts record commands. Check rod position physically.</p>
+              </template>
+            </Card>
+          </TabPanel>
+          <TabPanel value="single">
+            <Disclosure data-ui="pick.single.panel" class="panel" open toggle-id="pick.single.toggle">
+              <template #heading>Single PICK / PLACE</template>
+              <PickPlaceFields data-ui="pick.single.field" :fields="[['pickTag', 'Pick tag'], ['placeTag', 'Place tag']]" :values="form" prefix="pick" @edit="edit" />
+              <label for="pick-item">Operator-confirmed initial item state</label>
+              <Select :pt="{ label: { 'data-ui': 'pick.single.item' } }" :model-value="form.item" input-id="pick-item" :options="itemOptions" option-label="label" option-value="value"
+                placeholder="Choose current state" @update:model-value="value => edit('item', value)" />
+              <p>Keep the tool, camera, TCP and support height fixed. The tool and item must fit the saved tool box.
+                Check the scene, operating bounds and workspace. Review the fresh route and confirm grip or release separately.</p>
+              <label class="pick-check" for="single-setup"><Checkbox :pt="{ input: { 'data-ui': 'pick.single.setup' } }" v-model="setup" input-id="single-setup" binary :disabled="Boolean(common)" />
+                I checked this operation’s physical setup and clear path.</label>
+              <label class="pick-check" for="single-off"><Checkbox :pt="{ input: { 'data-ui': 'pick.single.agv.off' } }" v-model="singleOff" input-id="single-off" binary :disabled="Boolean(common)" />
+                AGV is switched off for this operation.</label>
+              <p>Fresh observation requires ≥3 pixels/module for pose and ≥4 for the taught reference.
+                The robot aligns above the endpoint, descends along base −Z and lifts or retracts along +Z by 100 mm after confirmation.</p>
+              <div class="controls">
+                <OperatorButton data-ui="pick.single.action" :data-ui-key="action" v-for="action in ['PICK', 'PLACE']" :key="action" :id="'single-' + action" :label="action + ' · fresh observation'"
+                  :why="singleWhy(action)" :outcome="outcomes['single-' + action]" :primary="action === 'PICK'" @press="single(action)" />
+                <OperatorButton data-ui="pick.single.prepare" id="pick-prepare" label="Check saved role inputs (read only)"
+                  :why="common || (!setup ? 'Confirm the taught-offset setup first.' : '')" :outcome="outcomes['pick-prepare']" @press="prepare" />
+              </div>
+            </Disclosure>
+          </TabPanel>
+          <TabPanel value="motion" class="agv-main">
+            <Disclosure data-ui="pick.motion.panel" toggle-id="pick.motion.toggle">
+              <template #heading>Motion settings</template>
+              <PickPlaceFields data-ui="pick.motion.field" :fields="[...boundsFields, ['verticalSpeed', 'Vertical speed (mm/s)', 1, 20]]"
+                :values="form" prefix="pick" @edit="edit" />
+            </Disclosure>
+            <Disclosure data-ui="pick.robot.panel" class="panel" :open="tool === 'robot' || undefined" toggle-id="pick.robot.toggle">
+              <template #heading>Robot steps</template>
+              <p>Each click prepares one endpoint. Approve the checked step in Current operation. XYZ uses robot-base axes.
+                Rotation uses tool axes and holds the TCP endpoint position. The checked joint path can curve and change height or orientation.</p>
+              <PickPlaceFields data-ui="pick.robot.field" :fields="robotFields" :values="robot" prefix="step" @edit="editRobot" />
+              <div class="field-row">
+                <label for="step-xyz">XYZ step (mm)
+                  <Select :pt="{ label: { 'data-ui': 'pick.robot.translation' } }" v-model="translation" input-id="step-xyz" :options="[1, 5, 10]" @change="revision++" />
+                </label>
+                <label for="step-rotation">Tool rotation (degrees)
+                  <Select :pt="{ label: { 'data-ui': 'pick.robot.rotation' } }" v-model="rotation" input-id="step-rotation" :options="[1, 2, 5]" @change="revision++" />
+                </label>
+              </div>
+              <label class="pick-check" for="step-off"><Checkbox :pt="{ input: { 'data-ui': 'pick.robot.agv.off' } }" v-model="robotOff" input-id="step-off" binary :disabled="Boolean(common)" />
+                AGV is switched off for this step.</label>
+              <Message severity="info" variant="simple" role="status">{{ robotWhy || 'Ready to prepare a finite step for approval.' }}</Message>
+              <div class="controls">
+                <template v-for="axis in robotAxes" :key="axis">
+                  <OperatorButton data-ui="pick.robot.step" :data-ui-key="axis + '.' + direction" v-for="direction in [-1, 1]" :key="direction" :id="'step-' + axis + '-' + direction"
+                    :label="(direction === -1 ? '−' : '+') + (axis.length === 1 ? axis.toUpperCase() : ' tool ' + axis[1].toUpperCase() + ' rotation')"
+                    :why="robotWhy" :outcome="outcomes['step-' + axis + '-' + direction]" @press="step(axis, direction)" />
+                </template>
+              </div>
+            </Disclosure>
+            <PickPlaceTools :owner="owner" :motion="motion" :project="form.project.trim()" :item="form.item" :tool="tool"
+              :busy="busy" :fence="fence" :perform="perform" :outcomes="outcomes" @mcu-status="mcuBlocked = $event"
+              @mcu-actuation="revision++" @item="value => edit('item', value)" />
+          </TabPanel>
+          <TabPanel value="evidence">
+            <Disclosure data-ui="pick.single.evidence" v-if="prepareResult" toggle-id="pick.single.evidence.toggle"><template #heading>Saved role evidence</template><pre>{{ JSON.stringify(prepareResult, null, 2) }}</pre></Disclosure>
+            <p v-else>No saved role evidence. Check saved role inputs in Single PICK / PLACE.</p>
+          </TabPanel>
+        </TabPanels>
+        <aside data-ui="pick.status.panel" class="operation">
+          <PickPlaceJob v-model:id="inspected" :owner="owner" :job="job" :problem="jobProblem" :running="busy"
+            :mcu-blocked="mcuBlocked" :revision="revision" :stop-id="stopId" :outcomes="outcomes" :clock="clock" :evidence="rawEvidence"
+            @inspect="inspect" @confirm="confirm">
+            <template #title-extra>
+              <Tag v-if="jobActive || lost" :value="lost ? 'Request unconfirmed' : 'Operation active'" :severity="lost ? 'warn' : 'secondary'" />
+            </template>
+            <template #recovery>
+              <div v-if="lost" class="controls">
+                <OperatorButton data-ui="pick.request.cancel" id="pick-cancel-unconfirmed" label="Cancel unaccepted request"
+                  :why="busy ? 'Wait for the current request.' : ''" :outcome="outcomes['pick-cancel-unconfirmed']"
+                  @press="cancelUnconfirmed" />
+              </div>
+            </template>
+          </PickPlaceJob>
+        </aside>
+      </div>
+    </Tabs>
+    <ProgrammePanel @changed="emit('changed')" />
   </div>
 </template>

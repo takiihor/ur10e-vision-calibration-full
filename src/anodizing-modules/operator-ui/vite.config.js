@@ -1,13 +1,15 @@
 import { readdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import tailwindcss from '@tailwindcss/vite';
 import vue from '@vitejs/plugin-vue';
 import { defineConfig } from 'vite';
 
 const output = fileURLToPath(new URL('../app/anodizing_web/operator_dist/', import.meta.url));
 export default defineConfig({
-  base: '/operator/',
+  base: '/dev/',
   plugins: [
     vue(),
+    tailwindcss(),
     {
       name: 'operator-asset-allowlist',
       closeBundle() {

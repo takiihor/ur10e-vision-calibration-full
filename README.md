@@ -10,6 +10,8 @@ and Basler cameras. The package combines:
 - Offline tests, vendor provenance and recorded baseline deltas.
 
 The source bundle is in [`src/anodizing-modules/`](src/anodizing-modules/).
+[Operator and developer manual](docs/MANUAL.md)
+
 Start with [`START_HERE.md`](START_HERE.md), then the module
 [`README.md`](src/anodizing-modules/README.md).
 

@@ -4,7 +4,7 @@ import json
 import ssl
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
-from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 
 
 def calibration_key(operator_key):
@@ -19,6 +19,11 @@ class Client:
         self.key = key
 
 
+class _RejectRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ValueError('The IPC module endpoint returned a redirect.')
+
+
 class DevModule(Client):
     def __init__(self, url, key, certificate, scopes):
         super().__init__(key)
@@ -28,21 +33,27 @@ class DevModule(Client):
             raise ValueError('Choose the IPC HTTPS base address.')
         self.url = url.rstrip('/')
         self.scopes = frozenset(scopes)
+        if not certificate:
+            raise ValueError('Provide the IPC certificate file.')
         context = ssl.create_default_context(cafile=certificate)
-        self.opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context))
+        self.opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context), _RejectRedirect())
 
     def request(self, operation, body=None):
         route = operation.partition('?')[0]
         read = route in ('health', 'status', 'jobs')
-        if not read and route not in ('claim', 'submit', 'release', 'heartbeat', 'stop'):
+        raw = route in ('raw', 'raw/undo')
+        if not read and not raw and route not in ('claim', 'submit', 'release', 'heartbeat', 'stop'):
             raise ValueError('This operation requires the operator app key.')
-        if route != 'stop' and ('read' if read else 'jobs') not in self.scopes:
+        scope = 'raw' if raw else 'read' if read else 'jobs'
+        if route != 'stop' and scope not in self.scopes:
             raise ValueError('The client lacks the scope for this operation.')
+        if raw and body is None:
+            raise ValueError('Raw commands require a POST body.')
         headers = {'Authorization': 'Bearer ' + self.key, 'Content-Type': 'application/json'}
         data = None if body is None else json.dumps(body, allow_nan=False).encode()
         request = Request(self.url + '/v1/' + operation, data, headers)
         try:
-            with self.opener.open(request, timeout=2) as response:
+            with self.opener.open(request, timeout=45 if raw else 2) as response:
                 reply = json.load(response)
         except HTTPError as exc:
             with exc:

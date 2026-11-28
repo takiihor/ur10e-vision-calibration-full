@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from anodizing_web import agv
+from anodizing_web import agv, agv_feedback
 from agv_examples import EXAMPLE_PREFIX, EXAMPLE_REPLY_PREFIX, EXAMPLE_ROUTE, EXAMPLE_SPEED, synthetic_replies
 
 
@@ -27,7 +27,7 @@ source = Path(__file__).resolve().parents[1] / 'anodizing_web/server.py'
 handler = next(node for node in ast.parse(source.read_text()).body
                if isinstance(node, ast.ClassDef) and node.name == 'Handler')
 namespace = dict(BaseHTTPRequestHandler=BaseHTTPRequestHandler, json=json, os=os, secrets=secrets,
-                 urlsplit=urlsplit, MAX_BODY=32768)
+                 urlsplit=urlsplit, MAX_BODY=32768, OPERATOR_PATH='/dev/', agv_feedback=agv_feedback)
 exec(compile(ast.Module(body=[handler], type_ignores=[]), str(source), 'exec'), namespace)
 
 
@@ -2023,3 +2023,15 @@ def test_pre_halt_parked_reply_with_old_pause_flag_needs_corroboration(agv_clock
         assert link.capability()['results'][halt].get('confirmed_stopped') is True
     finally:
         link.close()
+
+
+def test_agv_refusal_preserves_wire_error_and_adds_operator_guidance(session):
+    _, request = session
+    status, response = request(dict(action='send', command='query_status'))
+    assert status == 400
+    assert response == {
+        'error': 'Connect an AGV transport first.',
+        'code': 'not_connected',
+        'message': 'The AGV connection is closed.',
+        'hint': 'Choose Wired and press Connect before using this control.',
+    }

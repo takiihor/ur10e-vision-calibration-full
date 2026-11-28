@@ -15,15 +15,22 @@ def main():
     parser.add_argument('url', help='Fake executor HTTPS endpoint')
     parser.add_argument('key', type=Path, help='Private module key file')
     parser.add_argument('certificate', type=Path, help='Pinned executor certificate')
-    parser.add_argument('station', type=int)
+    parser.add_argument('station', type=int, nargs='?')
+    parser.add_argument('--raw-status', action='store_true', help='Read raw status from a connected fake executor')
     args = parser.parse_args()
     url = urlsplit(args.url)
     if url.scheme != 'https' or url.hostname != '127.0.0.1' or url.path not in ('', '/'):
         parser.error('Use the fake listener at https://127.0.0.1:PORT.')
-    module = DevModule(args.url, args.key.read_text().strip(), args.certificate, {'read', 'jobs'})
+    scopes = {'read', 'raw'} if args.raw_status else {'read', 'jobs'}
+    module = DevModule(args.url, args.key.read_text().strip(), args.certificate, scopes)
     call = module.request
     if call('health').get('simulated') is not True:
         parser.error('This example requires the fake executor.')
+    if args.raw_status:
+        print(json.dumps(call('raw', {'command': 'query_status', 'args': {}}), indent=2))
+        return
+    if args.station is None:
+        parser.error('Provide a station or use --raw-status.')
     claim = call('claim', {})
     lease = {'lease_id': claim['lease_id']}
     sequence = 0

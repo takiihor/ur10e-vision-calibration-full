@@ -1,3 +1,5 @@
+import '../app/anodizing_web/web/operator-auth.js';
+
 function moduleToken() {
   return document.querySelector('meta[name="module-token"]')?.content;
 }
@@ -19,13 +21,15 @@ async function fetchLocal(path, body, timeout, cache, keepalive) {
     options.headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(body);
   }
-  return fetch(path, options);
+  return window.operatorFetch(path, options);
 }
 
 export async function request(path, body, timeout = 8000, keepalive = false) {
   const response = await fetchLocal(path, body, timeout, 'no-store', keepalive);
   const value = await response.json();
-  if (!response.ok) throw Object.assign(new Error(value.error), { status: response.status });
+  if (!response.ok) throw Object.assign(new Error(value.error), {
+    status: response.status, code: value.code, operatorMessage: value.message, hint: value.hint,
+  });
   return value;
 }
 

@@ -1,13 +1,43 @@
 [
   {
+    "id": "agv.arm.attestation",
+    "component": "AgvOwnership.vue",
+    "description": "Review Arm confirmation for the current module"
+  },
+  {
+    "id": "agv.arm.cancel",
+    "component": "AgvOwnership.vue",
+    "description": "Cancel the reviewed Arm confirmation"
+  },
+  {
+    "id": "agv.arm.confirm",
+    "component": "AgvOwnership.vue",
+    "description": "Confirm and Arm the reviewed module"
+  },
+  {
+    "id": "agv.arm.enroll",
+    "component": "AgvOwnership.vue",
+    "description": "Open browser enrollment for module Arm"
+  },
+  {
+    "id": "agv.arm.operator",
+    "component": "AgvOwnership.vue",
+    "description": "Enter the operator name for the Arm record"
+  },
+  {
     "id": "agv.bluetooth.cancel",
     "component": "AgvBluetooth.vue",
     "description": "Cancel the reviewed change"
   },
   {
+    "id": "agv.bluetooth.clearresult",
+    "component": "AgvBluetooth.vue",
+    "description": "Show the before and after route counts"
+  },
+  {
     "id": "agv.bluetooth.confirm",
     "component": "AgvBluetooth.vue",
-    "description": "Confirm a reviewed setting write or undo"
+    "description": "Confirm a reviewed setting write, undo or route clear"
   },
   {
     "id": "agv.bluetooth.connect",
@@ -32,12 +62,32 @@
   {
     "id": "agv.bluetooth.read",
     "component": "AgvBluetooth.vue",
-    "description": "Read all Bluetooth settings"
+    "description": "Read Bluetooth controller words, route counts and station records"
+  },
+  {
+    "id": "agv.bluetooth.record",
+    "component": "AgvBluetooth.vue",
+    "description": "A raw station record from the controller"
+  },
+  {
+    "id": "agv.bluetooth.records",
+    "component": "AgvBluetooth.vue",
+    "description": "Read-only station records by direction"
+  },
+  {
+    "id": "agv.bluetooth.recordstoggle",
+    "component": "AgvBluetooth.vue",
+    "description": "Show or hide the station records"
   },
   {
     "id": "agv.bluetooth.review",
     "component": "AgvBluetooth.vue",
-    "description": "Old and new settings values for confirmation"
+    "description": "Show the settings values or route counts for confirmation"
+  },
+  {
+    "id": "agv.bluetooth.reviewclear",
+    "component": "AgvBluetooth.vue",
+    "description": "Review the current route before clearing"
   },
   {
     "id": "agv.bluetooth.reviewundo",
@@ -50,9 +100,19 @@
     "description": "Review the old and new values before writing"
   },
   {
+    "id": "agv.bluetooth.route.table",
+    "component": "AgvBluetooth.vue",
+    "description": "Stored Bluetooth route table"
+  },
+  {
     "id": "agv.bluetooth.row",
     "component": "AgvBluetooth.vue",
     "description": "A field in the Bluetooth settings map"
+  },
+  {
+    "id": "agv.bluetooth.settings.table",
+    "component": "AgvBluetooth.vue",
+    "description": "Bluetooth settings and controller words table"
   },
   {
     "id": "agv.bluetooth.tab",
@@ -201,12 +261,12 @@
   },
   {
     "id": "agv.link.connect",
-    "component": "AgvPage.vue",
+    "component": "StopBar.vue",
     "description": "Connect"
   },
   {
     "id": "agv.link.disconnect",
-    "component": "AgvPage.vue",
+    "component": "StopBar.vue",
     "description": "Disconnect"
   },
   {
@@ -256,7 +316,7 @@
   },
   {
     "id": "agv.movement.arm",
-    "component": "AgvPage.vue",
+    "component": "AgvOwnership.vue",
     "description": "Arm or disarm manual AGV commands"
   },
   {
@@ -286,22 +346,22 @@
   },
   {
     "id": "agv.owner.calibration",
-    "component": "AgvPage.vue",
+    "component": "AgvOwnership.vue",
     "description": "Select the Calibration module owner"
   },
   {
     "id": "agv.owner.manual",
-    "component": "AgvPage.vue",
+    "component": "AgvOwnership.vue",
     "description": "Select the AGV page owner"
   },
   {
     "id": "agv.owner.panel",
-    "component": "AgvPage.vue",
+    "component": "AgvOwnership.vue",
     "description": "Current executor owner and Arm binding"
   },
   {
     "id": "agv.owner.release",
-    "component": "AgvPage.vue",
+    "component": "AgvOwnership.vue",
     "description": "Release the current built-in owner"
   },
   {
@@ -313,6 +373,36 @@
     "id": "agv.pause",
     "component": "StopBar.vue",
     "description": "AGV Pause (station-call mode)"
+  },
+  {
+    "id": "agv.raw.activity",
+    "description": "Recent developer commands",
+    "component": "AgvPage.vue"
+  },
+  {
+    "id": "agv.raw.activity.item",
+    "description": "A raw command result",
+    "component": "AgvPage.vue"
+  },
+  {
+    "id": "agv.raw.activity.toggle",
+    "description": "Expand recent developer commands",
+    "component": "AgvPage.vue"
+  },
+  {
+    "id": "agv.raw.settings",
+    "description": "Developer speed changes",
+    "component": "AgvPage.vue"
+  },
+  {
+    "id": "agv.raw.settings.item",
+    "description": "An IPC speed snapshot",
+    "component": "AgvPage.vue"
+  },
+  {
+    "id": "agv.raw.settings.toggle",
+    "description": "Expand developer speed changes",
+    "component": "AgvPage.vue"
   },
   {
     "id": "agv.read.command",
@@ -515,6 +605,26 @@
     "description": "AGV Stop (software)"
   },
   {
+    "id": "agv.tabs.connection",
+    "description": "Connection tab",
+    "component": "AgvPage.vue"
+  },
+  {
+    "id": "agv.tabs.details",
+    "description": "Machine details and log tab",
+    "component": "AgvPage.vue"
+  },
+  {
+    "id": "agv.tabs.speed",
+    "description": "Speed and settings tab",
+    "component": "AgvPage.vue"
+  },
+  {
+    "id": "agv.tabs.stations",
+    "description": "Stations and move tab",
+    "component": "AgvPage.vue"
+  },
+  {
     "id": "calibration.action",
     "component": "CalibrationPage.vue",
     "description": "Start a Calibration step action"
@@ -692,7 +802,7 @@
   {
     "id": "layout.home",
     "component": "layout/AppTopbar.vue",
-    "description": "Operator app"
+    "description": "Dev console"
   },
   {
     "id": "layout.main",
@@ -701,18 +811,18 @@
   },
   {
     "id": "layout.navigation.dismiss",
-    "component": "layout/AppLayout.vue",
-    "description": "Dismiss the mobile navigation backdrop"
+    "component": "layout/AppTopbar.vue",
+    "description": "Dismiss a topbar navigation menu"
   },
   {
     "id": "layout.navigation.toggle",
     "component": "layout/AppTopbar.vue",
-    "description": "Toggle navigation"
+    "description": "Toggle the narrow topbar menu"
   },
   {
     "id": "layout.sidebar",
-    "component": "layout/AppSidebar.vue",
-    "description": "Sidebar"
+    "component": "layout/AppTopbar.vue",
+    "description": "Topbar navigation links"
   },
   {
     "id": "line.archive.download",
@@ -768,6 +878,11 @@
     "id": "line.filter.access",
     "component": "LinePage.vue",
     "description": "Filter access"
+  },
+  {
+    "id": "line.filter.clear",
+    "component": "LinePage.vue",
+    "description": "Clear filters"
   },
   {
     "id": "line.filter.group",
@@ -991,67 +1106,77 @@
   },
   {
     "id": "nav.agv",
-    "component": "layout/AppMenu.vue",
+    "component": "layout/AppTopbar.vue",
     "description": "Open AGV commissioning"
   },
   {
     "id": "nav.calibration",
-    "component": "layout/AppMenu.vue",
+    "component": "layout/AppTopbar.vue",
     "description": "Open Calibration"
   },
   {
     "id": "nav.home",
-    "component": "layout/AppMenu.vue",
+    "component": "layout/AppTopbar.vue",
     "description": "Open Home"
   },
   {
     "id": "nav.line",
-    "component": "layout/AppMenu.vue",
+    "component": "layout/AppTopbar.vue",
     "description": "Open Line reads"
   },
   {
+    "id": "nav.more",
+    "component": "layout/AppTopbar.vue",
+    "description": "More pages panel"
+  },
+  {
+    "id": "nav.more.toggle",
+    "component": "layout/AppTopbar.vue",
+    "description": "Toggle More pages"
+  },
+  {
     "id": "nav.panel",
-    "component": "layout/AppMenu.vue",
+    "component": "layout/AppTopbar.vue",
     "description": "Modules"
   },
   {
     "id": "nav.pick.place",
-    "component": "layout/AppMenu.vue",
+    "component": "layout/AppTopbar.vue",
     "description": "Open Pick/place"
   },
   {
     "id": "nav.recorder",
-    "component": "layout/AppMenu.vue",
+    "component": "layout/AppTopbar.vue",
     "description": "Open Recorder"
   },
   {
     "id": "nav.scene",
-    "component": "layout/AppMenu.vue",
+    "component": "layout/AppTopbar.vue",
     "description": "Open Scene"
   },
   {
     "id": "nav.teaching",
-    "component": "layout/AppMenu.vue",
+    "component": "layout/AppTopbar.vue",
     "description": "Open Teaching"
   },
   {
     "id": "operator.enroll",
-    "component": "App.vue",
+    "component": "StopBar.vue",
     "description": "Open browser key enrollment"
   },
   {
     "id": "operator.readonly",
-    "component": "App.vue",
+    "component": "StopBar.vue",
     "description": "Read-only operator mode notice"
   },
   {
     "id": "pick.agv.open",
-    "component": "PickPlacePage.vue",
+    "component": "App.vue",
     "description": "AGV commissioning"
   },
   {
     "id": "pick.legacy.open",
-    "component": "PickPlacePage.vue",
+    "component": "App.vue",
     "description": "Legacy Pick/place"
   },
   {
@@ -1305,6 +1430,36 @@
     "description": "Status panel"
   },
   {
+    "id": "pick.tabs.evidence",
+    "description": "Evidence tab",
+    "component": "PickPlacePage.vue"
+  },
+  {
+    "id": "pick.tabs.list",
+    "description": "Pick/place panel tabs",
+    "component": "PickPlacePage.vue"
+  },
+  {
+    "id": "pick.tabs.motion",
+    "description": "Motion settings tab",
+    "component": "PickPlacePage.vue"
+  },
+  {
+    "id": "pick.tabs.overview",
+    "description": "Overview tab",
+    "component": "PickPlacePage.vue"
+  },
+  {
+    "id": "pick.tabs.single",
+    "description": "Single PICK / PLACE tab",
+    "component": "PickPlacePage.vue"
+  },
+  {
+    "id": "pick.tabs.transfer",
+    "description": "Rod transfer test tab",
+    "component": "PickPlacePage.vue"
+  },
+  {
     "id": "pick.tools.agv.off",
     "component": "PickPlaceTools.vue",
     "description": "Confirm the AGV is switched off for an MCU command"
@@ -1398,6 +1553,11 @@
     "id": "programme.limit.input",
     "description": "Editable limit in seconds",
     "component": "ProgrammePanel.vue"
+  },
+  {
+    "id": "programme.limits.table",
+    "component": "ProgrammePanel.vue",
+    "description": "Calibration limits by step table"
   },
   {
     "id": "programme.panel",
@@ -1575,6 +1735,11 @@
     "description": "Recorder workspace"
   },
   {
+    "id": "safety.controls.open",
+    "component": "StopBar.vue",
+    "description": "Open AGV controls on a narrow screen"
+  },
+  {
     "id": "safety.module.stop",
     "component": "StopBar.vue",
     "description": "Software Stop for an active module job"
@@ -1696,7 +1861,7 @@
   },
   {
     "id": "teaching.legacy.open",
-    "component": "TeacherPage.vue",
+    "component": "App.vue",
     "description": "Legacy Teaching"
   },
   {
@@ -1903,6 +2068,36 @@
     "id": "teaching.status.panel",
     "component": "TeacherPage.vue",
     "description": "Status panel"
+  },
+  {
+    "id": "teaching.tabs.evidence",
+    "description": "Evidence tab",
+    "component": "TeacherPage.vue"
+  },
+  {
+    "id": "teaching.tabs.inputs",
+    "description": "Teaching inputs tab",
+    "component": "TeacherPage.vue"
+  },
+  {
+    "id": "teaching.tabs.list",
+    "description": "Teaching panel tabs",
+    "component": "TeacherPage.vue"
+  },
+  {
+    "id": "teaching.tabs.motion",
+    "description": "Motion settings tab",
+    "component": "TeacherPage.vue"
+  },
+  {
+    "id": "teaching.tabs.overview",
+    "description": "Overview tab",
+    "component": "TeacherPage.vue"
+  },
+  {
+    "id": "teaching.tabs.validation",
+    "description": "Validation tab",
+    "component": "TeacherPage.vue"
   },
   {
     "id": "teaching.travel.check",

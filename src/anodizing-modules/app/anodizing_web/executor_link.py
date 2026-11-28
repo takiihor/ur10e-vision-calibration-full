@@ -7,6 +7,8 @@ from threading import Event, Lock, RLock, Thread
 from time import monotonic, time
 from uuid import uuid4
 
+from .agv import RECIPE_STALE_S
+from .agv_feedback import station_snapshot
 from .executor import (AdmissionRefused, HEARTBEAT_S, PROTOCOL, check_manual_attestation,
                        check_manual_feedback, heartbeat_interval)
 from .executor_http import (
@@ -21,8 +23,9 @@ NO_STOP_RECEIPT = dict(received=False, halt_attempted=False, confirmed=False)
 
 
 class ExecutorLink:
-    def __init__(self, client, local, *, bluetooth=None, route_address=None):
+    def __init__(self, client, local, *, bluetooth=None, route_address=None, stop_client=None):
         self.client = client
+        self.stop_client = stop_client
         self.job_gateway = getattr(client, 'tls', None) is not None
         self.calibration_client = client.for_owner('calibration') if self.job_gateway else client
         self.local = local
@@ -37,6 +40,7 @@ class ExecutorLink:
         self.manual_witness = self.manual_path.with_name('executor-manual-active.json')
         self.manual_history_directory = local.owner.root / 'executor-manual-history'
         self.stop_latch = {}
+        self.stop_primary_failure = None
         self.journal_fault = None
         self.stop_witness = self.stop_path.with_name('executor-stop-witness.json')
         self.storage_check = None
@@ -87,7 +91,10 @@ class ExecutorLink:
         elif self.manual or self.manual_history_directory.exists():
             self.journal_fault = f'{self.manual_witness.name} is missing. Please call a technician.'
         self.stop_lock, self.stop_receipts, self.manual_lock = Lock(), Lock(), RLock()
+        self.stop_send_lock = Lock()
+        self.stop_observation = self.stop_retry_report = None
         self.closing = Event()
+        self.stop_witness_ready = Event()
         self.lock = Lock()
         self.stop_boot_lock = Lock()
         self.stop_boot = None
@@ -97,6 +104,10 @@ class ExecutorLink:
                            executor_link=True, motion_block='Waiting for executor capabilities.')
         self.sampled = monotonic()
         self.worker = Thread(target=self._loop, daemon=True, name='agv-executor-heartbeat')
+        self.stop_witness_worker = Thread(target=self._write_stop_witnesses, daemon=True, name='agv-stop-witness')
+        self.stop_retry_worker = Thread(target=self._retry_stops, daemon=True, name='agv-stop-retry')
+        self.stop_witness_worker.start()
+        self.stop_retry_worker.start()
         self.worker.start()
 
     @staticmethod
@@ -156,17 +167,51 @@ class ExecutorLink:
     def _stop_write_error(self, intent, path, exc):
         self.flag_storage_failure(f'{path.name}: {exc}', run_id=intent.get('run_id'), job_id=intent.get('job_id'))
 
-    def _deliver_stop(self, intent):
+    def _write_stop_witnesses(self):
+        while not self.closing.is_set():
+            self.stop_witness_ready.wait()
+            self.stop_witness_ready.clear()
+            with self.stop_lock:
+                result = self.stop_retry_report
+                self.stop_retry_report = None
+                intent = self._pending_stop()
+            if result:
+                self._save_stop_report(*result)
+            elif intent:
+                self._persist_stop_witness(intent)
+
+    def _retry_stops(self):
+        while not self.closing.is_set():
+            started = monotonic()
+            intent = self._pending_stop()
+            if intent:
+                self._deliver_stop(intent, retry=True)
+            self.closing.wait(max(0, HEARTBEAT_S - (monotonic() - started)))
+
+    @staticmethod
+    def _check_stop_receipt(report, intent):
+        if (not isinstance(report, dict) or report.get('stop_id') != intent['id'] or report.get('received') is not True
+                or not isinstance(report.get('boot'), str) or type(report.get('generation')) is not int
+                or report['generation'] < 1):
+            raise ValueError('The Stop reply conflicts with the pending request.')
+
+    def _send_stop(self, intent):
+        status = None
         try:
             body = {'stop_id': intent['id']}
-            if self.stop_written and self.stop_written.get('revision') == intent.get('revision'):
-                report = self.client('stop', body)
-            else:
-                report = deliver_priority_stop(self.client, body, lambda: self._persist_stop_witness(intent))
-            if (report.get('stop_id') != intent['id'] or report.get('received') is not True
-                    or not isinstance(report.get('boot'), str) or type(report.get('generation')) is not int
-                    or report['generation'] < 1):
-                raise ValueError('The Stop reply conflicts with the pending request.')
+            report = None
+            if self.stop_client:
+                try:
+                    report = self.stop_client('stop', body, after_send=self.stop_witness_ready.set)
+                    self._check_stop_receipt(report, intent)
+                except (OSError, ValueError):
+                    report = None
+                    with self.stop_lock:
+                        if self._pending_stop() is intent:
+                            self.stop_primary_failure = intent['revision']
+            if report is None:
+                report = deliver_priority_stop(self.client, body, self.stop_witness_ready.set)
+                self._check_stop_receipt(report, intent)
             if report.get('confirmed'):
                 try:
                     status = self.client('status')
@@ -176,6 +221,29 @@ class ExecutorLink:
                     report = dict(report, confirmed=False)
         except (OSError, ValueError):
             report = dict(NO_STOP_RECEIPT)
+        return report, status
+
+    def _deliver_stop(self, intent, *, retry=False):
+        # Serialize Katana's Stop connections, without holding a persistence lock.
+        with self.stop_send_lock:
+            current = self._pending_stop()
+            if current is None or current.get('revision') != intent.get('revision'):
+                saved = self.stop_intent
+                if current is None and saved and saved.get('revision') == intent.get('revision'):
+                    return dict(saved['report'])
+                return dict(NO_STOP_RECEIPT)
+            report, status = self._send_stop(intent)
+            with self.stop_lock:
+                self.stop_observation = intent.get('revision'), report
+                if retry:
+                    self.stop_retry_report = intent, report, status
+                    self.stop_witness_ready.set()
+        if retry:
+            return
+        return self._save_stop_report(intent, report, status)
+
+    def _save_stop_report(self, intent, report, status):
+        self._persist_stop_witness(intent)
         with self.stop_receipts:
             current = self._pending_stop()
             if current is None or current.get('revision') != intent.get('revision'):
@@ -238,6 +306,7 @@ class ExecutorLink:
         with self.stop_lock:
             pending = self._pending_stop()
             if not pending or key and pending['request'] != key:
+                self.stop_primary_failure = None
                 job = self.cached.get('executor_job') or self.manual or {}
                 ident = key if isinstance(key, str) and ID.fullmatch(key) else uuid4().hex
                 pending = self._publish_stop(dict(
@@ -301,8 +370,9 @@ class ExecutorLink:
             interval = HEARTBEAT_S
             try:
                 stop = self._pending_stop()
-                receipt = self._deliver_stop(stop) if stop else None
-                if receipt is not None and not receipt['received']:
+                delivery = self.stop_observation
+                receipt = delivery[1] if stop and delivery and delivery[0] == stop.get('revision') else None
+                if stop and (receipt is None or not receipt['received']):
                     raise OSError('Stop delivery is unconfirmed.')
                 meta = self.client('health')
                 if self.job_gateway and meta.get('gateway_enabled') is not True:
@@ -378,6 +448,7 @@ class ExecutorLink:
             self.journal_fault = f'{self.manual_path.name} is missing. Please call a technician.'
             self.stop()
         device = dict(status['device'])
+        device.setdefault('battery_trend', None)
         with self.lock:
             if self.stop_boot != boot:
                 raise ValueError('The executor boot was retired while applying status.')
@@ -402,12 +473,18 @@ class ExecutorLink:
                           motion_block=self._motion_reason(status))
             if self.job_gateway:
                 device.update(job_gateway=True, owner=status.get('owner'), armed_for=status.get('armed_for'),
-                              recent_jobs=status.get('recent_jobs', self.cached.get('recent_jobs', [])))
+                              recent_jobs=status.get('recent_jobs', self.cached.get('recent_jobs', [])),
+                              recent_raw=status.get('recent_raw', self.cached.get('recent_raw', [])),
+                              raw_settings=status.get('raw_settings', self.cached.get('raw_settings', [])),
+                              module_lease_id=status.get('module_lease_id'),
+                              module_attestation=status.get('module_attestation'),
+                              module_attestation_expired=status.get('module_attestation_expired', False))
             station_count = (device.get('status') or {}).get('max_stations')
             if (type(station_count) is int and device.get('status_time')
                     and self.cached.get('executor_health', {}).get('simulated') is False):
-                self.last_rs485_station_count = dict(value=station_count, observed_at=device['status_time'],
-                                                    source='IPC executor RS485')
+                self.last_rs485_station_count = dict(
+                    value=station_count, current_station=device['status'].get('current_station'),
+                    observed_at=device['status_time'], source='IPC executor RS485')
             self.cached.update(device, wired_port='IPC executor', executor_reachable=True,
                                executor_observed_utc=time(), error=device.get('error'))
             self.observed = self.sampled = monotonic()
@@ -462,6 +539,17 @@ class ExecutorLink:
                          status_age_s=None if age is None else age+monotonic()-self.sampled,
                          stop_unconfirmed=pending is not None, manual_visit=deepcopy(manual),
                          manual_visit_history=deepcopy(self.manual_history))
+            age = state['status_age_s']
+            if not state.get('connected') or state.get('stale') or age is None or not 0 <= age < RECIPE_STALE_S:
+                state['battery_trend'] = None
+            state['stop_primary_error'] = ('Primary Stop route to the IPC failed. Check the 18876 link.'
+                                           if self.stop_primary_failure is not None else None)
+            confirmation = state.get('module_attestation')
+            if confirmation:
+                confirmation['remaining_s'] = max(0, confirmation['remaining_s'] - (monotonic() - self.sampled))
+                if not confirmation['remaining_s']:
+                    state.update(armed=False, module_attestation_expired=True)
+            state['wired_station'] = station_snapshot(self.last_rs485_station_count, state)
         if self.storage_check and not self.journal_fault:
             check = state.get('operator_check') or {}
             state.update(armed=False, motion_block=self.storage_check, operator_check=(
@@ -485,6 +573,7 @@ class ExecutorLink:
         state['executor_stop_history'] = deepcopy(history) if history != state['executor_stop'] else None
         if self.job_gateway and not state.get('armed'):
             state['armed_for'] = None
+            state['module_attestation'] = None
         return state
 
     def flag_storage_failure(self, reason, *, run_id=None, job_id=None):
@@ -795,7 +884,7 @@ class ExecutorLink:
             self._apply(built_in[requested]('claim', identity))
         return self.status()
 
-    def submit(self, body):
+    def submit(self, body, *, browser_enrollment=None):
         action, command = body.get('action'), body.get('command')
         if action == 'send' and command == 'stop':
             self.stop({'stop_id': body.get('request_id')})
@@ -824,6 +913,13 @@ class ExecutorLink:
                 if self.job_gateway and body.get('executor_owner') != self.status().get('owner'):
                     raise ValueError('The job owner changed. Review the AGV page before arming.')
                 identity['stop_generation'] = body['stop_generation']
+                if 'module_attestation' in body or (self.job_gateway and body.get('executor_owner') not in (None, 'agv-page')):
+                    confirmation = body.get('module_attestation')
+                    if not browser_enrollment:
+                        raise ValueError('Enroll this browser again before confirming Arm for a module.')
+                    if not isinstance(confirmation, dict) or set(confirmation) != {'confirmed', 'operator', 'owner', 'lease_id'}:
+                        raise ValueError('Enter the operator name and confirm at the e-stop before arming this module.')
+                    identity['module_attestation'] = dict(confirmation, browser_enrollment=browser_enrollment)
         if action == 'send' and command == 'query_status':
             action = 'status_read'
         if action not in ('connect', 'disconnect', 'arm', 'disarm', 'status_read'):
@@ -867,4 +963,7 @@ class ExecutorLink:
 
     def close(self):
         self.closing.set()
+        self.stop_witness_ready.set()
         self.worker.join()
+        self.stop_retry_worker.join()
+        self.stop_witness_worker.join()

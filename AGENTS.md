@@ -1,9 +1,10 @@
 # Working on the anodizing line
 
 Start with the [operator and developer manual](docs/MANUAL.md) and
-[architecture](docs/ARCHITECTURE.md). Use the [IPC module gateway](docs/MODULE_JOBS.md)
-for client onboarding, saved operator enrollment and ownership. If an instruction or its safety
-implications are ambiguous, ask the human before editing code or using hardware.
+[architecture](docs/ARCHITECTURE.md). See the
+[IPC module gateway](docs/MODULE_JOBS.md) for client onboarding, browser
+enrollment and ownership. If an instruction or its safety implications are
+ambiguous, ask the human before editing code or using hardware.
 
 ## Responsibilities
 
@@ -12,10 +13,10 @@ implications are ambiguous, ask the human before editing code or using hardware.
   basket records. The planned **Main app loop** is for normal production.
 - Route developer modules through the keyed HTTPS gateway on the IPC. Modules
   use scoped keys and APIs for all device, file and data operations. Use keyed
-  APIs when adding cameras, UR10e, tower light or PLC data. Apply one owner at a time to the AGV page (`agv-page`), the Calibration
-  module (`calibration`), named developer modules and the reserved
-  `main-app-loop` owner. The built-in Calibration module needs no module
-  token file. Reserve `main-app-loop` until its implementation is ready.
+  APIs when adding cameras, UR10e, tower light or PLC data. Apply one owner
+  at a time to the AGV page (`agv-page`), the Calibration module
+  (`calibration`) or a named developer module. The Calibration module uses
+  a derived key. Reserve `main-app-loop` for the future production loop.
 - The vehicle IPC owns the wired AGV link and executes one job at a time.
   Its job gateway owns credentials, ownership and admission. It keeps job
   evidence and software Stop state. Katana keeps the plan.
@@ -37,14 +38,20 @@ implications are ambiguous, ask the human before editing code or using hardware.
 ## Safety and verification
 
 1. Route operator actions through the Katana app with an enrolled browser key.
-   Keep the IPC HTTPS job listener keyed. The browser's Stop remains available
-   before enrollment and Katana forwards it with its own service key. Only the authorized hardware adapter opens serial
-   ports and sends device frames.
+   Use the dedicated local operator hostname for browser enrollment. Keep
+   the IPC HTTPS job listener keyed. The browser's Stop remains available
+   before enrollment and after expiry. Katana forwards it with its own
+   service key.
+   Only the authorized hardware adapter opens serial ports and sends frames.
 2. Use fake AGV, robot, executor and PLC devices by default. Live traffic
    requires an explicit request for that session and a human present.
    Only the operator at the physical AGV e-stop may arm or approve a live
-   call. The supervisor's manual window permits individual calls.
-   Live programme travel and dips remain disabled.
+   call. For a module, Arm confirms that the arm is folded and the path
+   and tank equipment are clear. The IPC binds that confirmation to the
+   owner, lease and executor boot for up to 30 minutes and records the
+   operator and browser enrollment. Manual station calls require their
+   own confirmation. All live station visits require the supervised
+   window and existing interlocks. Live recipe travel and dips remain disabled.
 3. Preserve the priority Stop path. Latch Stop before ordinary work. Send
    the halt ahead of journal I/O. Fence any older command authority.
    Test Stop ordering when changing this path. Page Stop is software.
@@ -55,6 +62,14 @@ implications are ambiguous, ask the human before editing code or using hardware.
 5. Keep proposed limits DRAFT until the process owner reviews and finalizes
    the revision. Measured breaches alarm, record and flag for inspection.
    The operator owns the disposition decision.
+6. Keep raw AGV access behind the IPC's explicit expiring dev scope and
+   wired command allowlist. Before motion, check the operator Arm
+   confirmation for the current owner and lease. Preserve the existing
+   motion interlocks and deny isolated-track motion by default. The IPC's
+   explicit attested-track setting requires an open window and fresh
+   battery above the floor. Snapshot settings before writing, verify
+   read-back and restore only the saved value through raw undo. Release
+   without issuing raw keys. See [Raw commands](docs/MODULE_JOBS.md#raw-commands-dev-only).
 
 ## Work and test
 

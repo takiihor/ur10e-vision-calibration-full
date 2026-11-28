@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
 import { reactive } from 'vue';
@@ -18,6 +18,7 @@ async function open(props = {}, respond = () => ({})) {
   await flushPromises();
 }
 
+beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => {
   page?.unmount();
   vi.unstubAllGlobals();

@@ -41,7 +41,10 @@ export default definePreset(Aura, {
       serious: '#6C3510',
       warning: '#514305',
       good: '#0B5007',
-      headerAccent: '#A3144D',
+      headerAgv: '#073C66',
+      headerCalibration: '#14510C',
+      headerTeaching: '#5138A5',
+      headerPickPlace: '#005659',
     },
   },
   semantic: {
@@ -106,6 +109,7 @@ export default definePreset(Aura, {
         }).map(([severity, color]) => [severity, { color: '{operator.panel}', background: color }])),
       },
     },
+    badge: { colorScheme: { light: { warn: { color: '{operator.panel}', background: tones.warn } } } },
     message: { colorScheme: { light: notices } },
     toast: {
       colorScheme: {
@@ -144,8 +148,14 @@ export default definePreset(Aura, {
       },
     },
     button: {
+      root: { borderRadius: '8px' },
+      label: { fontWeight: '600' },
       colorScheme: {
         light: {
+          outlined: {
+            secondary: { color: '{operator.text}', borderColor: '{operator.border}',
+              hoverBackground: '{operator.raised}', activeBackground: '{operator.pressed}' },
+          },
           root: {
             secondary: {
               background: '{operator.canvas}', hoverBackground: '{operator.raised}', activeBackground: '{operator.pressed}',

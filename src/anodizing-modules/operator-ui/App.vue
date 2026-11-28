@@ -1,10 +1,11 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import Button from 'primevue/button';
 import Card from 'primevue/card';
 import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
 import Tag from 'primevue/tag';
+import Toolbar from 'primevue/toolbar';
 import AppLayout from './layout/AppLayout.vue';
 import StopBar from './StopBar.vue';
 import AgvPage from './AgvPage.vue';
@@ -55,8 +56,6 @@ async function loadScene() {
     sceneRead = false;
   }
 }
-const heading = ref();
-const safety = ref();
 const linkClock = ref(Date.now());
 const lineLink = computed(() => service.value?.line_link);
 const linkSince = computed(() => Date.parse(lineLink.value?.since));
@@ -77,7 +76,7 @@ const lineActive = computed(() => lineState.value?.active);
 const targetSending = new Set();
 const manualStopId = ref('');
 const teacherStopId = ref('');
-let timer, observer, checking = false, retired = false;
+let timer, checking = false, retired = false;
 
 const transport = computed(() => {
   if (agv.state.sequence === -1 || agv.serviceError) return 'AGV transport · Unknown';
@@ -216,59 +215,60 @@ function navigate() {
   if (wasPick && !pickRoute.value) agv.retireOutcome('pick-place');
   if (wasTeacher && !isTeacher.value) agv.retireOutcome('teacher');
   if (wasCalibration && !isCalibration.value) agv.retireOutcome('calibration');
-  document.title = title.value + ' · Operator app';
+  document.title = title.value + ' · Dev console';
   if (isAgv.value) agv.enterAgv();
   if (isScene.value) void loadScene();
-  void nextTick(() => heading.value?.focus());
+  void nextTick(() => document.getElementById('operator-page-heading')?.focus());
 }
-
-function measureStopBar() {
-  const height = Math.ceil(safety.value.getBoundingClientRect().height);
-  document.documentElement.style.setProperty('--stop-height', height + 'px');
-}
-
-watch([() => lineLink.value?.cause, linkRecovered], measureStopBar, { flush: 'post' });
 
 onMounted(() => {
-  document.title = title.value + ' · Operator app';
+  document.title = title.value + ' · Dev console';
   if (isScene.value) void loadScene();
   window.addEventListener('hashchange', navigate);
   void refreshService();
   timer = setInterval(refreshService, 1500);
-  measureStopBar();
-  if ('ResizeObserver' in window) {
-    observer = new ResizeObserver(measureStopBar);
-    observer.observe(safety.value);
-  }
 });
 onUnmounted(() => {
   retired = true;
   clearInterval(timer);
-  observer?.disconnect();
-  document.documentElement.style.removeProperty('--stop-height');
   window.removeEventListener('hashchange', navigate);
 });
 </script>
 
 <template>
-  <div ref="safety" class="layout-stop">
-    <StopBar :agv="agv" :targets="targets" :target-outcomes="targetOutcome" :line-active="lineActive"
-      :line-alarm="lineState?.alarm" :line-stop-outcome="lineStopOutcome" :line-escape="lineTest"
-      @target-stop="stopTarget" @line-stop="stopLine()" />
-    <div v-if="lineLink?.state === 'lost'" class="line-link-alert" role="alert">
-      <strong>AGV link lost since {{ linkTime }}</strong> <span aria-hidden="true">({{ linkElapsed }})</span>.
-      The AGV is designed to hold and disarm on link loss. {{ lineLink.hint }}
-    </div>
-    <div v-else-if="linkRecovered" class="line-link-alert link-back" role="status">
-      Link back at {{ linkTime }}, <a data-ui="line.link.reconnect" href="#/agv">reconnect on the AGV page</a>.
-    </div>
-  </div>
-  <AppLayout :route="route" :transport="transport">
-    <h1 ref="heading" tabindex="-1">{{ title }}</h1>
-    <Message v-if="operatorReadOnly" data-ui="operator.readonly" severity="info">
-      Read-only access. <a data-ui="operator.enroll" href="/operator-key">Enroll this browser</a> to use operator controls.
-    </Message>
-    <AgvPage v-if="isAgv" :agv="agv" />
+  <AppLayout :route="route">
+    <template #urgent>
+      <StopBar :agv="agv" :transport="transport" :agv-page="isAgv" :show-ownership="isAgv || isCalibration || Boolean(pickRoute)" :route="route" :link-lost="lineLink?.state === 'lost'" :targets="targets" :target-outcomes="targetOutcome" :line-active="lineActive"
+        :line-alarm="lineState?.alarm" :line-stop-outcome="lineStopOutcome" :line-escape="lineTest"
+        @target-stop="stopTarget" @line-stop="stopLine()">
+        <template #notice>
+          <Message v-if="lineLink?.state === 'lost'" severity="error"
+            :pt="{ root: { id: 'agv-link-loss', class: 'line-link-alert my-0.5' }, transition: { css: false } }">
+            <strong>AGV link lost<template v-if="Number.isFinite(linkSince)"> since {{ linkTime }}</template></strong><span v-if="Number.isFinite(linkSince)" aria-hidden="true">{{ ' (' + linkElapsed + ')' }}</span>.
+            The AGV is designed to hold and disarm on link loss.
+            {{ lineLink.hint || agv.executorDownReason.replace(/^AGV link lost\.\s*/i, '') }}
+          </Message>
+          <Message v-else-if="linkRecovered" severity="success" :pt="{ root: { class: 'line-link-alert my-0.5', role: 'status', 'aria-live': 'polite' }, transition: { css: false } }">
+            Link back at {{ linkTime }}, <a data-ui="line.link.reconnect" href="#/agv">reconnect on the AGV page</a>.
+          </Message>
+        </template>
+      </StopBar>
+    </template>
+    <Toolbar class="page-header mb-2 flex-wrap items-center gap-x-3 gap-y-2" aria-labelledby="operator-page-heading">
+      <template #start>
+        <h1 id="operator-page-heading" tabindex="-1" class="m-0">{{ title }}</h1>
+      </template>
+      <template #end v-if="isTeacher || pickRoute">
+        <div class="flex w-full flex-wrap gap-2 max-md:[&>.p-button]:w-full" role="group" aria-label="Workspace links">
+          <Button v-if="isTeacher" data-ui="teaching.legacy.open" as="a" href="/teaching" severity="secondary" variant="outlined" label="Open legacy teaching" />
+          <template v-else>
+            <Button data-ui="pick.legacy.open" as="a" href="/pick-place" severity="secondary" variant="outlined" label="Open legacy pick/place" />
+            <Button data-ui="pick.agv.open" as="a" href="#/agv" severity="secondary" variant="outlined" label="Open AGV commissioning" />
+          </template>
+        </div>
+      </template>
+    </Toolbar>
+    <AgvPage v-if="isAgv" :agv="agv" :link-lost="lineLink?.state === 'lost'" />
     <ScenePage v-else-if="isScene" :config="sceneConfig" :config-error="sceneError"
       :state-error="agv.stateError" :variable="agv.variableInfo"
       :line-mode="agv.line?.mode" :line-tanks="agv.line?.mode === 'disabled' ? null : agv.line?.tanks" />
@@ -293,7 +293,7 @@ onUnmounted(() => {
     <CalibrationPage v-else-if="isCalibration" :service="offline ? null : service" :agv="agv"
       :stop-outcomes="targetOutcome" @changed="refreshService"
       @outcome="(outcome, choose) => agv.showOutcome('calibration', outcome, choose)" />
-    <div data-ui="home.page" v-else class="home-grid">
+    <div data-ui="home.page" v-else class="grid items-start gap-4 min-[36rem]:grid-cols-2">
       <Card data-ui="home.service.panel" class="panel home-card" aria-labelledby="service-heading">
         <template #title><h2 id="service-heading">Service</h2></template>
         <template #content>

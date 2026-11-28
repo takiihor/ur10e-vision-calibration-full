@@ -1,11 +1,11 @@
-# Operator app
+# Dev console
 
-Open `/operator/` on the local Anodizing Modules service. Home reports service and AGV state. The AGV link opens commissioning. The sidebar opens the Vue modules. Calibration, Teaching and Pick/place link to their standalone pages. The service starts at the original landing page.
+On Katana, open [Dev console](http://dev.localhost:8880/dev/) and enroll the browser on this origin. For local development, open `/dev/` on the Anodizing Modules service. Home reports service and AGV state. The sticky Sakai topbar links to Home and four colour-coded workspaces. Use AGV for commissioning and Bluetooth maintenance, or choose Calibration, Teaching or Pick/place. The More popup opens Home, Scene, Line and Recorder. Use Enter to open it and the arrow keys to choose a page. On a narrow screen, open Menu to reach the four workspaces and More. AGV, Teaching and Pick/place use in-page panel tabs. Arrow keys move between tabs, and Enter or Space selects one. The browser remembers the most recent panel locally. The unkeyed service opens at the original landing page by default.
 
 ## UI IDs
 
-Open `/operator/?ui=ids` to reveal IDs on visible controls and panels. Use
-`/operator/?ui=ids#/agv` to open the AGV route with labels. The
+Open `/dev/?ui=ids` to reveal IDs on visible controls and panels. Use
+`/dev/?ui=ids#/agv` to open the AGV route with labels. The
 [UI ID registry](UI_IDS.md) lists each selector and the source that declares it.
 Keep IDs stable across copy and layout changes. When adding a control or panel,
 add its entry to `ui-ids.json` and run `node generate-ui-ids.mjs`. Use the
@@ -21,9 +21,23 @@ npm test -- --maxWorkers=2
 npm run build
 ```
 
-The exact dependency versions and integrity hashes are in `package-lock.json`. The locally adapted Sakai 5.0.0 layout supplies the topbar, collapsible sidebar and content area. The layout uses local CSS, system fonts and bundled PrimeIcons. PrimeVue uses the Alucard light preset in `alucard.js` with the existing Aura component styles. The legacy landing, AGV, calibration, teaching and pick/place pages use matching colors in `../app/anodizing_web/web/teacher-style.css` and retain their original layout and typography.
+After building, run `python3 test-layout-browser.py` with Firefox and geckodriver.
+The test checks root page width, the sticky controls, the narrow Controls drawer,
+More and panel switching in four link states. Use `--widths 320 390 768 900 991 992 1280 1366 1440 1854 1920`
+for the full responsive check. The local fixture serves all API responses
+without starting the application service or using hardware. For Katana captures,
+pass `--quick --widths 1854 --height 1048 --states connected lost disconnected --screenshots <directory>`.
+Repeat with `--widths 1920 --height 1080` for fullscreen.
 
-Red marks Stop and alarms, amber marks warnings, green marks running and normal states, and cyan marks information and actions. Purple and pink appear in header accents. State labels and icons remain visible. Run `npm test -- alucard.test.js` to verify contrast, or prefix it with `THEME_CONTRAST_REPORT=1` to emit the measured token pairs as CSV. The targets are 7:1 for text, 4.5:1 for the primary and danger fills against their surroundings, and 3:1 for control boundaries, badges and focus indicators. The bundle includes the palette and dependency notices. [Alucard spec](https://draculatheme.com/spec) · [Dracula Theme MIT licence](https://github.com/dracula/dracula-theme/blob/main/LICENSE)
+The exact dependency versions and integrity hashes are in `package-lock.json`. The locally adapted Sakai 5.0.0 layout supplies the topbar and content area. Tailwind 4 compiles layout utilities with the Vite build. Use the PrimeUI
+utilities for semantic colours, such as `text-muted-color` and `text-primary`.
+The utility stylesheet maps additional canvas and section roles to the Alucard
+tokens in `alucard.js`. Keep colours in that preset. The existing CSS owns the
+base styles, focus treatment, pinned controls and PrimeVue component overrides.
+The Dev console uses the Alucard light preset with Aura components, system
+fonts and bundled PrimeIcons. The IPC status display uses its standalone CSS. The legacy landing, AGV, calibration, teaching and pick/place pages use matching colors in `../app/anodizing_web/web/teacher-style.css` and retain their original layout and typography.
+
+Red marks Stop and alarms, amber marks warnings, green marks running and normal states, and cyan marks information and actions. The top strip and active panel tabs use blue for AGV, green for Calibration, purple for Teaching and teal for Pick/place. State labels and icons remain visible. Run `npm test -- alucard.test.js` to verify contrast, or prefix it with `THEME_CONTRAST_REPORT=1` to emit the measured token pairs as CSV. The targets are 7:1 for text, 4.5:1 for the primary and danger fills against their surroundings, and 3:1 for control boundaries, badges and focus indicators. The bundle includes the palette and dependency notices. [Alucard spec](https://draculatheme.com/spec) · [Dracula Theme MIT licence](https://github.com/dracula/dracula-theme/blob/main/LICENSE)
 
 Vite writes `../app/anodizing_web/operator_dist/`, including the hashed assets and HTTP allowlist. Commit the generated output with the UI changes. Build the Python wheel from a clean app source directory with the generated output present. The Python package includes the entry, asset allowlist, fonts, CSS, JavaScript and notices. The IPC only needs the Python package and its usual dependencies. For local iteration, use `npm run build -- --watch` with the normal Python service in simulation.
 
@@ -33,10 +47,15 @@ The AGV commissioning page follows the [operator page HCI guide](../docs/operato
 
 On Katana, an enrolled browser uses its operator cookie on same-origin API requests. An unenrolled browser has read-only access and software Stop. Standalone mode retains its local page token. The entry is served fresh with a per-response PrimeVue style nonce. A service restart requires a reload and a deliberate new connection. AGV status reads use `/api/state` and `/api/agv?cached=1`. `/api/agv?ports=1` refreshes the port list and command capabilities. AGV operations use the existing `POST /api/agv`.
 
-The commissioning view uses the same connection, checklist, notes and record storage keys as the legacy AGV page. Open the AGV route to use the simulator, then choose **Simulator** and **Connect**. The fixed StopBar stays above the Sakai sidebar and overlays. Escape requests one AGV software Stop. Movement requests carry the current server Stop generation. The UI follows the returned urgent command result and reports stopped only when the server confirms zero speed. Robot stops for active Manual and Teacher sessions display their own buttons and use their own bound job IDs. Opening the AGV route on a directly connected armed link requests disarm. On a configured IPC executor link, the page shows the executor’s current Arm state. A manual visit keeps its job ID across a lost reply and browser or service restart. Acknowledge its terminal result before starting another visit. Inspect the link before issuing any new request after a failure.
+The commissioning view uses the same connection, checklist, notes and record storage keys as the legacy AGV page. Open **AGV**, choose **Simulator** in **Connection**, then choose **Connect** in the sticky right-hand controls. Only **Connect** or **Disconnect** is offered at a time. Pause, the link action and the owner actions share one button width. On narrow screens, Stop and the link tag stay in the pinned strip. Open **Controls** for Pause, the current link action and ownership. Hover or focus Stop for the physical e-stop reminder. Hover or focus Pause for its blocked reason. Hover the link badge for the full report age and transport. The read-only notice links to operator enrollment. The pinned link-loss alarm includes the time, the effect and the recovery instruction. Blocked Connect and Arm controls reference that same explanation when link loss is the cause. Escape requests one AGV software Stop. Movement requests carry the current server Stop generation. The UI follows the returned urgent command result and reports stopped only when the server confirms zero speed. Robot stops for active Manual and Teacher sessions display their own buttons and use their own bound job IDs. Opening the AGV route on a directly connected armed link requests disarm. On a configured IPC executor link, the page shows the executor’s current Arm state. A manual visit keeps its job ID across a lost reply and browser or service restart. Acknowledge its terminal result before starting another visit. Inspect the link before issuing any new request after a failure.
 
-The commissioning bookmark `/operator/#/tests/agv` opens the same page as
-`/operator/#/agv`. The shared AGV banner includes request time in the report age.
+The four status tiles and active station recovery stay above the AGV panel content. The right column shows Job ownership, Arm and its current confirmation on AGV, Calibration and Pick/place. Other pages show a short owner summary. Open **Stations & move** for station calls,
+**Speed & settings** for speed and other movement commands, or
+**Machine details & log** for the checklist and evidence. An active warning
+can mark its panel tab, and critical safety alerts remain visible on the page.
+
+The commissioning bookmark `/dev/#/tests/agv` opens the same page as
+`/dev/#/agv`. The shared link tag includes request time in the report age.
 Reading the same report again preserves its elapsed age. AGV Stop stays
 available on a connected link with a stale report.
 
@@ -46,26 +65,37 @@ The Sakai follow-up was verified with fake ports, software tests and the in-proc
 
 ## Bluetooth maintenance
 
+Enroll this browser with the saved operator key when Katana requires it.
 Open AGV commissioning, select **Bluetooth**, then **Connect** and **Read settings**.
-Katana uses BlueZ and the app environment's optional `anodizing-web[bluetooth]`
-dependency. Add an `agv_bluetooth` object with `name` or `address` in the private
-`<data-dir>/site-profile.json`, then restart the service. If both are configured,
-the advertisement must match both. The page shows all 78 mapped BLE words and
-the latest learned station count observed on RS485, with its observation time.
-If the Bluetooth service has no count, the page uses the AGV page's cached
-wired report. Bluetooth cannot read the stored route.
+Katana uses BlueZ and the optional `anodizing-web[bluetooth]` dependency.
+Set `name` or `address` in the `agv_bluetooth` object in the private
+`<data-dir>/site-profile.json`, then restart the service. If both are set,
+the advertisement must match both.
+The page reads 124 words from the captured controller and settings blocks,
+including the outbound and return counts. Open **Station records** to view
+the raw records returned by the controller. The separately labeled wired
+count comes from the latest RS485 report and may be older than the BLE counts.
 
-Bluetooth settings are read-only while RS485 is connected or armed. Disconnect
-RS485, review the old and new values for a supported field and confirm before
-writing. **Review undo** restores the previous value from the private snapshot.
-The service saves snapshots and raw Bluetooth frames under
-`<data-dir>/agv-bluetooth/`. RS485 Connect and Arm are blocked until the Bluetooth
-session closes. Leaving the tab disconnects it. The server also closes an
-unattended session after its 15-second heartbeat lease expires.
+The wired executor must be reachable, disconnected, disarmed and idle for
+Bluetooth changes. An open Bluetooth session blocks wired Connect and Arm.
+Leaving this tab disconnects Bluetooth. An unattended session expires after
+15 seconds without a heartbeat.
+To change a supported field, read it, choose a value within the displayed
+range, review the current and proposed values and confirm. Katana saves a
+private snapshot, records request and reply bytes, and checks the value by
+read-back. **Review undo** restores the last saved setting when the current
+value still matches that write. Snapshots and the byte log are under
+`<data-dir>/agv-bluetooth/`.
+
+**Clear route** reads both counts for review. Park the AGV before confirming.
+Katana rechecks the profile and counts, sends the verified clear command once
+and reads both counts again. A clear has no undo. After both counts read zero,
+the page shows the attended green-button learning steps. Station edits and
+Bluetooth motion remain unavailable.
 
 ## Local Scene configuration
 
-The Scene and Scene test routes share one display. Open `/operator/#/scene` or `/operator/#/tests/scene`. The drawing, geometry, tank names and status mapping belong in the service's private data directory. The sample below is synthetic.
+The Scene and Scene test routes share one display. Open `/dev/#/scene` or `/dev/#/tests/scene`. The drawing, geometry, tank names and status mapping belong in the service's private data directory. The sample below is synthetic.
 
 Add a `scene` section to `<data-dir>/site-profile.json` and restart the service after changes.
 
@@ -92,7 +122,7 @@ The Scene's lazy WebGL chunk uses the same pinned three.js version as the legacy
 
 ## Recorder
 
-Open `/operator/#/records` (or `/operator/#/tests/records` for the same panel).
+Open `/dev/#/records` (or `/dev/#/tests/records` for the same panel).
 Choose variables and a sample rate, add optional session details, then select
 **Start recording**. You can navigate away or close the tab. Return to Recorder
 and select **Stop recording** to finish and download the Markdown summary,
@@ -111,8 +141,8 @@ Teaching project's tank stay unknown until that project has a recorded value.
 
 ## Line reads
 
-Open `/operator/#/line` for the read-only operator display or
-`/operator/#/tests/line-api` to browse all catalog tags, including writable
+Open `/dev/#/line` for the read-only operator display or
+`/dev/#/tests/line-api` to browse all catalog tags, including writable
 readbacks. Use Line view to open Tank monitor, Signal browser, Alarm signals,
 Tag catalog or Communication log. Signal and catalog search accepts names,
 descriptions and addresses. The catalog's Advanced metadata option shows the
@@ -197,7 +227,7 @@ Carry the local evidence files and exports separately from the repository.
 
 ## Unified line test
 
-Open `/operator/#/tests/line-api` to find the simulator command checklist,
+Open `/dev/#/tests/line-api` to find the simulator command checklist,
 the live sample and the evidence. The existing line reads section also explains
 how to browse numeric tags and export communication diagnostics.
 
@@ -318,7 +348,7 @@ On **Teaching**, capture the marker at its tank. Teaching records a fresh stoppe
 
 On **Pick/place**, choose the teaching projects for endpoints A and B. Their recorded stations prefill the editable fields. Review the source and any mismatch warnings. A blank B project or station uses the corresponding A value. The recipe review binds the chosen stations and AGV mode. A parked approval expires after Stop, Pause, disarming or a change of connection. Check-only mode requires both endpoints at the same station and a fresh arrival report there. A single Pick or Place with a recorded station checks arrival there before starting. Parked admission and holds require zero speed, a stopped report and a clear obstacle state. For a switched-off job, both endpoints must be reachable without moving the AGV. Station fields are optional in that mode.
 
-To teach the travel pose, fold the stopped arm within the vehicle footprint with and without the rod. Open **AGV travel pose** after the Teaching steps, tick the confirmation and select **Save current joints as AGV travel pose**. Select the robot's teaching project or set the site profile's `robot_control.robot_ip`. The service reads stopped joints over RTDE receive and records the timestamp, confirmation and robot address in `agv-travel-pose.json`. Pick/place shows the saved joints and the live stillness and ±2° check. The AGV page checks the saved pose immediately before a manual movement command when robot access is enabled.
+To teach the travel pose, fold the stopped arm within the vehicle footprint with and without the rod. Open **Motion settings** on Teaching and find **AGV travel pose**, tick the confirmation and select **Save current joints as AGV travel pose**. Select the robot's teaching project or set the site profile's `robot_control.robot_ip`. The service reads stopped joints over RTDE receive and records the timestamp, confirmation and robot address in `agv-travel-pose.json`. Pick/place shows the saved joints and the live stillness and ±2° check. The AGV page checks the saved pose immediately before a manual movement command when robot access is enabled.
 
 With `--allow-agv-in-recipe`, a separately confirmed recipe can call stations. The operator confirms Manual mode, auto-start after stop OFF, a clear line and a person at the AGV e-stop. The robot uses the reviewed joint transit to fold. The recipe checks reported mode, destination and set-speed cap while the AGV travels, and verifies arrival at the requested station before pickup or placement. The cap defaults to 1,000 m/h and supports up to 1,500 m/h. The travel timeout is 120 s by default, up to 600 s. **Current operation** shows the robot stage, AGV ACK, reported arrival and aborts. Completed transfers record their stations, transport and leg timings. Stop or an interruption ends the run. The watchdog cancels future station calls and can halt the AGV while the robot Stop is still in progress. Software Stop sends Pause in station-call mode and Stop in standard mode. A halt write records an attempt. A fresh, attributable status report with zero speed and the stopped flag confirms stopped state.
 
@@ -330,10 +360,10 @@ Idle MCU commands 1, 2 and 3 require parked or switched-off approval. Command 0 
 
 | Route | Controls |
 | --- | --- |
-| `/operator/#/pick-place` and `/operator/#/tests/pick-place` | Recipe review and run, single PICK and PLACE, saved-role preparation and job inspection |
-| `/operator/#/tests/robot` | Robot step controls expanded |
-| `/operator/#/tests/mcu` | Manual MCU controls expanded |
-| `/operator/#/tests/tool-power` | Tool supply controls expanded |
+| `/dev/#/pick-place` and `/dev/#/tests/pick-place` | Recipe review and run, single PICK and PLACE, saved-role preparation and job inspection |
+| `/dev/#/tests/robot` | Robot step controls expanded |
+| `/dev/#/tests/mcu` | Manual MCU controls expanded |
+| `/dev/#/tests/tool-power` | Tool supply controls expanded |
 
 The legacy entry is `/pick-place`. Enter completed Teaching projects and
 review the collision scene, joint operating bounds and workspace.
@@ -362,7 +392,7 @@ installation, robot reach, grip, tool voltage, radio or e-stop.
 
 ## Teaching and snapshots
 
-Open `/operator/#/teaching` or `/operator/#/tests/teaching`. Both open
+Open `/dev/#/teaching` or `/dev/#/tests/teaching`. Both open
 the same workspace. The service starts at the legacy landing page, and
 `/teaching` is available directly or through **Legacy Teaching**.
 
@@ -426,7 +456,7 @@ keeps the selected project open on Teaching if browser storage is unavailable.
 
 ## Calibration
 
-Open `/operator/#/calibration` or `/operator/#/tests/calibration`. Choose a
+Open `/dev/#/calibration` or `/dev/#/tests/calibration`. Choose a
 session directory and measured board manifest in **Setup**. All entered paths
 resolve inside the IPC data directory. To prefill reviewed settings on the IPC,
 use the optional `calibration` section of `site-profile.json`. It accepts

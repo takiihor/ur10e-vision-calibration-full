@@ -78,7 +78,7 @@ it('keeps legacy text, states and controls legible across the Alucard surfaces',
 it('meets operator HCI contrast for text, control boundaries and focus in all used states', () => {
   Theme.setTheme({ preset: Alucard, options: { darkModeSelector: false } });
   const { primitive, semantic, global } = Theme.getCommon();
-  const components = ['accordion', 'button', 'card', 'checkbox', 'datatable', 'dialog', 'inputtext',
+  const components = ['accordion', 'badge', 'button', 'card', 'checkbox', 'datatable', 'dialog', 'inputtext',
     'message', 'panel', 'progressspinner', 'select', 'tag', 'textarea', 'timeline', 'toast', 'toggleswitch'];
   const css = [primitive.css, semantic.css, global.css, ...components.map(name => Theme.getComponent(name).css)].join('');
   const tokens = Object.fromEntries([...css.matchAll(/--p-([\w-]+):([^;{}]+)/g)].map(([, name, value]) => [name, value]));
@@ -101,6 +101,7 @@ it('meets operator HCI contrast for text, control boundaries and focus in all us
   const raised = 'operator-raised';
   const pressed = 'operator-pressed';
   const surfaces = [canvas, panel, raised];
+  check('badge-warn-color', ['badge-warn-background'], 7);
   check('operator-text', [...surfaces, pressed], 7);
   check('operator-muted', surfaces, 7);
   check('operator-action', surfaces, 7); // Links
@@ -110,7 +111,15 @@ it('meets operator HCI contrast for text, control boundaries and focus in all us
   check('operator-action', [canvas, raised], 3); // current page indicator
   const sakai = readFileSync(new URL('./layout/sakai.css', import.meta.url), 'utf8');
   expect(sakai).toContain('--surface-overlay: var(--p-overlay-popover-background)');
-  check('text-color', ['overlay-popover-background'], 7); // Sakai sidebar
+  check('text-color', ['overlay-popover-background'], 7); // Sakai topbar menu
+  const bars = ['agv', 'calibration', 'teaching', 'pick-place'];
+  const barTokens = bars.map(page => 'operator-header-' + page);
+  expect(new Set(barTokens.map(resolve)).size).toBe(bars.length);
+  for (const page of bars) {
+    const token = 'operator-header-' + page;
+    check('operator-panel', [token], 7); // text on bar and inverse active tab
+    expect(sakai).toContain(`data-module="${page}"] { --layout-bar: var(--p-${token}); }`);
+  }
   check('text-muted-color', ['overlay-popover-background'], 7);
 
   const buttonParents = { primary: surfaces, secondary: surfaces, danger: surfaces };
@@ -123,6 +132,9 @@ it('meets operator HCI contrast for text, control boundaries and focus in all us
       if (variant === 'secondary') check(prefix + 'border-color', [prefix + 'background'], 3);
     }
   }
+  check('button-outlined-secondary-color', [...surfaces, 'button-outlined-secondary-hover-background',
+    'button-outlined-secondary-active-background'], 7);
+  check('button-outlined-secondary-border-color', [...surfaces, pressed], 3);
   check('operator-border', [...surfaces, pressed], 3); // native fields and disabled buttons
   check('operator-critical', [raised], 7); // disabled Stop label
   check('operator-critical', [panel, raised], 3); // disabled Stop outline

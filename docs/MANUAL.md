@@ -3,7 +3,7 @@
 ## Phase 1
 
 Katana runs the operator app for the anodizing line. The wired AGV link can
-connect, read status, arm, disarm and disconnect. Individual live station calls
+connect, read status, arm, disarm and disconnect. Live station visits
 are available only during a supervised manual-travel window and with the
 required interlocks. The Calibration module runs test recipes, including
 simulated timed dips and rinses. Live programme travel and chemical
@@ -54,7 +54,7 @@ classDiagram
   }
   class DevModule {
     owner_id: module name
-    scopes: read and/or jobs
+    scopes: read, jobs and/or expiring raw
   }
   class JobAPI {
     <<interface>>
@@ -115,10 +115,13 @@ classDiagram
   Executor --> TouchScreen : shows
 ```
 
-The example installation serves the Katana page on loopback port `8880`.
+The example installation serves the Katana Dev console at
+`http://dev.localhost:8880/dev/` on loopback.
 Katana and developer modules reach the same IPC gateway over pinned HTTPS on
-the line LAN, default port `18875`. Each caller uses a scoped service key.
-The IPC kiosk reads its separate cached display on loopback port `18874`.
+the line LAN, default port `18875`. Each caller uses a scoped key. Katana
+sends operator Stop on pinned HTTPS port `18876` first and falls back to
+`18875` with the same Stop ID. The IPC kiosk reads its separate cached
+display on loopback port `18874`.
 SSH is used for administration and deployment. A local development UI defaults
 to `8870`.
 
@@ -131,46 +134,61 @@ to `8870`.
 
 The IPC host route provides only the IPC path. PLC access requires its own
 reviewed line route. The [example site profile](site-profile.example.json)
-uses the application's JSON profile format. The service reads
-`site-profile.json` from its data directory. Provision `PLC_API_KEY`
+uses the application's JSON profile format and stays under `docs/` for
+reference. The service reads `site-profile.json` from its data directory. Provision `PLC_API_KEY`
 privately and verify the supplier read paths before enabling live line reads.
-The IPC binds its HTTPS gateway to the profile's IPC address and accepts
-only the configured line subnet. The IPC firewall enforces that boundary.
+`executor_link.route_address` lets Katana identify the line interface for
+the link banner. The IPC binds its HTTPS gateway to the profile's IPC address.
+The IPC firewall admits the configured subnet on the line interface and
+the IPC's own line address on loopback for port 18875. Reserved Stop on port
+18876 stays on Katana's line-LAN path.
 Configure OS routes, certificates, and keys as documented for the
 [module gateway](MODULE_JOBS.md).
-
-### Saved operator key
-
-On first use after deployment, choose **Enroll this browser** and paste the
-saved key provided by the administrator. The browser remembers enrollment.
-An unenrolled browser can read the page and use software Stop. Enroll again
-after changing browser profiles, clearing cookies, or rotating the key.
-See [browser enrollment](MODULE_JOBS.md#enroll-the-katana-operator-browser).
 
 ## Jobs and recovery
 
 The IPC job gateway serves the AGV page, the Calibration module and authorized
-developer modules directly. The built-in Calibration module uses the same
-ownership rule and a derived key. The API, UI and records use
+developer modules. The built-in Calibration module follows the same
+ownership rule using a key derived from Katana's service key. It needs
+no separate key file. The API, UI and records use
 `agv-page` for manual control, `calibration` for the testing loop, and the
 registered name for a developer module. `main-app-loop` is reserved for
 production. The gateway refuses that owner until the production loop exists.
 One owner at a time may control the executor. The UI shows who holds it,
 who is Armed, and recent client jobs. A change of owner disarms. Only the
-operator at the e-stop Arms for the new owner. The IPC auto-checks eligible
-module jobs and the operator confirms each manual call.
+operator at the e-stop Arms for the new owner. For a module, that Arm
+includes the operator's confirmation that the arm is folded and the path
+and tank equipment are clear. The IPC records the confirmation against the
+module's lease and executor boot for up to 30 minutes. The IPC checks the
+supervised travel window and applicable interlocks for every module visit.
+Module station visits and raw motion on the isolated track require the IPC
+opt-in described below. At the final send, the IPC rechecks the current
+owner and lease, the Arm confirmation and the Stop generation. Develop
+and test module jobs with the fake gateway.
 
-Operators use the Katana app. Developer modules use the IPC HTTPS API with
-their own key and can read only their own jobs. See the
-[API and key scopes](MODULE_JOBS.md#api).
+Operators use the Katana app. Developer modules on the line LAN or on the IPC
+itself connect to `https://192.168.1.251:18875` with the same pinned certificate
+and their own scoped keys. Both follow the same ownership, Arm confirmation,
+track and supervised travel-window rules. They see their own jobs.
+The operator sees jobs across clients. The installation starts with zero
+developer keys. See [key provisioning and API examples](MODULE_JOBS.md).
 
 | Operation | What it does |
 | --- | --- |
 | `GET /v1/health` | Reports the executor build, boot ID, protocol major and job versions. Protocol 2 peers require a matching major for control. |
-| `GET /v1/status` | Reports current job, device status and freshness, lease, Stop generation and recovery state. Use `?job_id=…` to look up a retained job and its checkpoint and result. |
-| `POST /v1/submit` | Carries `job_id`, `type`, `version` and `params` with current control authority. A manual call also carries its recorded confirmation. With valid authority, the same ID and payload return the recorded job. Reusing an ID with different content conflicts. A valid new request can receive a recorded busy refusal. |
-| `POST /v1/heartbeat` | The Katana service renews the lease for the current boot and session. Defaults are one heartbeat per second and expiry three seconds after the last valid heartbeat. |
-| `POST /v1/stop` | Accepts an authorized software Stop even while disarmed, busy or without a live lease. Receipt, halt attempt and confirmation are separate. |
+| `GET /v1/status`, `GET /v1/jobs` | Show the current owner, Arm binding, device state and the jobs visible to the caller. Use `status?job_id=…` to read retained evidence for one job. |
+| `POST /v1/claim`, `POST /v1/release` | Claim an idle executor and retain its lease ID. Release when work has settled. Changing or releasing ownership disarms. |
+| `POST /v1/submit` | Sends `job_id`, `type`, `version` and `params` with current authority. A module sends its lease ID and Stop generation. A manual call carries the operator confirmation. The same ID and payload return the current recorded disposition, including a retained refusal. A jobs-only key receives the same minimal receipt format at first acceptance and on retry. Changing the payload conflicts. |
+| `POST /v1/heartbeat` | An external module advances the sequence on its lease each second. Ten seconds without a valid renewal cause Stop, hold, disarm, ownership release and Operator check. The Katana service heartbeat defaults to one second with a three-second lease. |
+| `POST /v1/stop` | Accepts a software Stop with any valid IPC key, even while disarmed, busy or without a live lease. Receipt, halt attempt and confirmation are separate. |
+| `POST /v1/raw` | Runs an allowlisted wired command under an expiring development grant. Motion requires the current lease and Arm confirmation. Speed changes require a stopped, disarmed vehicle and can only lower the setpoint. The IPC rechecks the grant at the send. |
+| `POST /v1/raw/undo` | Restores the exact value from the latest eligible speed snapshot, using its original key and the same vehicle with unchanged read-back. The IPC journals the restore and verifies read-back. |
+
+The IPC checks both the calendar cutoff and the boot-time deadline at
+authentication and final send. The earlier deadline ends raw access.
+The running executor latches observed expiry so a clock rollback cannot
+restore raw access. An IPC reboot invalidates the raw scope. Other scopes on
+the key remain available.
 
 The executor accepts `station_visit` version 1. A command acknowledgement
 means it received the command. Arrival requires fresh stopped feedback at
@@ -185,15 +203,25 @@ Job states include `running`, `done`, `stopped`, `refused`, `failed` and
 `interrupted`. Check the result and checkpoint for the physical outcome.
 A job can finish with an uncertain outcome and require **Operator check**.
 
-**Stop and link loss.** Katana latches Stop and sends it ahead of journal
-writes. The IPC latches its own Stop generation, disarms, prevents new
+**Stop and link loss.** Katana latches Stop and attempts the primary
+send. The fallback dispatch proceeds independently of the local witness
+write. The AGV page reports primary-route failure even if the fallback
+delivers the Stop. Port `18876` bounds and times out unauthenticated
+connections separately from authenticated operator Stop requests.
+The IPC latches its own Stop generation, disarms, prevents new
 physical steps and prioritizes the halt attempt on a motion-capable
 connection. Confirmation requires fresh, stopped feedback after the halt
 attempt from the current IPC boot. If the link drops, Katana freezes
 dispatch on doubt. The IPC independently holds and disarms on lease expiry.
 When a Stop stays unconfirmed, use the physical e-stop for immediate
 intervention. Katana delivers a pending Stop on reconnect before allowing
-re-arm or dispatch.
+re-arm or dispatch. A confirmed Stop leaves the IPC disarmed. A valid owner
+remains selected until release or lease loss.
+
+The **AGV link lost since** banner shows when the outage was detected and
+gives a check for the line Wi-Fi or the IPC. When **Link back at** appears,
+follow its link to the AGV page, reconnect and query status. Resolve any
+pending Stop or Operator check before a fresh Arm.
 
 **Operator check.** If a reply, location, basket, interlock or retained record
 leaves the physical outcome in doubt, the executor holds and disarms, and
@@ -211,30 +239,56 @@ and its companion files retain basket history, pinned revisions, job IDs,
 measured timing and decisions. `executor-manual-visit.json` and
 `executor-stop.json` preserve manual-visit and Stop state. Use **Records**
 in the UI for operator recordings stored under `records/`. The IPC keeps
-`.jobs/` and `.executor-journal` with the accepted work and checkpoints,
-and `agv-wire.jsonl` for wired traffic. Keep the full private directories and
+`.jobs/` and `.executor-journal/` with job evidence and checkpoints, and
+`agv-wire.jsonl` for wired traffic. Job records attribute the client and key ID.
+The gateway stores only key hashes in the key registry. Keep the full private directories and
 their companion files together when archiving evidence. See
 [data handling](../state/README.md).
 
 ## Operator use
 
+### Saved operator key
+
+On the Katana desktop, open the **Dev console** shortcut or go to
+**http://dev.localhost:8880/dev/** and choose **Enroll this browser**. Paste
+the saved key provided by the administrator. Enrollment lasts at most 12 hours in that browser tab,
+including reloads. The browser sends the credential only to this origin,
+including its port. Enroll again in a new tab or after expiry or key
+rotation. Enroll once when you first open the new address. Old bookmarks
+redirect to the same hash route and drop their query strings. An unenrolled
+browser can read the page and use software Stop.
+See [browser enrollment](MODULE_JOBS.md#enroll-the-katana-operator-browser).
+
 ### AGV controls
 
-Open **AGV** in Katana at `/operator/#/agv`. Only the operator at the
+Open **AGV** in Katana at `/dev/#/agv`. Only the operator at the
 physical AGV e-stop may arm or confirm a live station call.
 
-1. Select the wired path, shown as **IPC executor** on an executor-backed
-   installation, and choose **Connect**. Choose **Query status**. Review the
-   mode, freshness, station, learned count, battery and faults.
-2. For a live call, verify that the supervised window is open. Arm only
-   with fresh stationary feedback. Select a permitted station and verify
-   the destination in the confirmation. Confirm that you are at the e-stop,
-   the arm is folded, and the path and tank equipment are clear. Choose
-   **Confirm and call** for this call only. Watch for arrival and acknowledge
-   the result when requested.
-3. Use the page **Stop** for a software stop. Confirm that the AGV is stopped.
+1. In **Connection**, select the wired path, shown as **IPC executor** on
+   an executor-backed installation. Choose **Connect** beside the page title.
+   Choose **Query status** in **Connection**. Review the mode, freshness,
+   station, learned count, battery and faults.
+2. Choose **Select AGV page** under **Job ownership**. For a live call,
+   verify the supervised window and fresh stationary feedback, then use
+   **Armed** at the physical e-stop. Verify **Armed for AGV page**.
+3. Open **Stations & move**, select a permitted station and verify the
+   destination in the confirmation. Confirm that you are at the e-stop, the arm is folded,
+   and the path and tank equipment are clear. Choose **Confirm and call**
+   for this call only. Watch for arrival and acknowledge the result when
+   requested.
+4. Use the page **Stop** for a software stop. Confirm that the AGV is stopped.
    Use the physical e-stop when immediate intervention is needed. For a
-   normal shutdown, **Disarm**, then **Disconnect**.
+   normal shutdown, disarm with the **Armed** switch and choose **Disconnect**.
+
+For a module visit, have the module claim control or select the Calibration
+module under **Job ownership**. At the physical e-stop, check the arm,
+path and tank equipment, then choose **Armed**. Verify the module in the
+dialog, enter the operator's name and choose **Confirm and Arm**.
+Check the module name, local expiry time and countdown
+on the AGV page. Arm again after expiry, ownership change, release,
+heartbeat loss, Stop, Operator check, disarm, disconnect or executor
+restart. Expiry blocks the next move. An in-progress move follows the
+existing arrival and Stop rules.
 
 The wired field `max_stations` counts learned legs. A positive count
 allows calls from station 1 (the start) through the count plus one, up to
@@ -243,11 +297,13 @@ Use station-call mode. For new tape or missing legs, perform the attended
 learning run with the AGV's green button and the XBOT station guide V1.61,
 pages 2–3. Query status and check the reported range against the floor marks.
 
-Read the refusal next to the affected control. **Tick Armed to enable
-movement** calls for a fresh operator arm. **Wait for a fresh status report**
-calls for a new status read. Clear any reported obstacle or fault before
-calling a station. Low battery, an expired window, an outstanding Stop or
-Operator check, or a station outside the learned range can also block travel.
+The AGV and Bluetooth pages name the blocked or refused action and show
+the reason and next step. For stale feedback, choose **Query status**.
+For an owner or Arm refusal, check **Job ownership** and **Armed for**.
+Station controls above the learned range are disabled and show the
+reported range. On either page, a **Last known** report shows the previous
+reading and time. Follow **Tell the technician** for an unknown reason and
+preserve the reported code.
 
 The commissioning owner sets the IPC's `ANODIZING_MANUAL_TRAVEL_UNTIL`
 to an absolute UTC expiry. The supervised procedure uses a three-hour
@@ -255,29 +311,139 @@ window. A restart with that same deadline preserves the original expiry.
 Without a window the link supports commissioning controls and status.
 The supervised line tape runs beside the tanks. During travel the UR10e
 stays folded. Tank-clear and equipment-off signals are still pending on this
-test path. Check the path and equipment by eye before each call. The IPC
-uses fresh AGV battery percentage for reserve. Ordinary wired travel requires
+test path. Check the path and equipment by eye before confirming a manual
+call. By default, the isolated track blocks module station visits and
+raw motion. The IPC's `ANODIZING_MODULE_TRAVEL_ON_ATTESTED_TRACK=1`
+allows them during the open window with a current, owner-, lease- and
+boot-bound Arm confirmation and fresh battery above the floor. On this
+track the operator's Arm confirmation supplies the folded-arm, clear-path
+and clear-equipment checks in place of the hardware interlocks. Page
+station calls still require their own confirmation. The IPC uses fresh
+AGV battery percentage for reserve. Ordinary wired travel requires
 qualified local robot pose, battery reserve and fresh tank-clear and
 equipment-off feedback. See the
 [supervised test configuration](ARCHITECTURE.md#supervised-manual-station-calls).
 
+### IPC touchscreen
+
+The black status screen uses a word, symbol and colour to show what the
+AGV is doing. Station, battery and fault are the large readouts. The
+current or last job is below them. Owner, Arm time, lease, heartbeat,
+tower light, data age and build appear in the footer. When the cached
+screen data is about three seconds old, the screen turns grey and asks
+staff to call the operator. A current Stop or recovery warning stays
+visible while the executor still reports it. The loopback display on
+port `18874` serves cached state and has no controls.
+
+The battery readout and Dev console Overview show **Charging**, **In use**
+or **Steady** when enough fresh readings are available. Below 20%, the
+warning is amber. Below 10%, it is red. For wired charging, switch the
+vehicle off, use its dedicated charger and stay nearby.
+
+The XBOT RS485 protocol 260917 (pp. 2–3) reports the battery percentage in
+`0x25`. A `0x26` query returns the same fields, with no charger flag.
+The V2.0 0812 manual (pp. 10, 12) shows a charging indicator in the vendor
+app, specifies wired charging with the vehicle off, and lists wireless
+charging as optional. The IPC receives no feedback from a switched-off
+vehicle. Use the wired charger indicator to check charging in that case.
+
+The IPC status API reports the estimate as `device.battery_trend`
+(`charging`, `in_use`, `steady` or `null`). The executor samples fresh
+reports about every 20 seconds in memory, compares medians at the ends
+of a 10-minute window, and ignores a change of one percentage point.
+The label needs at least three minutes of continuous feedback. Missing
+or invalid readings clear the history, and the label disappears on
+disconnect or when the last report is three seconds old.
+
+The IPC user service starts the screen during graphical login if
+HDMI-A-1 is the sole connected and enabled physical output, and checks
+again every two seconds for a display powered on later. It closes its
+own viewer on disconnect and restarts an exited viewer with a delay.
+The viewer stays below developer windows and rejects input focus.
+Install `tools/anodizing-ipc-kiosk.service` in
+the IPC account's systemd user-unit directory and enable it with
+`systemctl --user enable --now`.
+The unit reads the viewer from the current IPC release.
+
+### Tower light
+
+The common-positive tower light shares +24 VDC with PCOM and uses 0 V at
+ECOM2. DO0 is red, DO1 yellow, DO2 green and DO3 the buzzer. The IPC executor
+drives the light from its own state.
+
+| Indication | Executor state |
+| --- | --- |
+| Green | Idle with fresh, stopped and fault-free AGV feedback |
+| Amber | Armed with fresh feedback, including a current module Arm confirmation |
+| Flashing amber | Movement dispatched or feedback shows travel, including a handheld remote call |
+| Red | Software Stop, an obstacle stop, a fault, or a check needed |
+| Flashing red | Recovering from link or lease loss |
+| Off | Disconnected, waiting for fresh feedback, or no ready signal and no alarm |
+
+Check the battery reserve and supervised travel window on the AGV page
+before authorizing travel. Green only describes the current AGV feedback.
+
+Flashes are about once per second. The buzzer beeps once when travel
+starts and three times when Stop, a fault or a check begins. Beeps are
+about 0.2 seconds. Use the AGV page to verify link and Arm status. Check
+the touchscreen if the light is unavailable. A tower worker startup
+failure leaves the executor gateway and priority Stop available. The
+post-stop lamp clear has a two-second limit. Use the physical emergency
+stop for emergencies.
+
+The IPC's optional root-owned `/etc/anodizing-executor/tower-light.env`
+accepts `ANODIZING_TOWER_LIGHT_ENABLED=1` to activate the display.
+`ANODIZING_TOWER_LIGHT_DEVICE` defaults to `/dev/ttyACM0`. A stable
+`/dev/serial/by-id/` symlink to the ECB-306 can be used instead. The default
+polarity is active-high, as confirmed during the 2026-11-27 attended check.
+If using an active-low board, set `ANODIZING_TOWER_LIGHT_ACTIVE_LOW=1` and
+verify with an attended test. Logical all-off sends `GW00` at default
+polarity and `GW0F` for active-low DO0–DO3.
+
+For the attended IPC lamp test, confirm on the AGV page that the link is
+disconnected, disarmed and idle. Keep it idle, stop the executor service,
+then run the command while watching the light. It shows red, yellow,
+green and buzzer for about one second each, then clears the outputs.
+
+```sh
+sudo systemctl stop anodizing-executor.service
+sudo systemd-run --wait --pipe --collect --property=EnvironmentFile=-/etc/anodizing-executor/tower-light.env /opt/anodizing-executor/current/tools/anodizing-tower-light test
+```
+
+After checking polarity, set `ANODIZING_TOWER_LIGHT_ENABLED=1` in that file
+and run `sudo systemctl start anodizing-executor.service`. The test acquires
+the same lock as the executor and requires an IPC administrator.
+
 ### Bluetooth maintenance
 
-Use the **Bluetooth** tab on the AGV page for maintenance. The real site
-profile supplies the device identity privately. Disarm and disconnect
-wired control before opening Bluetooth. A Bluetooth session blocks wired
-Connect and Arm. Use **Read settings** to inspect the supported fields.
-For a permitted change, review the old and new values, then confirm the
-write. Review and confirm Undo to restore a supported previous value.
-Disconnect when finished. The learned count shown here comes from
-wired evidence. The stored route cannot be read over Bluetooth.
+Use the **Bluetooth** tab on the AGV page for maintenance. The private site
+profile supplies the device identity. With wired control disconnected,
+disarmed and idle, choose **Connect**, then **Read settings**. A Bluetooth
+session blocks wired Connect and Arm. Review the old and new value before
+confirming a supported setting write. **Review undo** can restore the
+previous value of a supported write.
+
+**Stored Bluetooth route** shows outbound and return counts. Expand
+**Station records** to inspect available rows. The separate **RS485
+learned route** uses wired status. Check its timestamp if it shows the
+last known report.
+
+During approved maintenance with the AGV parked, choose **Clear route**
+to review both directions. **Confirm route clear** permanently erases
+the stored route. Check both post-clear counts. Disconnect Bluetooth.
+For relearning, follow the displayed attended green-button procedure and
+check the learned range with **Query status** on the AGV page. Bluetooth
+motion and Stop controls are unavailable.
 
 ### Calibration module
 
-Open **Pick/place** at `/operator/#/pick-place` and find the simulated
-programme panel for the Calibration module. With the fake executor
-configured, review the effective recipe revision and DRAFT limits. Enter
-the basket ID and confirm the basket at input. Choose **Run Calibration simulation**. The panel shows progress,
+Open **Pick/place** at `/dev/#/pick-place` and find **Calibration
+module**. In a two-process simulation using the gateway, use **Select
+Calibration module** under **Job ownership** on the AGV page and confirm Arm
+for it in the fake instance.
+Review the effective recipe revision and DRAFT limits. Enter the basket ID,
+confirm the basket at input, and choose **Run Calibration simulation**. The
+panel shows progress,
 reported measurements, holds and inspection flags. **Stop programme**
 requests a software Stop. Use the displayed **Operator check** if
 requested. A measured limits breach raises an alarm and flags the
@@ -296,7 +462,7 @@ ANODIZING_ROLE=orchestrator ANODIZING_EXECUTOR_PORT=0 ANODIZING_DISABLE_SIMULATI
   ./start-ui.sh --no-browser --port 8872 --data-dir ./offline-ui-data --line-mode disabled
 ```
 
-Open `http://127.0.0.1:8872/operator/#/agv`, select **Simulator** and
+Open `http://127.0.0.1:8872/dev/#/agv`, select **Simulator** and
 choose **Connect**. Stop the local process with Ctrl-C. To exercise the
 Calibration module, add `--programme-file` pointing to a synthetic JSON list of
 steps with `id`, `tank`, `role`, `station` and positive `setpoint` in
@@ -322,19 +488,27 @@ Set `ANODIZING_PYTHON` to the prepared interpreter if needed. Vite writes
 into the packaged `app/anodizing_web/operator_dist/` directory. For a
 docs-only build check, use a disposable checkout.
 
-**Katana API.** Reuse the same-origin client in
-[api.js](../src/anodizing-modules/operator-ui/api.js). The browser uses the
-operator session cookie once enrolled. `GET /api/agv?cached=1` reads AGV state
-and `POST /api/agv` handles operator actions. `GET /api/programme` reads
-Calibration module state and `POST /api/programme` handles review and run
-actions. Developer modules use the [IPC API](MODULE_JOBS.md#api).
+**Katana API.** Reuse the same-origin client. An enrolled tab sends
+`X-Operator-Enrollment` only to the enrollment origin. In local mode
+without browser enrollment, the
+client sends `X-Module-Token` from the page's `module-token` meta tag.
+`GET /api/agv?cached=1` reads AGV state and `POST /api/agv` handles operator
+actions. `GET /api/programme` reads Calibration module state and
+`POST /api/programme` handles review and run actions. AGV and Bluetooth
+refusals can include `code`, `message` and `hint` alongside `error`. See
+[the app client](../src/anodizing-modules/operator-ui/api.js) and
+[refusal feedback](ARCHITECTURE.md#katana-agv-and-bluetooth-refusal-feedback).
 
-**Adding a developer module.** Use only the [keyed IPC API](MODULE_JOBS.md)
-for jobs, status and Stop. Future cameras, UR10e, tower light and PLC data
-will also use keyed APIs. For a built-in operator UI change, reuse the existing
+**Adding a developer module.** Start with a synthetic key and the
+two-process fake gateway. Claim an idle executor, keep the lease alive
+while waiting for the operator's Arm, submit the job, read its result,
+and release after it settles. Use the keyed IPC API for jobs, evidence and
+Stop. Future devices will also use keyed APIs. See
+[the gateway guide](MODULE_JOBS.md) and the
+[example station client](../examples/module_station_visit.py). For a built-in operator UI change, reuse the existing
 native core behind the Python service. Add the protected handler in
 [server.py](../src/anodizing-modules/app/anodizing_web/server.py),
-wire the page into the existing Vue routes and sidebar, and follow the
+wire the page into the existing Vue routes and topbar navigation, and follow the
 [UI ID registry](../src/anodizing-modules/operator-ui/UI_IDS.md).
 Keep Calibration, Teaching and Pick/place runnable independently of the
 operator app. Route any hardware work through the existing owner and
@@ -351,9 +525,9 @@ retention stable and follow the release's data migration procedure. See
 
 ## Safety rules and known limits
 
-- Keep one orchestrator and one owner of the wired AGV bus. Modules use
-  the Katana service and approved executor interfaces. Keep serial ports
-  and raw device frames inside the hardware adapters.
+- Keep one owner at a time. Developer modules use the keyed IPC API.
+  Only the executor owns the wired AGV bus. Keep serial ports and raw device
+  frames inside the hardware adapters.
 - Treat web Stop as a software request. Confirm stopped state from evidence
   and use the physical e-stop for emergency intervention. Only the operator
   at that e-stop may arm or confirm a live call.

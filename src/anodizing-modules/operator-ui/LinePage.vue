@@ -1,4 +1,8 @@
 <script setup>
+import Disclosure from './Disclosure.vue';
+import ToggleSwitch from 'primevue/toggleswitch';
+import Skeleton from 'primevue/skeleton';
+import Select from 'primevue/select';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import Button from 'primevue/button';
 import Card from 'primevue/card';
@@ -30,6 +34,11 @@ const query = ref('');
 const access = ref('R');
 const type = ref('');
 const group = ref('');
+const filtersActive = computed(() => ['signals', 'catalog'].includes(view.value) &&
+  Boolean(query.value.trim() || group.value || type.value || props.test && access.value));
+function clearFilters() {
+  query.value = group.value = type.value = access.value = '';
+}
 const tank = ref('');
 const advanced = ref(false);
 const diagnostics = ref(null);
@@ -229,7 +238,7 @@ onUnmounted(() => {
         <dt>PLC row</dt><dd>{{ state?.row_id ?? 'Unknown' }}</dd>
         <dt>Reported tag reads</dt><dd>{{ state?.tags_ok ?? 'Unknown' }} available · {{ state?.tags_failed ?? 'Unknown' }} unavailable</dd>
       </dl>
-      <div class="line-actions">
+      <div class="line-actions" role="group" aria-label="Catalog actions">
         <Button data-ui="line.catalog.refresh" id="line-refresh" label="Refresh catalog" :disabled="Boolean(refreshReason)" @click="refresh" />
         <span v-if="refreshReason">{{ refreshReason }}</span>
         <span v-if="refreshFeedback" role="status">{{ refreshFeedback }}</span>
@@ -241,52 +250,42 @@ onUnmounted(() => {
 
   <slot :quality="quality" :catalog="currentCatalog" />
 
-  <Card data-ui="line.readings.panel" class="panel line-content">
+  <Card data-ui="line.readings.panel" class="panel line-content mt-4">
     <template #content>
-      <div class="line-controls">
+      <div class="line-controls my-[.6rem] flex flex-wrap items-end gap-3" role="group" aria-label="Line filters">
         <label for="line-view">Line view
-          <select data-ui="line.filter.view" id="line-view" v-model="view" @change="emit('view', view)">
-            <option v-for="[id, label] in views" :key="id" :value="id">{{ label }}</option>
-          </select>
+          <Select :pt="{ label: { 'data-ui': 'line.filter.view' } }" input-id="line-view" aria-label="Line view" v-model="view" :options="views" :option-label="option => option[1]" :option-value="option => option[0]" @update:model-value="emit('view', $event)" />
         </label>
         <label v-if="view === 'tank' && tankIds.length" for="line-tank">Physical tank
-          <select data-ui="line.filter.tank" id="line-tank" v-model="tank">
-            <option v-for="id in tankIds" :key="id">{{ id }}</option>
-          </select>
+          <Select :pt="{ label: { 'data-ui': 'line.filter.tank' } }" input-id="line-tank" aria-label="Physical tank" v-model="tank" :options="tankIds" />
         </label>
         <template v-if="view === 'signals' || view === 'catalog'">
           <label for="line-query">Search name, description or address
             <InputText data-ui="line.filter.search" id="line-query" v-model="query" type="search" />
           </label>
           <label v-if="test" for="line-access">Permission
-            <select data-ui="line.filter.access" id="line-access" v-model="access">
-              <option value="R">Read-only</option><option value="">All signals</option><option value="W">Writable readback</option>
-            </select>
+            <Select :pt="{ label: { 'data-ui': 'line.filter.access' } }" input-id="line-access" aria-label="Permission" v-model="access" :options="[['R', 'Read-only'], ['', 'All signals'], ['W', 'Writable readback']]" :option-label="option => option[1]" :option-value="option => option[0]" />
           </label>
           <label for="line-group">Group
-            <select data-ui="line.filter.group" id="line-group" v-model="group">
-              <option value="">All groups</option><option v-for="name in groups" :key="name">{{ name }}</option>
-            </select>
+            <Select :pt="{ label: { 'data-ui': 'line.filter.group' } }" input-id="line-group" aria-label="Group" v-model="group" :options="['', ...groups]" :option-label="option => option || 'All groups'" />
           </label>
           <label for="line-type">Type
-            <select data-ui="line.filter.type" id="line-type" v-model="type">
-              <option value="">All types</option><option v-for="name in types" :key="name">{{ name }}</option>
-            </select>
+            <Select :pt="{ label: { 'data-ui': 'line.filter.type' } }" input-id="line-type" aria-label="Type" v-model="type" :options="['', ...types]" :option-label="option => option || 'All types'" />
           </label>
           <label v-if="view === 'catalog'" class="line-check" for="line-advanced">
-            <input data-ui="line.filter.metadata" id="line-advanced" v-model="advanced" type="checkbox" /> Advanced metadata
+            <ToggleSwitch input-id="line-advanced" v-model="advanced" :pt="{ input: { 'data-ui': 'line.filter.metadata' } }" /> Advanced metadata
           </label>
         </template>
       </div>
 
-      <details data-ui="line.warnings.panel" v-if="currentCatalog?.warnings.length" class="line-warnings">
-        <summary data-ui="line.warnings.toggle">Catalog and mapping warnings ({{ currentCatalog.warnings.length }})</summary>
+      <Disclosure data-ui="line.warnings.panel" v-if="currentCatalog?.warnings.length" class="line-warnings" toggle-id="line.warnings.toggle">
+        <template #heading>Catalog and mapping warnings ({{ currentCatalog.warnings.length }})</template>
         <ul><li data-ui="line.warnings.row" :data-ui-key="warning.message" v-for="warning in currentCatalog.warnings" :key="warning.message">{{ warning.message }}</li></ul>
-      </details>
+      </Disclosure>
       <Message v-if="catalogError" severity="error">{{ catalogError }}</Message>
 
       <template v-if="view === 'diagnostics'">
-        <div class="line-actions">
+        <div class="line-actions" role="group" aria-label="Communication log actions">
           <Button data-ui="line.log.refresh" label="Refresh log" :disabled="loadingLog" @click="loadLog" />
           <Button data-ui="line.log.json" label="Download log JSON" severity="secondary" :disabled="!diagnostics?.length" @click="exportLog('json')" />
           <Button data-ui="line.log.csv" label="Download log CSV" severity="secondary" :disabled="!diagnostics?.length" @click="exportLog('csv')" />
@@ -303,9 +302,19 @@ onUnmounted(() => {
       </template>
       <template v-else>
         <p v-if="view === 'alarms'">Raw alarm bits. Confirm their polarity with the supplier.</p>
-        <p v-if="!visibleRows.length">
-          {{ view === 'tank' ? 'No confirmed signals for this physical tank. Check the local mapping.' : 'No matching signals.' }}
-        </p>
+        <div v-if="view !== 'overview' && !currentCatalog" class="grid gap-2" :role="catalogError ? undefined : 'status'">
+          <p v-if="catalogError">Signals unavailable.</p>
+          <template v-else>
+            <span>Loading signals…</span>
+            <Skeleton height="4rem" aria-hidden="true" />
+          </template>
+        </div>
+        <div v-else-if="!visibleRows.length" class="flex flex-wrap items-center gap-3">
+          <p>{{ view === 'tank' ? 'No confirmed signals for this physical tank. Check the local mapping.' :
+            filtersActive ? 'No signals match the current filters.' : 'No signals in this view.' }}</p>
+          <Button v-if="filtersActive" data-ui="line.filter.clear" label="Clear filters" icon="pi pi-filter-slash"
+            severity="secondary" outlined @click="clearFilters" />
+        </div>
         <ul v-else class="line-readings">
           <li data-ui="line.readings.row" :data-ui-key="row.name" v-for="row in visibleRows" :key="row.name" :data-tag="row.tag?.tag_name">
             <div class="line-value">
@@ -320,10 +329,10 @@ onUnmounted(() => {
             <small v-if="row.sample?.value == null">
               {{ row.sample?.quality === 'stale' ? 'PLC sample expired.' : row.sample?.reason ?? 'Signal unavailable.' }}
             </small>
-            <details data-ui="line.readings.last.panel" :data-ui-key="row.name" v-if="row.sample?.last_read">
-              <summary data-ui="line.readings.last.toggle" :data-ui-key="row.name">Last read</summary>
+            <Disclosure data-ui="line.readings.last.panel" :data-ui-key="row.name" v-if="row.sample?.last_read" toggle-id="line.readings.last.toggle" :toggle-key="row.name">
+              <template #heading>Last read</template>
               {{ row.sample.last_read.value }} {{ row.sample.unit }} · {{ localTime(row.sample.last_read.read_at) }}
-            </details>
+            </Disclosure>
             <small v-if="view === 'catalog' && advanced && row.tag">
               {{ row.tag.device_address }} · {{ row.tag.data_type ?? 'Type not published' }} · Multiplier {{ row.tag.multiplier }}
               · Minimum {{ row.tag.minimum ?? 'not published' }} · Maximum {{ row.tag.maximum ?? 'not published' }}

@@ -1,11 +1,13 @@
 """Keyed IPC job API and the authority for its single current owner."""
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import NotRequired, TypedDict
 from uuid import uuid4
 
 from .jobs import ID
 from .module_tokens import KeyStore, ModulePrincipal, SCOPES, ServicePrincipal
+from .raw_agv import RawAccess
 
 MODULE_LEASE_S = 10
 OPERATOR = ServicePrincipal('agv-page', 'katana', frozenset({'operator'}))
@@ -81,6 +83,7 @@ class JobGateway(JobAPI):
         self.enabled = enabled
         self.keys = KeyStore(key_path)
         self.ownership = Ownership()
+        self.raw_access = RawAccess(executor)
 
     def configure_keys(self, credential, store=None):
         if store is not None:
@@ -97,14 +100,34 @@ class JobGateway(JobAPI):
             raise GatewayForbidden('A valid gateway key is required.')
         if scope == 'operator' and scope not in principal.scopes:
             raise GatewayForbidden('This operation requires the operator credential. Use the AGV page.')
+        if scope == 'raw' and not (isinstance(principal, ModulePrincipal) and 'raw' in principal.scopes
+                                   and not self.keys.raw_expired(principal)):
+            raise GatewayForbidden('This endpoint needs a current raw scope. Ask the IPC administrator for access.')
         if scope is not None and 'operator' not in principal.scopes and scope not in principal.scopes:
             raise GatewayForbidden(f'This endpoint needs the {scope} scope. Ask the IPC administrator for access.')
 
+    def revalidate(self, principal):
+        if isinstance(principal, ModulePrincipal) and principal.check_current and not self.keys.current_grant(principal):
+            raise GatewayForbidden('The module grant changed. Request authorization again.')
+
+    @contextmanager
+    def raw_frame_authority(self, principal):
+        if not principal.check_current:
+            yield
+            return
+        with self.keys.hold_grant(principal) as current:
+            if not current:
+                raise GatewayForbidden('The module grant changed. Request authorization again.')
+            yield
+
     def change_owner(self, owner, lease=None):
         executor = self.executor
+        if self.raw_access.owner_grant is not None:
+            self.raw_access.end_session()
         self.ownership.owner = owner
         self.ownership.lease = lease
-        self.ownership.armed = False
+        executor.armed = False
+        executor.module_arm_nonce = uuid4().hex
         executor.disarm_pending = True
         # A new owner must review a new generation before any positive dispatch.
         executor.control_generation = next(executor.generations)
@@ -113,20 +136,25 @@ class JobGateway(JobAPI):
         lease = self.ownership.lease
         if lease is None:
             return False
-        if now >= lease.deadline:
+        raw_grant = self.raw_access.owner_grant
+        raw_ended = raw_grant is not None and self.keys.raw_expired(raw_grant)
+        if now >= lease.deadline or raw_ended:
             executor = self.executor
-            self.change_owner(None)
             executor.stop()
+            self.change_owner(None)
             retaining = executor.active or executor.open_air or executor._retained_simulated_basket()
-            executor._hold('The module heartbeat expired. Verify the AGV hold before arming again.',
-                           facts=None if retaining else dict(idle=True, manual=True))
+            reason = ('The raw scope expired. Verify the AGV hold before arming again.' if raw_ended
+                      else 'The module heartbeat expired. Verify the AGV hold before arming again.')
+            executor._hold(reason,
+                           facts=None if retaining else dict(idle=True, manual=True), link_loss=not raw_ended)
             executor.pending_check_write = True
         return True
 
     def _module_lease(self, body, principal):
         self.executor._expire()
         lease = self.ownership.lease
-        if lease is None or lease.principal != principal or body.get('lease_id') != lease.id:
+        if (lease is None or lease.principal.token_id != principal.token_id or lease.principal.name != principal.name
+                or body.get('lease_id') != lease.id):
             raise ValueError('No current module lease matches this request. Claim ownership first.')
         return lease
 
@@ -151,6 +179,7 @@ class JobGateway(JobAPI):
             raise ValueError('The request contains an unsupported field.')
         executor, ownership = self.executor, self.ownership
         with executor.admission:
+            self.revalidate(principal)
             with executor.guard:
                 executor._expire()
                 if not external:
@@ -165,7 +194,7 @@ class JobGateway(JobAPI):
                     self.change_owner(None)
                 elif ownership.owner is not None:
                     if (ownership.owner != principal.name or
-                            (external and ownership.lease.principal != principal)):
+                            (external and ownership.lease.principal.token_id != principal.token_id)):
                         raise ValueError(f'{ownership.owner} owns the executor. Wait for it to release ownership.')
                 else:
                     if executor.active or executor.owner.active:
@@ -237,6 +266,7 @@ class JobGateway(JobAPI):
         status = executor.status(ident, recent=operator)
         if operator:
             return status
+        status.pop('module_lease_id', None)
         if status['job'] is not None and not self._client_owns_job(status['job']['job_id'], principal):
             status['job'] = None
         for name in ('active_job_id', 'latest_job_id', 'latest_manual_job_id'):
@@ -255,10 +285,11 @@ class JobGateway(JobAPI):
         with executor.guard:
             lease = self.ownership.lease
             status['lease_valid'] = (status['owner'] == principal.name and lease is not None
-                                     and lease.principal == principal and executor.clock() < lease.deadline)
+                                     and lease.principal.token_id == principal.token_id and executor.clock() < lease.deadline)
         for name in ('session', 'recovery_ids', 'evidence_faults', 'operator_check', 'quality_alarm'):
             status.pop(name)
-        status['device'] = {key: status['device'][key] for key in ('connected', 'stale', 'status', 'status_age_s')}
+        device = status['device']
+        status['device'] = {key: device.get(key) for key in ('connected', 'stale', 'status', 'status_age_s', 'battery_trend')}
         return status
 
     def heartbeat(self, body, *, principal=OPERATOR):
@@ -268,6 +299,7 @@ class JobGateway(JobAPI):
             return executor.heartbeat(body)
         if not set(body) <= MODULE_REQUEST_FIELDS['heartbeat']:
             raise ValueError('The request contains an unsupported field.')
+        self.revalidate(principal)
         with executor.guard:
             lease = self._module_lease(body, principal)
             sequence = body.get('sequence')
@@ -282,6 +314,7 @@ class JobGateway(JobAPI):
         self._require_scope(principal, None)
         if not set(body or {}) <= {'stop_id'} and isinstance(principal, ModulePrincipal):
             raise ValueError('The Stop request contains an unsupported field.')
+        self.revalidate(principal)
         source = None if 'operator' in principal.scopes else principal.token_id
         return self.executor.stop(body, source=source) if source is not None else self.executor.stop(body)
 
@@ -296,6 +329,9 @@ class JobGateway(JobAPI):
         body = {} if body is None else body
         if operation == 'stop':
             return self.stop(body, principal=principal)
+        if operation in ('raw', 'raw/undo'):
+            self._require_scope(principal, 'raw')
+            return self.raw_access.request(body, principal, undo=operation == 'raw/undo')
         if operation in READ_OPERATIONS:
             self._require_scope(principal, 'read')
             if operation == 'jobs':

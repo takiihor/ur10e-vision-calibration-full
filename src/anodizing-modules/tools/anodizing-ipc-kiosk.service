@@ -1,0 +1,14 @@
+[Unit]
+Description=Anodizing IPC touchscreen watcher
+After=graphical-session-pre.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/python3 -I /opt/anodizing-executor/current/tools/anodizing-ipc-kiosk.py
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=8
+
+[Install]
+WantedBy=graphical-session.target

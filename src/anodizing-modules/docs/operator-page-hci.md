@@ -86,16 +86,36 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 - **An alarm sound is optional, off by default, and set per session.**
 
 ## 7. Glanceable layout
-- **Top bar (sticky):**
-  - the connection banner: Disconnected / Connected · last status report n s ago / **Link stale** / Error;
-  - Stop and Pause.
-- **Main column:**
-  - big state readouts first: moving or stopped, current station → target, speed, battery, fault;
-  - then the stations;
-  - then the guided checklist.
-- **Right column:** the app's sticky operation column, holding Armed and the movement commands, as on the other pages.
-- **Readability.** The primary state is readable from about 2 m, at about 28 px or more for moving/stopped and station. Show no more than about 7 primary readouts; everything else goes in "Details".
-- **The raw log** sits at the bottom, collapsed by default, for experts and for the record.
+
+On Katana, open **Dev console** at `http://dev.localhost:8880/dev/`. Its
+navigation bar uses blue for AGV, green for Calibration, purple for Teaching
+and teal for Pick/place. All four bars use at least 7:1 text contrast. The
+urgent controls below use the safety state colours described above.
+
+- **Top bar (sticky).** The colour-coded Sakai navigation holds Dev console,
+  the four workspaces and the PrimeVue More popup.
+- **Right controls (sticky).** Stop is first, red and full width. Pause, the
+  link tag, the applicable link action and active alarms follow. The tag
+  tooltip gives the full report age and transport. The disabled Pause
+  tooltip explains its block. A link-loss incident shows one message with
+  the reported time and recovery hint. The controls scroll below Stop
+  when needed. At narrow widths a pinned strip holds Stop, the link tag
+  and a Controls button. The latter opens the remaining controls in a drawer.
+- **Panel tabs.** A small title and the tabs span the main area. Overview
+  is first. Stations & move, Connection, Speed & settings, Bluetooth, and
+  Machine details & log switch in place. Active warnings mark their tabs.
+  Critical AGV alerts and station recovery remain visible across tabs.
+- **Readouts and ownership.** The left area shows four status tiles across
+  all AGV tabs. The Motion tile includes actual speed, and the Station tile
+  shows current and target stations. Job ownership, Arm and confirmation
+  time are in the control column on AGV, Calibration and Pick/place.
+  Other pages show a short owner summary. Motion and station values use
+  28 px type.
+- **Enrollment.** In Connection, show the read-only reason once at the top.
+  Connect and Disconnect and other controls disabled by enrollment reference
+  that reason.
+- **Evidence.** Machine details & log includes the checklist and collapsible
+  command and raw frame tables. Wide records scroll inside their own boxes.
 
 ## 8. Errors and recovery
 - **Prevent first, explain second.** Disable impossible actions and validate input. Ask for confirmation only for actions that destroy data, such as "New test session"; never for Stop or Pause.
@@ -122,12 +142,29 @@ Sources: ISA-101 (high-performance HMI), ISA-18.2 (alarm management), ISO 9241-1
 
 ## Review checklist (part of "done" for any operator page)
 - [ ] Stop and Pause stay in place and show "Sending…" on press. Software Stop stays available on an open link. A fresh standard-mode report disables Pause and explains the available Stop action.
-- [ ] Every press shows "Sending…" within 0.1 s and ends in exactly one worded outcome, beside the control and in the status line.
+- [ ] Every press shows "Sending…" within 0.1 s and ends in a worded outcome beside the control. The pinned status line keeps urgent outcomes visible.
 - [ ] Sent, replied, confirmed and observed are never conflated.
-- [ ] The link's age is always visible; stale shows as a red alarm with an action.
+- [ ] The badge shows link state and the age of an available report. Stale shows as an alarm with an action.
 - [ ] Every disabled control says why.
 - [ ] No primary message contains hex or exception text; every error names the next step.
 - [ ] No state is shown by colour alone; the contrast checks pass.
 - [ ] Armed is visible, resets on reconnect, and is never restored.
 - [ ] A reload keeps the test session; blocked storage doesn't break the page.
 - [ ] The readable report opens with the test summary table and names the transport (simulator or serial).
+
+## Dev console layout
+
+The coloured Sakai header stays above the page and the sticky controls on
+the right. The right column keeps software Stop above its scroll area. On
+compact screens, software Stop, link status and the Controls button stay in
+the pinned strip. Open the Controls drawer for Pause, the current link action
+and job ownership. Pause, Connect or Disconnect, and owner actions use one
+width. Software Stop is larger and remains the red action. The page shows a
+link-loss incident and its recovery instruction in one message. A blocked
+control points to the shared explanation when the incident is the cause.
+
+The page title and links share a compact PrimeVue toolbar. Workspace tabs
+scroll within their own strip on narrow screens and support keyboard
+navigation. AGV readouts and recovery information stay visible as tabs change.
+See the [Dev console README](../operator-ui/README.md#build-and-package)
+for the offline build and Firefox fixture.

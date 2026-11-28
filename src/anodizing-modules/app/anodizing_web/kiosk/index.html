@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AGV status</title>
+  <link rel="stylesheet" href="/screen.css">
+  <script src="/screen.js" defer></script>
+</head>
+<body data-state="off">
+  <main>
+    <header class="banner" aria-live="polite">
+      <div class="signal">
+        <span class="icon" id="icon" aria-hidden="true">○</span>
+        <div>
+          <h1 id="state-word">Waiting for updates</h1>
+          <p id="instruction"></p>
+        </div>
+      </div>
+      <p id="stale-age" hidden></p>
+    </header>
+    <dl class="readouts">
+      <div><dt>Station</dt><dd id="station">—</dd></div>
+      <div>
+        <dt id="battery-label">Battery</dt>
+        <dd class="battery-reading"><span id="battery">—</span>
+          <span id="battery-direction" hidden>
+            <span id="charging-icon" aria-hidden="true" hidden>⚡︎</span><span id="battery-trend"></span>
+          </span>
+        </dd>
+      </div>
+      <div><dt>Fault</dt><dd id="fault">—</dd></div>
+    </dl>
+    <p id="battery-warning" hidden>
+      <strong>Battery low. Please charge.</strong>
+      <span>Switch the AGV off, plug in its charger and stay nearby.</span>
+    </p>
+    <p id="job" class="job">Job status unavailable</p>
+    <footer>
+      <span>Owner <b id="owner">—</b></span>
+      <span>Arm <b id="arm">—</b></span>
+      <span>Lease <b id="lease">—</b></span>
+      <span>Heartbeat <b id="heartbeat">—</b></span>
+      <span>Tower light <b id="tower-light">—</b></span>
+      <span>Data age <b id="age">—</b></span>
+      <span>Build <b id="build">—</b></span>
+      <span id="battery-estimate">Trend estimated from the battery level.</span>
+    </footer>
+  </main>
+</body>
+</html>

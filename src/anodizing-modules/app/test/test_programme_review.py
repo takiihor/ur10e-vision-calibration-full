@@ -156,3 +156,32 @@ def test_gateway_calibration_requires_arm_from_the_agv_page(tmp_path):
     link.armed_for = 'calibration'
     start(programme)
     assert advance(programme, lambda run: run['pending'])['state'] == 'running'
+
+
+def test_calibration_expiry_polls_running_job_without_stopping_it(tmp_path):
+    class Gateway(RecordedLink):
+        def __init__(self):
+            super().__init__()
+            self.expired = False
+            self.calls = []
+
+        def __call__(self, operation, body=None):
+            self.calls.append(operation)
+            assert operation not in ('arm', 'stop', 'hold', 'operator_check')
+            response = super().__call__(operation, body)
+            if operation == 'status':
+                response.update(owner='calibration', armed_for=None if self.expired else 'calibration',
+                                armed=not self.expired, module_attestation_expired=self.expired)
+            return response
+
+    link = Gateway()
+    programme = Programme(tmp_path, link, steps('seal'), operator_arm=True)
+    start(programme)
+    pending = advance(programme, lambda run: run['pending'])['pending']
+    link.expired = True
+    programme.tick()
+    run = programme.status()['run']
+    assert run['state'] == 'running'
+    assert run['pending'] == pending
+    assert run.get('operator_check') is None
+    assert link.calls.count('submit') == 1

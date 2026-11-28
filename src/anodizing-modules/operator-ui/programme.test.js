@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
+import { selectOption } from './test-select';
 import { flushPromises, mount } from '@vue/test-utils';
-import { afterEach, expect, test, vi } from 'vitest';
+import PrimeVue from 'primevue/config';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import ProgrammePanel from './ProgrammePanel.vue';
 import { request } from './api';
 
 vi.mock('./api', () => ({ request: vi.fn() }));
 
-afterEach(() => vi.clearAllMocks());
+beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
+afterEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
 test('reviews and saves a draft revision before starting the basket', async () => {
   const step = { id: 'step-1', tank: 'tank-1', role: 'etch', setpoint: 30,
@@ -25,7 +28,7 @@ test('reviews and saves a draft revision before starting the basket', async () =
     }
     return state;
   });
-  const wrapper = mount(ProgrammePanel);
+  const wrapper = mount(ProgrammePanel, { attachTo: document.body, global: { plugins: [PrimeVue] } });
   try {
     await flushPromises();
     expect(wrapper.text()).toContain('DRAFT');
@@ -56,10 +59,10 @@ test('selecting an earlier basket reads its record and keeps operator controls o
     { id: 'original-dip', tank: 'old-tank', dwell_s: 33, air_s: null, plc: { cycle: 2 } },
   ] };
   request.mockImplementation(async path => ({ recipe, run: path.includes('?') ? old : current, baskets: [old, current] }));
-  const wrapper = mount(ProgrammePanel);
+  const wrapper = mount(ProgrammePanel, { attachTo: document.body, global: { plugins: [PrimeVue] } });
   try {
     await flushPromises();
-    await wrapper.get('select[aria-label="Basket record"]').setValue(old.id);
+    await selectOption(wrapper, '[data-ui="programme.record.select"]', 'A · old-run · inspection');
     await flushPromises();
     expect(request).toHaveBeenCalledWith('/api/programme?run_id=old-run');
     expect(wrapper.text()).toContain('original-dip');
@@ -77,7 +80,7 @@ for (const action of ['resume', 'abort']) {
       reason: 'Reply lost', location: 'tank-1', basket: 'foreign-basket', job_id: 'physical-job', step: 2,
     } };
     request.mockResolvedValue({ recipe: checkedRecipe, run: checkedRun, approval, review_cursor: 'review-1' });
-    const wrapper = mount(ProgrammePanel);
+    const wrapper = mount(ProgrammePanel, { attachTo: document.body, global: { plugins: [PrimeVue] } });
     try {
       await flushPromises();
       for (const fact of ['Operator check', 'Reply lost', 'tank-1', 'foreign-basket', 'physical-job']) {
@@ -104,7 +107,7 @@ test('a technician-only operator check offers no resume or abort', async () => {
   request.mockResolvedValue({ recipe, run: { ...current, state: 'operator_check', operator_check: {
     reason: 'Unreadable journal', technician: true, location: null, basket: null, job_id: null, step: null,
   } } });
-  const wrapper = mount(ProgrammePanel);
+  const wrapper = mount(ProgrammePanel, { attachTo: document.body, global: { plugins: [PrimeVue] } });
   try {
     await flushPromises();
     expect(wrapper.text()).toMatch(/call a technician/i);
@@ -120,7 +123,7 @@ test('a changed review clears the physical confirmation before a delayed choice'
     reason: 'Reply lost', location: 'park', basket: 'B', job_id: 'physical-job', step: 1,
   } };
   request.mockImplementation(async () => ({ recipe, run: checkedRun, approval, review_cursor: cursor }));
-  const wrapper = mount(ProgrammePanel);
+  const wrapper = mount(ProgrammePanel, { attachTo: document.body, global: { plugins: [PrimeVue] } });
   try {
     await flushPromises();
     await wrapper.get('[data-ui="programme.check.operator"]').setValue('Operator A');
@@ -148,7 +151,7 @@ test('a basket with unresolved original evidence can refresh its own record', as
     }
     return { recipe, run };
   });
-  const wrapper = mount(ProgrammePanel);
+  const wrapper = mount(ProgrammePanel, { attachTo: document.body, global: { plugins: [PrimeVue] } });
   try {
     await flushPromises();
     expect(wrapper.text()).toContain('The executor omitted the original job.');
@@ -168,7 +171,7 @@ test('Programme Stop reaches the programme while Start is awaiting its reply', a
     if (body?.action === 'start') await started;
     return { recipe, run: null, approval, review_cursor: 'review-start' };
   });
-  const wrapper = mount(ProgrammePanel);
+  const wrapper = mount(ProgrammePanel, { attachTo: document.body, global: { plugins: [PrimeVue] } });
   try {
     await flushPromises();
     await wrapper.get('[data-ui="programme.basket.id"]').setValue('pending-basket');

@@ -227,7 +227,8 @@ def test_http_admission_refusal_distinguishes_absent_acceptance(tmp_path):
             assert job['state'] == 'refused' and job['error'] == str(refused.value)
             plant(executor, request)
             devices.plc.setpoints.update(FAKE_TANK_SETPOINTS)
-            assert client('submit', request) == job
+            with pytest.raises(ValueError, match='PLC tank setpoint'):
+                client('submit', request)
         assert devices.effects == []
     finally:
         executor.close()

@@ -89,10 +89,12 @@ def learned(status, station):
 
 class StationVisit:
     def __init__(self, connection, robot_stop, *, strict_station=True, connection_id=None,
-                 stop_generation=None, switched_off=False, allow_wired=False, check_attested_track=None):
+                 stop_generation=None, switched_off=False, allow_wired=False, check_attested_track=None,
+                 motion_monitor=None):
         self.connection = connection
         self.allow_wired = allow_wired
         self.check_attested_track = check_attested_track
+        self.motion_monitor = motion_monitor
         self.robot_stop = robot_stop
         self.strict_station = strict_station
         self.connection_id = connection_id
@@ -226,6 +228,8 @@ class StationVisit:
             if not learned(report, target):
                 raise ValueError('AGV left station-call mode or the reviewed station is unavailable.')
             check_speed(report, self.speed_cap)
+            if self.motion_monitor:
+                self.motion_monitor(report)
             reported_target = report.get('target_station')
             first_report = self.first_travel_report
             self.first_travel_report = False
@@ -259,7 +263,8 @@ class StationVisit:
                     raise ValueError(f'AGV station {target} is not learned. Check the AGV route.')
             check_speed(self.status, speed_cap)
 
-    def start_leg(self, target, speed_cap, timeout, pose_at, cancelled, *, validate_travel=None):
+    def start_leg(self, target, speed_cap, timeout, pose_at, cancelled, *, validate_travel=None, check_start=None,
+                  frame_authority=None):
         with self.lock:
             if self.error:
                 raise ValueError(self.error)
@@ -278,11 +283,15 @@ class StationVisit:
                 if not learned(status, target):
                     raise ValueError(f'AGV station {target} is not learned. Check the AGV route.')
                 check_speed(status, speed_cap)
+                if self.motion_monitor:
+                    self.motion_monitor(status, dispatch=True)
                 if self.check_attested_track:
                     self.check_attested_track(status, stamp, dispatch=True)
                 if (self.cancelled.is_set() or cancelled.is_set() or
                         (not self.check_attested_track and time.monotonic()-pose_at >= POSE_FRESH_S)):
                     raise ValueError('Robot travel-pose check expired or was stopped. Start a new run.')
+                if check_start:
+                    check_start()
 
             def retry_check(status, stamp, updates):
                 now = time.monotonic()
@@ -295,11 +304,14 @@ class StationVisit:
                 for report, received in updates or ((status, stamp),):
                     self._check_hold(report, received)
                     check_speed(report, speed_cap)
+                if check_start:
+                    check_start()
 
             # A transport write can partially reach the AGV before raising.
             try:
-                self.sent = self.connection.recipe_call(target, validate, retry_check=retry_check,
-                                                        interlocks=validate_travel)
+                self.sent = self.connection.recipe_call(
+                    target, validate, retry_check=retry_check, interlocks=validate_travel,
+                    **({'frame_authority': frame_authority} if frame_authority else {}))
             except OSError:
                 self._stop()
                 raise ValueError('AGV station call write failed. Check the radio before a new run.')

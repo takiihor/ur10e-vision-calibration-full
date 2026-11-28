@@ -220,3 +220,63 @@ def test_status_timestamp_tracks_first_serial_bytes_across_a_delay(monkeypatch, 
     monkeypatch.setattr(link, '_status_received', delayed_consume)
     link._receive()
     assert consumed == [10.0, 11.0]
+
+
+@pytest.mark.parametrize(('levels', 'expected'), [
+    ([25, 25, 26, 26, 27, 27, 28, 28, 29, 29, 30], 'charging'),
+    ([30, 30, 29, 29, 28, 28, 27, 27, 26, 26, 25], 'in_use'),
+    ([25] * 11, 'steady'),
+    ([25, 26] * 5 + [26], 'steady'),
+    ([25] * 10 + [35], 'steady'),
+])
+def test_battery_trend_uses_sustained_fresh_feedback(tmp_path, monkeypatch, levels, expected):
+    from types import SimpleNamespace
+
+    link = agv.Connection(SimpleNamespace(root=tmp_path, closing=False, storage_error=None, execution_uncertain=False, active=None))
+    link.transport = SimpleNamespace()
+    link.connected_at = 0
+    monkeypatch.setattr(agv, 'monotonic', lambda: now)
+    for now in range(0, 601, 2):
+        link._status_received({'battery_percent': levels[now // 60]}, b'', now)
+        if now == 60:
+            assert link.commissioning()['battery_trend'] is None
+    assert link.commissioning()['battery_trend'] == expected
+
+
+@pytest.mark.parametrize('interruption', ['gap', 'link closed', 'invalid reading'])
+def test_battery_trend_requires_new_history_after_feedback_loss(tmp_path, monkeypatch, interruption):
+    from types import SimpleNamespace
+
+    link = agv.Connection(SimpleNamespace(root=tmp_path, closing=False, storage_error=None, execution_uncertain=False, active=None))
+    link.transport = SimpleNamespace(close=lambda: None)
+    link.connected_at = 0
+    monkeypatch.setattr(agv, 'monotonic', lambda: now)
+    for now in range(0, 241, 2):
+        link._status_received({'battery_percent': 30 - now // 60}, b'', now)
+    assert link.commissioning()['battery_trend'] == 'in_use'
+
+    if interruption == 'gap':
+        now += agv.RECIPE_STALE_S
+    elif interruption == 'link closed':
+        link.close()
+    else:
+        now += 2
+        link._status_received({'battery_percent': 255}, b'', now)
+    assert link.commissioning()['battery_trend'] is None
+
+    now += 2
+    link.transport = SimpleNamespace()
+    link._status_received({'battery_percent': 25}, b'', now)
+    assert link.commissioning()['battery_trend'] is None
+
+
+def test_battery_trend_ignores_changes_older_than_ten_minutes(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    link = agv.Connection(SimpleNamespace(root=tmp_path, closing=False, storage_error=None, execution_uncertain=False, active=None))
+    link.transport = SimpleNamespace()
+    link.connected_at = 0
+    monkeypatch.setattr(agv, 'monotonic', lambda: now)
+    for now in range(0, 801, 2):
+        link._status_received({'battery_percent': 30 if now < 180 else 25}, b'', now)
+    assert link.commissioning()['battery_trend'] == 'steady'

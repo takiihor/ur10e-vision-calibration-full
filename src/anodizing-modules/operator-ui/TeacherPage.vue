@@ -1,9 +1,20 @@
 <script setup>
+import Disclosure from './Disclosure.vue';
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import Badge from 'primevue/badge';
+import Button from 'primevue/button';
+import Card from 'primevue/card';
+import Tab from 'primevue/tab';
+import TabList from 'primevue/tablist';
+import TabPanel from 'primevue/tabpanel';
+import TabPanels from 'primevue/tabpanels';
+import Tabs from 'primevue/tabs';
+import Tag from 'primevue/tag';
 import Checkbox from 'primevue/checkbox';
 import InputText from 'primevue/inputtext';
 import Select from 'primevue/select';
 import Message from 'primevue/message';
+import { usePageTab } from './usePageTab';
 import OperatorButton from './OperatorButton.vue';
 import PickPlaceFields from './PickPlaceFields.vue';
 import PickPlaceJob from './PickPlaceJob.vue';
@@ -18,6 +29,9 @@ import {
 } from './teacher';
 
 const props = defineProps({ service: Object, agv: Object, stopId: String, manualStopId: String });
+const tab = usePageTab('teaching', ['overview', 'inputs', 'validation', 'motion', 'evidence']);
+const validationWarning = computed(() => ['misaligned', 'failed'].includes(validation.value?.visual_result)
+  || validation.value?.measured_position_error_mm != null && validation.value?.within_2mm === false);
 const allowSimulation = simulationEnabled();
 const emit = defineEmits(['outcome', 'changed']);
 const owner = computed(() => props.service?.owner);
@@ -573,285 +587,333 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div data-ui="teaching.page" class="agv-grid pick-grid teacher-layout">
-    <div class="agv-main">
-      <section data-ui="teaching.setup.panel" class="panel" aria-labelledby="teacher-setup-heading">
-        <div class="teacher-heading">
-          <h2 id="teacher-setup-heading">Set up the camera and marker</h2>
-          <a data-ui="teaching.legacy.open" href="/teaching">Legacy Teaching</a>
-        </div>
-        <p v-if="setupNotice" role="status">{{ setupNotice }}</p>
-        <Message v-if="allow" severity="warn" :closable="false">{{ allow }}</Message>
-        <div class="field-row">
-          <label for="teacher-project">Project folder
-            <InputText data-ui="teaching.setup.project" id="teacher-project" :model-value="form.project" autocomplete="off" :readonly="Boolean(running)"
-              @update:model-value="edit('project', $event)" />
-          </label>
-          <label for="teacher-calibration">Hand-eye calibration JSON
-            <InputText data-ui="teaching.setup.calibration" id="teacher-calibration" :model-value="form.calibration" list="teacher-calibrations"
-              autocomplete="off" :readonly="Boolean(running)" @update:model-value="edit('calibration', $event)"
-              @change="chooseCalibration($event.target.value)" />
-            <datalist id="teacher-calibrations"><option v-for="entry in calibrationOptions" :key="entry.path" :value="entry.path" /></datalist>
-          </label>
-          <label for="teacher-camera">Camera
-            <Select :pt="{ label: { 'data-ui': 'teaching.setup.camera' } }" input-id="teacher-camera" :model-value="form.camera" :options="cameras" option-label="label"
-              option-value="value" :disabled="Boolean(running)" @update:model-value="edit('camera', $event)" />
-          </label>
-          <label for="teacher-robot">Robot controller address
-            <InputText data-ui="teaching.setup.robot" id="teacher-robot" :model-value="form.robot" autocomplete="off" :readonly="Boolean(running)" @update:model-value="edit('robot', $event)" />
-          </label>
-          <label for="teacher-kind">Marker type
-            <Select :pt="{ label: { 'data-ui': 'teaching.setup.target' } }" input-id="teacher-kind" :model-value="form.kind" :options="targets" option-label="label"
-              option-value="value" :disabled="Boolean(running)" @update:model-value="edit('kind', $event)" />
-          </label>
-          <label for="teacher-tcp">Active TCP (XYZ mm, rotation-vector radians)
-            <InputText data-ui="teaching.setup.tcp" id="teacher-tcp" :model-value="form.tcp" autocomplete="off" :readonly="Boolean(running)" @update:model-value="edit('tcp', $event)" />
-          </label>
-        </div>
-        <p v-if="calibrationOptions.find(entry => entry.path === form.calibration)">
-          Calibration TCP · {{ poseText(calibrationOptions.find(entry => entry.path === form.calibration).tcp) }}
-        </p>
-        <div v-if="form.kind === 'charuco'" class="field-row">
-          <label v-if="boardOptions.length" for="teacher-printed-board">Printed picking board
-            <Select :pt="{ label: { 'data-ui': 'teaching.setup.printed.board' } }" input-id="teacher-printed-board" :options="boardOptions" option-label="label" option-value="value"
-              :disabled="Boolean(running)" placeholder="Choose a board" @update:model-value="chooseBoard" />
-          </label>
-          <label for="teacher-board">Board name
-            <InputText data-ui="teaching.setup.board" id="teacher-board" :model-value="form.board" :readonly="Boolean(running)" @update:model-value="edit('board', $event)" />
-          </label>
-          <label for="teacher-manifest">Board manifest JSON
-            <InputText data-ui="teaching.setup.manifest" id="teacher-manifest" :model-value="form.manifest" list="teacher-manifests" autocomplete="off"
-              :readonly="Boolean(running)" @update:model-value="edit('manifest', $event)" />
-            <datalist id="teacher-manifests"><option v-for="name in defaults?.manifests" :key="name" :value="name" /></datalist>
-          </label>
-        </div>
-        <PickPlaceFields data-ui="teaching.setup.marker" v-else prefix="teacher-marker" :fields="[['dictionary', 'Dictionary'], ['marker', 'Marker ID', 0, 999, 1],
-          ['size', 'Outer black square (mm)', 1]]" :values="form" @edit="edit" />
-        <label class="pick-check" for="teacher-tcp-check">
-          <Checkbox :pt="{ input: { 'data-ui': 'teaching.setup.tcp.confirm' } }" v-model="confirmed" input-id="teacher-tcp-check" binary />
-          These values match the active gripper TCP on the pendant.
-        </label>
-        <div class="controls">
-          <OperatorButton data-ui="teaching.setup.check" id="teacher-configure" label="Check setup" primary
-            :why="busy || allow || problem(() => teacherSettings(form, confirmed)) || (!confirmed ? 'Confirm the active TCP.' : '')"
-            :outcome="outcomes['teacher-configure']" @press="configure" />
-          <OperatorButton data-ui="teaching.setup.open" id="teacher-open" label="Open saved project" :why="running ? 'Wait for the current request.' : !form.project.trim() ? 'Enter the project folder.' : ''"
-            :outcome="outcomes['teacher-open']" @press="openProject" />
-        </div>
-        <details data-ui="teaching.advanced.panel">
-          <summary data-ui="teaching.advanced.toggle">{{ allowSimulation ? 'Advanced setup and simulation' : 'Advanced setup' }}</summary>
-          <div class="field-row">
-            <label for="teacher-model">Follow marker
-              <Select :pt="{ label: { 'data-ui': 'teaching.advanced.model' } }" input-id="teacher-model" :model-value="form.model" :options="models" option-label="label" option-value="value"
-                :disabled="Boolean(running)" @update:model-value="edit('model', $event)" />
-            </label>
-          </div>
-          <p>Full 3D includes height and tilt. Checked validation in this service uses planar projects.</p>
-          <PickPlaceFields data-ui="teaching.advanced.field" prefix="teacher-advanced" :fields="advancedFields" :values="form" @edit="edit" />
-          <label class="pick-check" for="teacher-refine">
-            <Checkbox :pt="{ input: { 'data-ui': 'teaching.advanced.refine' } }" :model-value="form.refine" input-id="teacher-refine" binary @update:model-value="edit('refine', $event)" />
-            Refine before picking in Robot Bench using the taught camera view.
-          </label>
-          <template v-if="allowSimulation">
-            <p>Use an empty folder and a simulated calibration to make an offline project.</p>
-            <OperatorButton data-ui="teaching.simulate" id="teacher-simulate" label="Create simulated project" :outcome="outcomes['teacher-simulate']"
-              :why="busy || problem(() => teacherSettings({ ...form, robot: 'simulation', tcp: form.tcp || '0,0,0,0,0,0' }, false))" @press="simulate" />
-          </template>
-        </details>
-        <p><a data-ui="teaching.scene.open" href="/preview/tool-envelope.html">Open tool envelope preview</a></p>
-      </section>
-
-      <section data-ui="teaching.reference.panel" class="panel" aria-labelledby="teacher-reference-heading">
-        <h2 id="teacher-reference-heading">Capture the reference</h2>
-        <p>Use the pendant to show the whole marker and stop the arm before capture. Capturing again replaces the reference and requires teaching the pick again.</p>
-        <p class="teacher-state">{{ project?.tank || 'Tank not taught' }} · {{ stationLabel }}</p>
-        <p v-if="observedStation != null" role="status">AGV reports station {{ observedStation }}. The service checks the station again after the image.</p>
-        <div class="field-row">
-          <label v-if="observedStation == null" for="teacher-station">AGV station (1–255)
-            <InputText data-ui="teaching.reference.station" id="teacher-station" v-model="station" type="number" min="1" max="255" step="1" />
-          </label>
-          <label for="teacher-tank-mode">Tank for this capture
-            <Select :pt="{ label: { 'data-ui': 'teaching.reference.tank.mode' } }" input-id="teacher-tank-mode" v-model="tankMode" :options="tankOptions" option-label="label"
-              option-value="value" @update:model-value="tankValue = ''" />
-          </label>
-          <label v-if="tankMode === 'set'" for="teacher-tank-number">Tank number (1–99)
-            <InputText data-ui="teaching.reference.tank.number" id="teacher-tank-number" :model-value="String(tankValue).replace(/^Tank0?/, '')"
-              type="number" min="1" max="99" step="1" @update:model-value="tankValue = $event" />
-          </label>
-          <label v-if="tankMode === 'set' && tankCatalog.length" for="teacher-tank-catalog">Catalog tank
-            <Select :pt="{ label: { 'data-ui': 'teaching.reference.tank.select' } }" input-id="teacher-tank-catalog" :model-value="tankValue" :options="tankCatalog" placeholder="Choose a tank"
-              @update:model-value="tankValue = $event" />
-          </label>
-        </div>
-        <OperatorButton data-ui="teaching.reference.capture" id="teacher-capture" label="Capture marker" primary :why="ready || problem(capturePayload)"
-          :outcome="outcomes['teacher-capture']" @press="markerFixed = false; clearApprovals(true); submit('capture', capturePayload())" />
-        <SnapshotViewer data-ui="teaching.reference.image" label="Reference image" :snapshot="project?.snapshots?.reference" :path="referenceImage" />
-        <p v-if="project?.observation">Observation joints · {{ degrees(project.observe_joints) }} degrees.
-          {{ project.observation.quality?.frames_accepted ?? 'Unknown' }} accepted frames.</p>
-      </section>
-
-      <section data-ui="teaching.pick.panel" class="panel" aria-labelledby="teacher-pick-heading">
-        <h2 id="teacher-pick-heading">Teach and export the picking position</h2>
-        <p>Position the gripper at the lower pick endpoint with the pendant. Stop the arm before saving the current TCP.</p>
-        <label class="pick-check" for="teacher-marker-fixed">
-          <Checkbox :pt="{ input: { 'data-ui': 'teaching.pick.marker' } }" v-model="markerFixed" input-id="teacher-marker-fixed" binary />
-          The marker and object stayed fixed since capture.
-        </label>
-        <div class="controls">
-          <OperatorButton data-ui="teaching.pick.save" id="teacher-teach" label="Read TCP and save pick" primary
-            :why="ready || (!flow.captured ? 'Capture the reference first.' : !markerFixed ? 'Confirm the marker stayed fixed.' : '')"
-            :outcome="outcomes['teacher-teach']" @press="submit('teach', { marker_unchanged: markerFixed }); markerFixed = false" />
-          <OperatorButton data-ui="teaching.pick.export" id="teacher-locate" label="Read marker and export poses" :why="ready || (!flow.taught ? 'Save the picking position first.' : '')"
-            :outcome="outcomes['teacher-locate']" @press="submit('locate')" />
-          <OperatorButton data-ui="teaching.pick.handoff" id="teacher-handoff" label="Continue to Pick/place" :why="running || (!flow.taught ? 'Open or teach a saved picking project.' : '')"
-            :outcome="outcomes['teacher-handoff']"
-            @press="handoff" />
-        </div>
-        <p v-if="project?.simulation" data-state="waiting">Simulated project · Offline evidence only.</p>
-        <p v-if="project?.taught?.taught_tcp_in_base">Saved TCP · {{ poseText(project.taught.taught_tcp_in_base) }} · XYZ mm, rotation-vector radians.</p>
-        <div v-if="native?.project?.exported" class="pick-readout">
-          <p>Pick · {{ poseText(native.project.exported.pick_tcp_pose_m_rad, 1) }}</p>
-          <p>Approach · {{ poseText(native.project.exported.approach_tcp_pose_m_rad, 1) }}</p>
-          <p>Robot base · XYZ metres, rotation-vector radians. Read the marker again for every pick.
-            {{ native.project.exported.refinement_required ? 'Preview only until Robot Bench refines the view.' : '' }}</p>
-        </div>
-        <div v-if="flow.taught" class="controls">
-          <OperatorButton data-ui="teaching.pick.download" :data-ui-key="file" v-for="[file, label] in (flow.exported ? downloads : downloads.slice(0, 2))" :key="file"
-            :id="'teacher-file-' + file" :label="label" :why="busy || (!exportId ? 'Check setup to verify the saved files.' : '')"
-            :outcome="outcomes['teacher-file-' + file]" @press="download(file)" />
-        </div>
-        <SnapshotViewer data-ui="teaching.pick.image" v-if="project?.snapshots?.locate" label="Export image" :snapshot="project.snapshots.locate"
-          :path="snapshotPath(project.project, project.snapshots.locate)" />
-      </section>
-
-      <section data-ui="teaching.validation.panel" class="panel" aria-labelledby="teacher-validation-heading">
-        <h2 id="teacher-validation-heading">Validate the marker and checked joint path</h2>
-        <p>Stop the AGV and arm. The planar test uses capture height at the destination. TCP height can change along the joint path.</p>
-        <OperatorButton data-ui="teaching.validation.capture" id="teacher-capture_validation" label="Capture for validation"
-          :why="ready || (!flow.taught ? 'Save the picking position first.' : form.model !== 'planar' ? 'Use a planar project for this test.' : '')"
-          :outcome="outcomes['teacher-capture_validation']" @press="clearApprovals(true); submit('capture_validation')" />
-        <SnapshotViewer data-ui="teaching.validation.image" label="Validation image" :snapshot="validation?.snapshot || project?.snapshots?.validation"
-          :path="snapshotPath(project?.project, validation?.snapshot || project?.snapshots?.validation)" @loaded="imageReady = $event" />
-        <div v-if="validation" class="pick-readout">
-          <p>Capture {{ validation.id }} · {{ validation.status }} ·
-            {{ validation.status === 'captured' ? validationSeconds + ' s left for one attempt' : 'Saved result' }}.</p>
-          <p>Marker · {{ poseText(validation.marker_tcp_pose_m_rad) }}<br>
-            Pick endpoint · {{ poseText(validation.pick_tcp_pose_m_rad) }}<br>
-            Joint-test destination · {{ poseText(validation.validation_tcp_pose_m_rad) }}<br>
-            Robot base · XYZ mm, rotation-vector radians.</p>
-          <p v-if="validation.validation">Pick shift {{ validation.validation.shift_from_taught_mm?.toFixed(2) }} mm ·
-            rotation {{ validation.validation.rotation_from_taught_deg?.toFixed(2) }} degrees.</p>
-          <p v-if="validation.actual_tcp_pose_m_rad">Measured TCP · {{ poseText(validation.actual_tcp_pose_m_rad) }}</p>
-          <p v-if="validation.visual_result">Visual alignment · {{ validation.visual_result }}.</p>
-        </div>
-        <div v-if="validation?.status === 'completed'">
-          <p>Check alignment physically. Record an independent TCP measurement when verifying ±2 mm accuracy.</p>
-          <label for="teacher-measured">Independent TCP error XYZ (mm, optional)
-            <InputText data-ui="teaching.validation.measurement" id="teacher-measured" v-model="measured" />
-          </label>
-          <div class="controls">
-            <OperatorButton data-ui="teaching.validation.aligned" id="teacher-review-aligned" label="Alignment looks correct" :why="reviewReason"
-              :outcome="outcomes['teacher-review_validation']"
-              @press="submit('review_validation', { capture_id: validation.id, result: 'aligned', measured_error_mm: measuredError() })" />
-            <OperatorButton data-ui="teaching.validation.misaligned" id="teacher-review-misaligned" label="Alignment needs adjustment" :why="reviewReason"
-              :outcome="outcomes['teacher-review_validation']"
-              @press="submit('review_validation', { capture_id: validation.id, result: 'misaligned', measured_error_mm: measuredError() })" />
-          </div>
-        </div>
-        <details data-ui="teaching.validation.history">
-          <summary data-ui="teaching.validation.history.toggle">Saved validation history ({{ history.length }})</summary>
-          <ul v-if="history.length" class="teacher-history">
-            <li data-ui="teaching.validation.history.row" :data-ui-key="entry.id" v-for="entry in [...history].reverse()" :key="entry.id">
-              <strong>{{ new Date(entry.timestamp * 1000).toLocaleString() }} · {{ entry.status }}</strong>
-              <p>Visual alignment · {{ entry.visual_result || 'Unreviewed' }}.
-                <template v-if="entry.measured_position_error_mm != null">
-                  Independently measured {{ entry.measured_position_error_mm.toFixed(2) }} mm ({{ entry.within_2mm ? 'within' : 'outside' }} 2 mm).
-                </template>
+  <div data-ui="teaching.page" class="pick-grid teacher-layout">
+    <Tabs v-model:value="tab" :show-navigators="false" class="page-tabs min-w-0">
+      <TabList data-ui="teaching.tabs.list" :pt="{ tabList: { 'aria-label': 'Teaching panels' } }">
+        <Tab data-ui="teaching.tabs.overview" value="overview">Overview
+          <Badge v-if="allow" value="Warning" severity="warn" />
+        </Tab>
+        <Tab data-ui="teaching.tabs.inputs" value="inputs">Teaching inputs
+          <Badge v-if="project?.simulation" value="Warning" severity="warn" />
+        </Tab>
+        <Tab data-ui="teaching.tabs.validation" value="validation">Validation
+          <Badge v-if="validationWarning" value="Warning" severity="warn" />
+        </Tab>
+        <Tab data-ui="teaching.tabs.motion" value="motion">Motion settings
+          <Badge v-if="live && !live.at_pose" value="Warning" severity="warn" />
+        </Tab>
+        <Tab data-ui="teaching.tabs.evidence" value="evidence">Evidence
+          <Badge v-if="history.some(entry => entry.visual_result === 'misaligned' || entry.within_2mm === false)" value="Warning" severity="warn" />
+        </Tab>
+      </TabList>
+      <div class="agv-grid tab-workspace my-4">
+        <TabPanels>
+          <TabPanel value="overview">
+            <Card data-ui="teaching.setup.panel" class="panel" aria-labelledby="teacher-setup-heading">
+              <template #title>
+                <h2 id="teacher-setup-heading">Set up the camera and marker</h2>
+              </template>
+              <template #content>
+                <Message severity="info" variant="simple" v-if="setupNotice" role="status">{{ setupNotice }}</Message>
+                <Message v-if="allow" severity="warn" :closable="false">{{ allow }}</Message>
+                <div class="field-row">
+                  <label for="teacher-project">Project folder
+                    <InputText data-ui="teaching.setup.project" id="teacher-project" :model-value="form.project" autocomplete="off" :readonly="Boolean(running)"
+                      @update:model-value="edit('project', $event)" />
+                  </label>
+                  <label for="teacher-calibration">Hand-eye calibration JSON
+                    <InputText data-ui="teaching.setup.calibration" id="teacher-calibration" :model-value="form.calibration" list="teacher-calibrations"
+                      autocomplete="off" :readonly="Boolean(running)" @update:model-value="edit('calibration', $event)"
+                      @change="chooseCalibration($event.target.value)" />
+                    <datalist id="teacher-calibrations"><option v-for="entry in calibrationOptions" :key="entry.path" :value="entry.path" /></datalist>
+                  </label>
+                  <label for="teacher-camera">Camera
+                    <Select :pt="{ label: { 'data-ui': 'teaching.setup.camera' } }" input-id="teacher-camera" :model-value="form.camera" :options="cameras" option-label="label"
+                      option-value="value" :disabled="Boolean(running)" @update:model-value="edit('camera', $event)" />
+                  </label>
+                  <label for="teacher-robot">Robot controller address
+                    <InputText data-ui="teaching.setup.robot" id="teacher-robot" :model-value="form.robot" autocomplete="off" :readonly="Boolean(running)" @update:model-value="edit('robot', $event)" />
+                  </label>
+                  <label for="teacher-kind">Marker type
+                    <Select :pt="{ label: { 'data-ui': 'teaching.setup.target' } }" input-id="teacher-kind" :model-value="form.kind" :options="targets" option-label="label"
+                      option-value="value" :disabled="Boolean(running)" @update:model-value="edit('kind', $event)" />
+                  </label>
+                  <label for="teacher-tcp">Active TCP (XYZ mm, rotation-vector radians)
+                    <InputText data-ui="teaching.setup.tcp" id="teacher-tcp" :model-value="form.tcp" autocomplete="off" :readonly="Boolean(running)" @update:model-value="edit('tcp', $event)" />
+                  </label>
+                </div>
+                <p v-if="calibrationOptions.find(entry => entry.path === form.calibration)">
+                  Calibration TCP · {{ poseText(calibrationOptions.find(entry => entry.path === form.calibration).tcp) }}
+                </p>
+                <div v-if="form.kind === 'charuco'" class="field-row">
+                  <label v-if="boardOptions.length" for="teacher-printed-board">Printed picking board
+                    <Select :pt="{ label: { 'data-ui': 'teaching.setup.printed.board' } }" input-id="teacher-printed-board" :options="boardOptions" option-label="label" option-value="value"
+                      :disabled="Boolean(running)" placeholder="Choose a board" @update:model-value="chooseBoard" />
+                  </label>
+                  <label for="teacher-board">Board name
+                    <InputText data-ui="teaching.setup.board" id="teacher-board" :model-value="form.board" :readonly="Boolean(running)" @update:model-value="edit('board', $event)" />
+                  </label>
+                  <label for="teacher-manifest">Board manifest JSON
+                    <InputText data-ui="teaching.setup.manifest" id="teacher-manifest" :model-value="form.manifest" list="teacher-manifests" autocomplete="off"
+                      :readonly="Boolean(running)" @update:model-value="edit('manifest', $event)" />
+                    <datalist id="teacher-manifests"><option v-for="name in defaults?.manifests" :key="name" :value="name" /></datalist>
+                  </label>
+                </div>
+                <PickPlaceFields data-ui="teaching.setup.marker" v-else prefix="teacher-marker" :fields="[['dictionary', 'Dictionary'], ['marker', 'Marker ID', 0, 999, 1],
+                  ['size', 'Outer black square (mm)', 1]]" :values="form" @edit="edit" />
+                <label class="pick-check" for="teacher-tcp-check">
+                  <Checkbox :pt="{ input: { 'data-ui': 'teaching.setup.tcp.confirm' } }" v-model="confirmed" input-id="teacher-tcp-check" binary />
+                  These values match the active gripper TCP on the pendant.
+                </label>
+                <div class="controls">
+                  <OperatorButton data-ui="teaching.setup.check" id="teacher-configure" label="Check setup" primary
+                    :why="busy || allow || problem(() => teacherSettings(form, confirmed)) || (!confirmed ? 'Confirm the active TCP.' : '')"
+                    :outcome="outcomes['teacher-configure']" @press="configure" />
+                  <OperatorButton data-ui="teaching.setup.open" id="teacher-open" label="Open saved project" :why="running ? 'Wait for the current request.' : !form.project.trim() ? 'Enter the project folder.' : ''"
+                    :outcome="outcomes['teacher-open']" @press="openProject" />
+                </div>
+                <Disclosure data-ui="teaching.advanced.panel" toggle-id="teaching.advanced.toggle">
+                  <template #heading>{{ allowSimulation ? 'Advanced setup and simulation' : 'Advanced setup' }}</template>
+                  <div class="field-row">
+                    <label for="teacher-model">Follow marker
+                      <Select :pt="{ label: { 'data-ui': 'teaching.advanced.model' } }" input-id="teacher-model" :model-value="form.model" :options="models" option-label="label" option-value="value"
+                        :disabled="Boolean(running)" @update:model-value="edit('model', $event)" />
+                    </label>
+                  </div>
+                  <p>Full 3D includes height and tilt. Checked validation in this service uses planar projects.</p>
+                  <PickPlaceFields data-ui="teaching.advanced.field" prefix="teacher-advanced" :fields="advancedFields" :values="form" @edit="edit" />
+                  <label class="pick-check" for="teacher-refine">
+                    <Checkbox :pt="{ input: { 'data-ui': 'teaching.advanced.refine' } }" :model-value="form.refine" input-id="teacher-refine" binary @update:model-value="edit('refine', $event)" />
+                    Refine before picking in Robot Bench using the taught camera view.
+                  </label>
+                  <template v-if="allowSimulation">
+                    <p>Use an empty folder and a simulated calibration to make an offline project.</p>
+                    <OperatorButton data-ui="teaching.simulate" id="teacher-simulate" label="Create simulated project" :outcome="outcomes['teacher-simulate']"
+                      :why="busy || problem(() => teacherSettings({ ...form, robot: 'simulation', tcp: form.tcp || '0,0,0,0,0,0' }, false))" @press="simulate" />
+                  </template>
+                </Disclosure>
+                <p><a data-ui="teaching.scene.open" href="/preview/tool-envelope.html">Open tool envelope preview</a></p>
+              </template>
+            </Card>
+          </TabPanel>
+          <TabPanel value="inputs" class="agv-main">
+            <Card data-ui="teaching.reference.panel" class="panel" aria-labelledby="teacher-reference-heading">
+              <template #title>
+                <h2 id="teacher-reference-heading">Capture the reference</h2>
+              </template>
+              <template #content>
+                <p>Use the pendant to show the whole marker and stop the arm before capture. Capturing again replaces the reference and requires teaching the pick again.</p>
+                <p class="teacher-state">{{ project?.tank || 'Tank not taught' }} · {{ stationLabel }}</p>
+                <p v-if="observedStation != null" role="status">AGV reports station {{ observedStation }}. The service checks the station again after the image.</p>
+                <div class="field-row">
+                  <label v-if="observedStation == null" for="teacher-station">AGV station (1–255)
+                    <InputText data-ui="teaching.reference.station" id="teacher-station" v-model="station" type="number" min="1" max="255" step="1" />
+                  </label>
+                  <label for="teacher-tank-mode">Tank for this capture
+                    <Select :pt="{ label: { 'data-ui': 'teaching.reference.tank.mode' } }" input-id="teacher-tank-mode" v-model="tankMode" :options="tankOptions" option-label="label"
+                      option-value="value" @update:model-value="tankValue = ''" />
+                  </label>
+                  <label v-if="tankMode === 'set'" for="teacher-tank-number">Tank number (1–99)
+                    <InputText data-ui="teaching.reference.tank.number" id="teacher-tank-number" :model-value="String(tankValue).replace(/^Tank0?/, '')"
+                      type="number" min="1" max="99" step="1" @update:model-value="tankValue = $event" />
+                  </label>
+                  <label v-if="tankMode === 'set' && tankCatalog.length" for="teacher-tank-catalog">Catalog tank
+                    <Select :pt="{ label: { 'data-ui': 'teaching.reference.tank.select' } }" input-id="teacher-tank-catalog" :model-value="tankValue" :options="tankCatalog" placeholder="Choose a tank"
+                      @update:model-value="tankValue = $event" />
+                  </label>
+                </div>
+                <OperatorButton data-ui="teaching.reference.capture" id="teacher-capture" label="Capture marker" primary :why="ready || problem(capturePayload)"
+                  :outcome="outcomes['teacher-capture']" @press="markerFixed = false; clearApprovals(true); submit('capture', capturePayload())" />
+                <SnapshotViewer data-ui="teaching.reference.image" label="Reference image" :snapshot="project?.snapshots?.reference" :path="referenceImage" />
+                <p v-if="project?.observation">Observation joints · {{ degrees(project.observe_joints) }} degrees.
+                  {{ project.observation.quality?.frames_accepted ?? 'Unknown' }} accepted frames.</p>
+              </template>
+            </Card>
+            <Card data-ui="teaching.pick.panel" class="panel" aria-labelledby="teacher-pick-heading">
+              <template #title>
+                <h2 id="teacher-pick-heading">Teach and export the picking position</h2>
+              </template>
+              <template #content>
+                <p>Position the gripper at the lower pick endpoint with the pendant. Stop the arm before saving the current TCP.</p>
+                <label class="pick-check" for="teacher-marker-fixed">
+                  <Checkbox :pt="{ input: { 'data-ui': 'teaching.pick.marker' } }" v-model="markerFixed" input-id="teacher-marker-fixed" binary />
+                  The marker and object stayed fixed since capture.
+                </label>
+                <div class="controls">
+                  <OperatorButton data-ui="teaching.pick.save" id="teacher-teach" label="Read TCP and save pick" primary
+                    :why="ready || (!flow.captured ? 'Capture the reference first.' : !markerFixed ? 'Confirm the marker stayed fixed.' : '')"
+                    :outcome="outcomes['teacher-teach']" @press="submit('teach', { marker_unchanged: markerFixed }); markerFixed = false" />
+                  <OperatorButton data-ui="teaching.pick.export" id="teacher-locate" label="Read marker and export poses" :why="ready || (!flow.taught ? 'Save the picking position first.' : '')"
+                    :outcome="outcomes['teacher-locate']" @press="submit('locate')" />
+                  <OperatorButton data-ui="teaching.pick.handoff" id="teacher-handoff" label="Continue to Pick/place" :why="running || (!flow.taught ? 'Open or teach a saved picking project.' : '')"
+                    :outcome="outcomes['teacher-handoff']"
+                    @press="handoff" />
+                </div>
+                <p v-if="project?.simulation" data-state="waiting">Simulated project · Offline evidence only.</p>
+                <p v-if="project?.taught?.taught_tcp_in_base">Saved TCP · {{ poseText(project.taught.taught_tcp_in_base) }} · XYZ mm, rotation-vector radians.</p>
+                <div v-if="native?.project?.exported" class="pick-readout">
+                  <p>Pick · {{ poseText(native.project.exported.pick_tcp_pose_m_rad, 1) }}</p>
+                  <p>Approach · {{ poseText(native.project.exported.approach_tcp_pose_m_rad, 1) }}</p>
+                  <p>Robot base · XYZ metres, rotation-vector radians. Read the marker again for every pick.
+                    {{ native.project.exported.refinement_required ? 'Preview only until Robot Bench refines the view.' : '' }}</p>
+                </div>
+                <div v-if="flow.taught" class="controls">
+                  <OperatorButton data-ui="teaching.pick.download" :data-ui-key="file" v-for="[file, label] in (flow.exported ? downloads : downloads.slice(0, 2))" :key="file"
+                    :id="'teacher-file-' + file" :label="label" :why="busy || (!exportId ? 'Check setup to verify the saved files.' : '')"
+                    :outcome="outcomes['teacher-file-' + file]" @press="download(file)" />
+                </div>
+                <SnapshotViewer data-ui="teaching.pick.image" v-if="project?.snapshots?.locate" label="Export image" :snapshot="project.snapshots.locate"
+                  :path="snapshotPath(project.project, project.snapshots.locate)" />
+              </template>
+            </Card>
+          </TabPanel>
+          <TabPanel value="validation">
+            <Card data-ui="teaching.validation.panel" class="panel" aria-labelledby="teacher-validation-heading">
+              <template #title>
+                <h2 id="teacher-validation-heading">Validate the marker and checked joint path</h2>
+              </template>
+              <template #content>
+                <p>Stop the AGV and arm. The planar test uses capture height at the destination. TCP height can change along the joint path.</p>
+                <OperatorButton data-ui="teaching.validation.capture" id="teacher-capture_validation" label="Capture for validation"
+                  :why="ready || (!flow.taught ? 'Save the picking position first.' : form.model !== 'planar' ? 'Use a planar project for this test.' : '')"
+                  :outcome="outcomes['teacher-capture_validation']" @press="clearApprovals(true); submit('capture_validation')" />
+                <SnapshotViewer data-ui="teaching.validation.image" label="Validation image" :snapshot="validation?.snapshot || project?.snapshots?.validation"
+                  :path="snapshotPath(project?.project, validation?.snapshot || project?.snapshots?.validation)" @loaded="imageReady = $event" />
+                <div v-if="validation" class="pick-readout">
+                  <p>Capture {{ validation.id }} · {{ validation.status }} ·
+                    {{ validation.status === 'captured' ? validationSeconds + ' s left for one attempt' : 'Saved result' }}.</p>
+                  <p>Marker · {{ poseText(validation.marker_tcp_pose_m_rad) }}<br>
+                    Pick endpoint · {{ poseText(validation.pick_tcp_pose_m_rad) }}<br>
+                    Joint-test destination · {{ poseText(validation.validation_tcp_pose_m_rad) }}<br>
+                    Robot base · XYZ mm, rotation-vector radians.</p>
+                  <p v-if="validation.validation">Pick shift {{ validation.validation.shift_from_taught_mm?.toFixed(2) }} mm ·
+                    rotation {{ validation.validation.rotation_from_taught_deg?.toFixed(2) }} degrees.</p>
+                  <p v-if="validation.actual_tcp_pose_m_rad">Measured TCP · {{ poseText(validation.actual_tcp_pose_m_rad) }}</p>
+                  <p v-if="validation.visual_result">Visual alignment · {{ validation.visual_result }}.</p>
+                </div>
+                <div v-if="validation?.status === 'completed'">
+                  <p>Check alignment physically. Record an independent TCP measurement when verifying ±2 mm accuracy.</p>
+                  <label for="teacher-measured">Independent TCP error XYZ (mm, optional)
+                    <InputText data-ui="teaching.validation.measurement" id="teacher-measured" v-model="measured" />
+                  </label>
+                  <div class="controls">
+                    <OperatorButton data-ui="teaching.validation.aligned" id="teacher-review-aligned" label="Alignment looks correct" :why="reviewReason"
+                      :outcome="outcomes['teacher-review_validation']"
+                      @press="submit('review_validation', { capture_id: validation.id, result: 'aligned', measured_error_mm: measuredError() })" />
+                    <OperatorButton data-ui="teaching.validation.misaligned" id="teacher-review-misaligned" label="Alignment needs adjustment" :why="reviewReason"
+                      :outcome="outcomes['teacher-review_validation']"
+                      @press="submit('review_validation', { capture_id: validation.id, result: 'misaligned', measured_error_mm: measuredError() })" />
+                  </div>
+                </div>
+              </template>
+            </Card>
+          </TabPanel>
+          <TabPanel value="motion" class="agv-main">
+            <Card data-ui="teaching.travel.panel" class="panel" aria-labelledby="teacher-travel-heading">
+              <template #title>
+                <h2 id="teacher-travel-heading">AGV travel pose</h2>
+              </template>
+              <template #content>
+                <p v-if="travel?.pose">Saved joints · {{ degrees(travel.pose.joints_rad) }} degrees · {{ new Date(travel.pose.saved_at).toLocaleString() }}.</p>
+                <p v-else>No travel pose available.</p>
+                <p v-if="live" role="status">
+                  {{ live.at_pose ? 'Live check · Robot reported still at the travel pose.' :
+                    'Live check unconfirmed. Fold the arm, stop it and check the robot connection.' }}
+                  <time v-if="live.checked_at" :datetime="live.checked_at">{{ new Date(live.checked_at).toLocaleString() }}</time>
+                </p>
+                <label for="teacher-folded" class="pick-check"><Checkbox :pt="{ input: { 'data-ui': 'teaching.travel.folded' } }" v-model="folded" input-id="teacher-folded" binary />
+                  The arm is folded inside the AGV footprint, with and without a rod.</label>
+                <div class="controls">
+                  <OperatorButton data-ui="teaching.travel.save" id="teacher-travel-save" label="Save current joints as travel pose" :why="travelReason"
+                    :outcome="outcomes['teacher-travel-save']" @press="saveTravel" />
+                  <OperatorButton data-ui="teaching.travel.check" id="teacher-travel-check" label="Check live travel pose"
+                    :why="busy || (!travel?.pose ? 'Save a travel pose first.' : '')" :outcome="outcomes['teacher-travel-check']" @press="checkTravel" />
+                </div>
+              </template>
+            </Card>
+            <Disclosure data-ui="teaching.motion.settings" toggle-id="teaching.motion.settings.toggle">
+              <template #heading>Reviewed motion settings</template>
+              <PickPlaceFields data-ui="teaching.motion.field" prefix="teacher-motion" :fields="[...boundsFields, ['returnSpeed', 'Return joint speed (degrees/s)', 1, 6],
+                ['verticalSpeed', 'Vertical descent speed (mm/s)', 1, 20]]" :values="motionForm" @edit="editMotion" />
+              <p>Use the reviewed collision scene and workspace for both joint movements. A supervised self-only scene leaves external objects to the operator.</p>
+            </Disclosure>
+            <Disclosure data-ui="teaching.motion.panel" :data-ui-key="action" v-for="[action, label, declaration] in [
+              ['return_observation', 'Return to observation pose', 'I reviewed the saved observation joints, workspace and scene, and cleared the path. TCP height can change.'],
+              ['validate_move', 'Run checked joint test', 'The AGV, marker and object stayed fixed since capture. I reviewed the destination, workspace and scene, and cleared the path.'],
+              ['vertical_descent', 'Review separate vertical descent', 'The TCP and tool fit the scene. The marker, object and support stayed fixed. I reviewed the vertical path and cleared the area.'],
+            ]" :key="action" toggle-id="teaching.motion.toggle" :toggle-key="action">
+              <template #heading>{{ label }}</template>
+              <p v-if="action === 'return_observation' && flow.captured">Saved joints · {{ degrees(project.observe_joints) }} degrees.</p>
+              <p v-if="action === 'vertical_descent' && validation?.pick_tcp_pose_m_rad">
+                Taught Z {{ (validation.pick_tcp_pose_m_rad[2] * 1000).toFixed(3) }} mm ·
+                alignment Z {{ (validation.validation_tcp_pose_m_rad[2] * 1000).toFixed(3) }} mm. Separate plan approval is required.
               </p>
-              <details data-ui="teaching.validation.saved" :data-ui-key="entry.id" v-if="entry.snapshot" @toggle="$event.target.open ? historyImages.add(entry.id) : historyImages.delete(entry.id)">
-                <summary data-ui="teaching.validation.saved.toggle" :data-ui-key="entry.id">View saved image</summary>
-                <SnapshotViewer data-ui="teaching.validation.saved.image" :data-ui-key="entry.id" v-if="historyImages.has(entry.id)" label="Past validation image"
-                  :snapshot="entry.snapshot" :path="snapshotPath(project.project, entry.snapshot)" />
-              </details>
-            </li>
-          </ul>
-          <p v-else>No completed motion tests saved.</p>
-        </details>
-      </section>
-
-      <section data-ui="teaching.travel.panel" class="panel" aria-labelledby="teacher-travel-heading">
-        <h2 id="teacher-travel-heading">AGV travel pose</h2>
-        <p v-if="travel?.pose">Saved joints · {{ degrees(travel.pose.joints_rad) }} degrees · {{ new Date(travel.pose.saved_at).toLocaleString() }}.</p>
-        <p v-else>No travel pose available.</p>
-        <p v-if="live" role="status">
-          {{ live.at_pose ? 'Live check · Robot reported still at the travel pose.' :
-            'Live check unconfirmed. Fold the arm, stop it and check the robot connection.' }}
-          <time v-if="live.checked_at" :datetime="live.checked_at">{{ new Date(live.checked_at).toLocaleString() }}</time>
-        </p>
-        <label for="teacher-folded" class="pick-check"><Checkbox :pt="{ input: { 'data-ui': 'teaching.travel.folded' } }" v-model="folded" input-id="teacher-folded" binary />
-          The arm is folded inside the AGV footprint, with and without a rod.</label>
-        <div class="controls">
-          <OperatorButton data-ui="teaching.travel.save" id="teacher-travel-save" label="Save current joints as travel pose" :why="travelReason"
-            :outcome="outcomes['teacher-travel-save']" @press="saveTravel" />
-          <OperatorButton data-ui="teaching.travel.check" id="teacher-travel-check" label="Check live travel pose"
-            :why="busy || (!travel?.pose ? 'Save a travel pose first.' : '')" :outcome="outcomes['teacher-travel-check']" @press="checkTravel" />
-        </div>
-      </section>
-    </div>
-
-    <aside data-ui="teaching.status.panel" class="operation">
-      <section data-ui="teaching.operation.panel" class="panel pick-operation" aria-labelledby="teacher-operation-heading">
-        <h2 id="teacher-operation-heading">Current Teacher operation</h2>
-        <p role="status">{{ native?.busy ? 'Running · ' + native.busy.replaceAll('_', ' ') :
-          job ? 'Request ' + job.id + ' · ' + job.state : 'No request selected.' }}</p>
-        <p v-if="pendingId" data-state="waiting">Request unconfirmed. Inspect {{ pendingId }} before sending again.</p>
-        <Message v-if="owner?.execution_uncertain" severity="error" role="alert">Execution is uncertain.
-          Check the robot and saved evidence before a reviewed service restart.</Message>
-        <p>{{ motion?.detail || 'Checking AGV state…' }}</p>
-        <p v-if="native?.collision_scope">Collision scope · {{ native.collision_scope }}.</p>
-        <p v-if="native?.return_result?.actual_tcp_pose_m_rad">Return measured TCP · {{ poseText(native.return_result.actual_tcp_pose_m_rad) }}.</p>
-        <details data-ui="teaching.inspect.panel">
-          <summary data-ui="teaching.inspect.toggle">Inspect Teacher request and details</summary>
-          <label for="teacher-inspection-id">Request ID
-            <InputText data-ui="teaching.inspect.id" id="teacher-inspection-id" v-model="inspectionId" autocomplete="off" />
-          </label>
-          <OperatorButton data-ui="teaching.inspect.open" id="teacher-inspect" label="Inspect without resuming" :why="running || (!inspectionId.trim() ? 'Enter the request ID.' : '')"
-            :outcome="outcomes['teacher-inspect']" @press="inspectTeacher" />
-          <pre v-if="details || job?.error">{{ details || job.error }}</pre>
-          <pre v-if="native?.motion">{{ JSON.stringify(native.motion, null, 2) }}</pre>
-          <pre v-if="native?.return_result">{{ JSON.stringify(native.return_result, null, 2) }}</pre>
-        </details>
-        <details data-ui="teaching.motion.settings">
-          <summary data-ui="teaching.motion.settings.toggle">Reviewed motion settings</summary>
-          <PickPlaceFields data-ui="teaching.motion.field" prefix="teacher-motion" :fields="[...boundsFields, ['returnSpeed', 'Return joint speed (degrees/s)', 1, 6],
-            ['verticalSpeed', 'Vertical descent speed (mm/s)', 1, 20]]" :values="motionForm" @edit="editMotion" />
-          <p>Use the reviewed collision scene and workspace for both joint movements. A supervised self-only scene leaves external objects to the operator.</p>
-        </details>
-        <details data-ui="teaching.motion.panel" :data-ui-key="action" v-for="[action, label, declaration] in [
-          ['return_observation', 'Return to observation pose', 'I reviewed the saved observation joints, workspace and scene, and cleared the path. TCP height can change.'],
-          ['validate_move', 'Run checked joint test', 'The AGV, marker and object stayed fixed since capture. I reviewed the destination, workspace and scene, and cleared the path.'],
-          ['vertical_descent', 'Review separate vertical descent', 'The TCP and tool fit the scene. The marker, object and support stayed fixed. I reviewed the vertical path and cleared the area.'],
-        ]" :key="action">
-          <summary data-ui="teaching.motion.toggle" :data-ui-key="action">{{ label }}</summary>
-          <p v-if="action === 'return_observation' && flow.captured">Saved joints · {{ degrees(project.observe_joints) }} degrees.</p>
-          <p v-if="action === 'vertical_descent' && validation?.pick_tcp_pose_m_rad">
-            Taught Z {{ (validation.pick_tcp_pose_m_rad[2] * 1000).toFixed(3) }} mm ·
-            alignment Z {{ (validation.validation_tcp_pose_m_rad[2] * 1000).toFixed(3) }} mm. Separate plan approval is required.
-          </p>
-          <label class="pick-check" :for="'teacher-off-' + action">
-            <Checkbox :pt="{ input: { 'data-ui': 'teaching.motion.agv.off', 'data-ui-key': action } }" v-model="switchedOff[action]" :input-id="'teacher-off-' + action" binary
-              @update:model-value="approvals[action] = false" />I confirm the AGV is switched off.
-          </label>
-          <label class="pick-check" :for="'teacher-approve-' + action">
-            <Checkbox :pt="{ input: { 'data-ui': 'teaching.motion.approval', 'data-ui-key': action } }" v-model="approvals[action]" :input-id="'teacher-approve-' + action" binary />{{ declaration }}
-          </label>
-          <OperatorButton data-ui="teaching.motion.start" :data-ui-key="action" :id="'teacher-' + action" :label="label" :why="motionReason(action)"
-            :outcome="outcomes['teacher-' + action]" @press="startMotion(action)" />
-        </details>
-      </section>
-      <PickPlaceJob v-model:id="manualId" :owner="owner" :job="manual" :problem="manualProblem" :running="running"
-        :revision="formRevision" :stop-id="manualStopId" :outcomes="outcomes" :clock="clock"
-        @inspect="inspectManual" @confirm="confirmManual" />
-    </aside>
+              <label class="pick-check" :for="'teacher-off-' + action">
+                <Checkbox :pt="{ input: { 'data-ui': 'teaching.motion.agv.off', 'data-ui-key': action } }" v-model="switchedOff[action]" :input-id="'teacher-off-' + action" binary
+                  @update:model-value="approvals[action] = false" />I confirm the AGV is switched off.
+              </label>
+              <label class="pick-check" :for="'teacher-approve-' + action">
+                <Checkbox :pt="{ input: { 'data-ui': 'teaching.motion.approval', 'data-ui-key': action } }" v-model="approvals[action]" :input-id="'teacher-approve-' + action" binary />{{ declaration }}
+              </label>
+              <OperatorButton data-ui="teaching.motion.start" :data-ui-key="action" :id="'teacher-' + action" :label="label" :why="motionReason(action)"
+                :outcome="outcomes['teacher-' + action]" @press="startMotion(action)" />
+            </Disclosure>
+          </TabPanel>
+          <TabPanel value="evidence">
+            <Disclosure data-ui="teaching.validation.history" toggle-id="teaching.validation.history.toggle">
+              <template #heading>Saved validation history ({{ history.length }})</template>
+              <ul v-if="history.length" class="teacher-history">
+                <li data-ui="teaching.validation.history.row" :data-ui-key="entry.id" v-for="entry in [...history].reverse()" :key="entry.id">
+                  <strong>{{ new Date(entry.timestamp * 1000).toLocaleString() }} · {{ entry.status }}</strong>
+                  <p>Visual alignment · {{ entry.visual_result || 'Unreviewed' }}.
+                    <template v-if="entry.measured_position_error_mm != null">
+                      Independently measured {{ entry.measured_position_error_mm.toFixed(2) }} mm ({{ entry.within_2mm ? 'within' : 'outside' }} 2 mm).
+                    </template>
+                  </p>
+                  <Disclosure data-ui="teaching.validation.saved" :data-ui-key="entry.id" v-if="entry.snapshot" @toggle="$event ? historyImages.add(entry.id) : historyImages.delete(entry.id)" toggle-id="teaching.validation.saved.toggle" :toggle-key="entry.id">
+                    <template #heading>View saved image</template>
+                    <SnapshotViewer data-ui="teaching.validation.saved.image" :data-ui-key="entry.id" v-if="historyImages.has(entry.id)" label="Past validation image"
+                      :snapshot="entry.snapshot" :path="snapshotPath(project.project, entry.snapshot)" />
+                  </Disclosure>
+                </li>
+              </ul>
+              <p v-else>No completed motion tests saved.</p>
+            </Disclosure>
+          </TabPanel>
+        </TabPanels>
+        <aside data-ui="teaching.status.panel" class="operation">
+          <Card data-ui="teaching.operation.panel" class="panel pick-operation" aria-labelledby="teacher-operation-heading">
+            <template #title>
+              <h2 id="teacher-operation-heading">Current Teacher operation</h2>
+              <Tag v-if="running || project" :value="running ? 'Working' : 'Project open'" severity="secondary" />
+            </template>
+            <template #content>
+              <p role="status">{{ native?.busy ? 'Running · ' + native.busy.replaceAll('_', ' ') :
+                job ? 'Request ' + job.id + ' · ' + job.state : 'No request selected.' }}</p>
+              <Message v-if="pendingId" severity="warn">Request unconfirmed. Inspect {{ pendingId }} before sending again.</Message>
+              <Message v-if="owner?.execution_uncertain" severity="error" role="alert">Execution is uncertain.
+                Check the robot and saved evidence before a reviewed service restart.</Message>
+              <p>{{ motion?.detail || 'Checking AGV state…' }}</p>
+              <p v-if="native?.collision_scope">Collision scope · {{ native.collision_scope }}.</p>
+              <p v-if="native?.return_result?.actual_tcp_pose_m_rad">Return measured TCP · {{ poseText(native.return_result.actual_tcp_pose_m_rad) }}.</p>
+              <Disclosure data-ui="teaching.inspect.panel" toggle-id="teaching.inspect.toggle">
+                <template #heading>Inspect Teacher request and details</template>
+                <label for="teacher-inspection-id">Request ID
+                  <InputText data-ui="teaching.inspect.id" id="teacher-inspection-id" v-model="inspectionId" autocomplete="off" />
+                </label>
+                <OperatorButton data-ui="teaching.inspect.open" id="teacher-inspect" label="Inspect without resuming" :why="running || (!inspectionId.trim() ? 'Enter the request ID.' : '')"
+                  :outcome="outcomes['teacher-inspect']" @press="inspectTeacher" />
+                <pre v-if="details || job?.error">{{ details || job.error }}</pre>
+                <pre v-if="native?.motion">{{ JSON.stringify(native.motion, null, 2) }}</pre>
+                <pre v-if="native?.return_result">{{ JSON.stringify(native.return_result, null, 2) }}</pre>
+              </Disclosure>
+            </template>
+          </Card>
+          <PickPlaceJob v-model:id="manualId" :owner="owner" :job="manual" :problem="manualProblem" :running="running"
+            :revision="formRevision" :stop-id="manualStopId" :outcomes="outcomes" :clock="clock"
+            @inspect="inspectManual" @confirm="confirmManual" />
+        </aside>
+      </div>
+    </Tabs>
   </div>
 </template>

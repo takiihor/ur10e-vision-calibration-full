@@ -10,7 +10,7 @@
   }
   async function get(path) {
     const token=document.querySelector('meta[name="module-token"],meta[name="teach-token"]').content;
-    const response=await fetch(path,{headers:{'X-Module-Token':token}});
+    const response=await window.operatorFetch(path,{headers:{'X-Module-Token':token}});
     if(!response.ok)throw new Error('Discovered setup is unavailable; review the saved project or enter checked settings.');
     return response.json();
   }

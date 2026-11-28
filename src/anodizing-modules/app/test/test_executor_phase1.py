@@ -155,13 +155,20 @@ def running(server):
 
 
 def test_display_has_only_cached_reads(tmp_path):
-    devices = FakeDevices()
+    class BatteryFixture(FakeDevices):
+        def status(self):
+            return dict(super().status(), battery_trend='charging')
+
+    devices = BatteryFixture()
     executor = Executor(tmp_path, devices)
     try:
         with running(display_listener(0, executor.status)) as base:
-            assert 'AGV status' in urlopen(base).read().decode()
+            page = urlopen(base).read().decode()
+            assert 'AGV status' in page and 'id="tower-light"' in page
             state = json.load(urlopen(base + '/status'))
             assert state['boot'] == executor.health()['boot']
+            assert state['device']['battery_trend'] == 'charging'
+            assert state['tower_light'] == {'available': False, 'pattern': 'disabled'}
             for method, path in [('POST', '/status'), ('POST', '/v1/stop'), ('GET', '/v1/health')]:
                 with pytest.raises(HTTPError) as err:
                     urlopen(Request(base + path, data=b'{}' if method == 'POST' else None, method=method))

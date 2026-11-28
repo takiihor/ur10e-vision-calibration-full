@@ -84,7 +84,7 @@
     el('manual-capability').textContent=['PICK','PLACE'].map(action=>action+': '+(reason(action)||'Ready; confirm the exact fresh plan after admission.')).join(' ');
   }
   async function request(path,body) {
-    const response=await fetch(path,{method:body?'POST':'GET',headers:{'X-Module-Token':token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
+    const response=await window.operatorFetch(path,{method:body?'POST':'GET',headers:{'X-Module-Token':token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
     const value=await response.json();if(!response.ok)throw new Error(value.error||'Request failed.');return value;
   }
   function invalidateRecipe(){

@@ -57,7 +57,7 @@
   }};
   async function poll(){
     try{
-      const response=await fetch('/api/agv-robot-motion',{headers:{'X-Module-Token':token}});
+      const response=await window.operatorFetch('/api/agv-robot-motion',{headers:{'X-Module-Token':token}});
       if(!response.ok)throw Error();
       state=await response.json();
       active=state.active;

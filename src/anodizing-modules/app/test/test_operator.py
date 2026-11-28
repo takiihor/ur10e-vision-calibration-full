@@ -50,18 +50,18 @@ def test_operator_entry_refreshes_nonce_and_uses_a_static_allowlist(service, tmp
     (tmp_path / 'asset-allowlist.json').write_text('["assets/main-a1.js"]')
     (tmp_path / 'index.html').write_text('<meta name="module-token" content="__TOKEN__">'
                                         '<meta name="style-nonce" content="__STYLE_NONCE__">')
-    code, headers, body = request(service, '/operator/')
+    code, headers, body = request(service, '/dev/')
     assert code == 200 and headers['Cache-Control'] == 'no-store'
     assert f'content="{service.token}"'.encode() in body
     nonce = re.search(r"'nonce-([^']+)'", headers['Content-Security-Policy'])[1]
     assert nonce.encode() in body and "script-src 'self';" in headers['Content-Security-Policy']
     assert "frame-ancestors 'none'" in headers['Content-Security-Policy']
     service.token = secrets.token_urlsafe(32)
-    _, later, body = request(service, '/operator/')
+    _, later, body = request(service, '/dev/')
     assert nonce not in later['Content-Security-Policy'] and f'content="{service.token}"'.encode() in body
-    assert request(service, '/operator/assets/main-a1.js')[1]['Content-Type'].startswith('text/javascript')
-    for path in ('/operator/assets/private.js', '/operator/asset-allowlist.json', '/operator/index.html',
-                 '/operator/../agv'):
+    assert request(service, '/dev/assets/main-a1.js')[1]['Content-Type'].startswith('text/javascript')
+    for path in ('/dev/assets/private.js', '/dev/asset-allowlist.json', '/dev/index.html',
+                 '/dev/../agv'):
         assert request(service, path)[0] == 404
 
 
@@ -91,7 +91,7 @@ def test_simulation_choices_and_requests_follow_instance_config(service, monkeyp
     assert (b'<option value="simulator">' in agv_page) is not disabled
     assert (b'data-action="simulate"' in request(service, '/calibration')[2]) is not disabled
     mode = b'off' if disabled else b'on'
-    assert b'name="module-simulation" content="' + mode + b'"' in request(service, '/operator/')[2]
+    assert b'name="module-simulation" content="' + mode + b'"' in request(service, '/dev/')[2]
 
     if disabled:
         for path, body in [
@@ -152,7 +152,7 @@ def test_state_is_authenticated_read_only_and_copies_acquisition_time(service, m
     assert station()['quality'] == 'stale'
     assert request(service, '/api/state', token='old')[0] == 403
     assert request(service, '/api/state', origin='http://localhost:8870')[0] == 403
-    assert request(service, '/operator/', host='example.org')[0] == 403
+    assert request(service, '/dev/', host='example.org')[0] == 403
     assert request(service, '/api/state', method='POST')[0] == 400
 
 

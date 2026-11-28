@@ -35,6 +35,9 @@ STALE_AFTER = 5
 TIMED_REPORT_LISTEN_S = 3.1  # Vendor timed reports are 1–3 seconds apart.
 PAGE_POLL_S = 1.2
 RECIPE_STALE_S = 3
+BATTERY_SAMPLE_S = 20
+BATTERY_WINDOW_S = 10 * 60
+BATTERY_MIN_SPAN_S = 3 * 60
 RECIPE_POLL_S = .9
 MOTION_POLL_S = .5
 REPORT_GAP = (.100, .150)
@@ -456,6 +459,7 @@ class Connection:
         self.wire_closing = Event()
         self.wire_frames = Queue() if wire_trace is not None else None
         self.wire_worker = None
+        self.raw_trace = None
         if self.wire_frames is not None:
             self.wire_worker = Thread(target=self._flush_wire_trace, args=(wire_trace,), daemon=True,
                                       name='agv-wire-trace')
@@ -505,6 +509,7 @@ class Connection:
         self.settings = None
         self.armed = False
         self.status = self.status_at = self.status_hex = None
+        self.battery_samples = deque(maxlen=1 + BATTERY_WINDOW_S // BATTERY_SAMPLE_S)
         self.partial_frame_at = None
         self.results = {}
         self.pending = {}
@@ -732,6 +737,31 @@ class Connection:
                 return False
             sleep(.01)
 
+    def _sample_battery(self, now, level):
+        samples = self.battery_samples
+        if self.status_at is None or not 0 <= now - self.status_at < RECIPE_STALE_S:
+            samples.clear()
+        if type(level) is not int or not 0 <= level <= 100:
+            samples.clear()
+            return
+        while samples and now - samples[0][0] > BATTERY_WINDOW_S:
+            samples.popleft()
+        if not samples or now - samples[-1][0] >= BATTERY_SAMPLE_S:
+            samples.append((now, level))
+
+    def _battery_trend(self, age):
+        samples = self.battery_samples
+        if (self.transport is None or age is None or not 0 <= age < RECIPE_STALE_S
+                or len(samples) < 6 or samples[-1][0] - samples[0][0] < BATTERY_MIN_SPAN_S):
+            return None
+        # Compare medians so one voltage spike or a one-point change does not set the label.
+        change = median(samples[-i][1] for i in (1, 2, 3)) - median(samples[i][1] for i in range(3))
+        if change >= 2:
+            return 'charging'
+        if change <= -2:
+            return 'in_use'
+        return 'steady'
+
     def _status_received(self, decoded, raw, observed_at=None):
         previous = self.status or {}
         for field in EVENT_FIELDS:
@@ -739,6 +769,7 @@ class Connection:
             if field in decoded and before is not None and decoded[field] != before:
                 self._event(field, before, decoded[field])
         now = monotonic() if observed_at is None else observed_at
+        self._sample_battery(now, decoded.get('battery_percent'))
         station = arrived_station(decoded)
         if (self.status_at is None or now - self.status_at >= RECIPE_STALE_S
                 or station != arrived_station(previous)):
@@ -810,8 +841,8 @@ class Connection:
             chunk = self.transport.read(min(4096, self.transport.in_waiting))
         except OSError as exc:
             raise ReceiveError(str(exc)) from exc
-        if chunk and self.wire_frames is not None:
-            self.wire_frames.put(('RX', chunk))
+        if chunk:
+            self._wire('RX', chunk)
         carried = len(self.splitter.buffer)
         carried_at = self.partial_frame_at if carried else read_at
         frames = self.splitter.feed(chunk, offsets=True)
@@ -880,6 +911,7 @@ class Connection:
                     wired_port=self.wired_port, status=self.status,
                     motion_block=STATUS_ONLY if self.wired_port else motion_block(self.owner),
                     status_hex=self.status_hex, status_age_s=age, status_time=self.status_iso,
+                    battery_trend=self._battery_trend(age),
                     status_monotonic=self.status_at,
                     last_confirmed_station=self.last_confirmed_station,
                     connection_age_s=None if self.connected_at is None else now - self.connected_at,
@@ -1072,6 +1104,7 @@ class Connection:
     def _close(self):
         with self.frame_lock:
             transport, self.transport = self.transport, None
+        self.battery_samples.clear()
         self.armed = False
         if self.reading is not None:
             self._finish_read('no reply')
@@ -1114,25 +1147,32 @@ class Connection:
     def _tx_prefix(self):
         return b'' if (self.settings or {}).get('mode') == 'wired' else self.splitter.prefix
 
+    def _wire(self, direction, raw):
+        trace = self.raw_trace
+        audit = trace(direction, raw) if trace is not None else None
+        if self.wire_frames is not None:
+            self.wire_frames.put((direction, raw, audit) if audit is not None else (direction, raw))
+
     def _write_frame(self, transport, raw):
         try:
             written = transport.write(raw)
         except OSError:
-            if self.wire_frames is not None:
-                self.wire_frames.put(('TX?', raw))
+            self._wire('TX?', raw)
             raise
         finally:
             self.last_write_at = monotonic()
-        if written and self.wire_frames is not None:
-            self.wire_frames.put(('TX', raw[:written]))
+        if written:
+            self._wire('TX', raw[:written])
         if written != len(raw):
             raise OSError('Incomplete write. The command may have reached the AGV.')
         return self.last_write_at
 
     def _write(self, name, raw, value, attempt, background=False, *, tx_id=None, requested_halt=None,
-               sent_at=None, generation=None, frame_check=None):
+               sent_at=None, generation=None, frame_check=None, raw_setting=False, frame_authority=nullcontext):
         if self.wired_port:
             allowed = READS
+            if raw_setting:
+                allowed = allowed | {'set_speed'}
             if self.wired_station_jobs:
                 allowed = allowed | {'stop', 'pause'}
                 if self.recipe_active:
@@ -1142,7 +1182,7 @@ class Connection:
         if name not in READS and name not in URGENT and name != 'set_speed':
             self.teaching_generation += 1
         if sent_at is None:
-            with self.frame_lock:
+            with frame_authority(), self.frame_lock:
                 if generation is not None:
                     self._check_stop_generation(generation)
                 if frame_check:
@@ -1162,7 +1202,7 @@ class Connection:
 
     def _send(self, name, value, *, background=False, prewrite=None, recipe_check=None,
               status_hold_s=None, requested_halt=None, mode_unverified=False, interlocks=None,
-              sent_at=None):
+              sent_at=None, frame_check=None, raw_setting=False, frame_authority=nullcontext):
         generation = self.stop_generation
         frame = command_frame(name, value, self._tx_prefix())
         if name in URGENT:
@@ -1178,7 +1218,8 @@ class Connection:
         sent_at, entry = self._write(
             name, raw, value, 1, background, requested_halt=requested_halt, sent_at=sent_at,
             generation=generation if name not in READS and name not in URGENT else None,
-            frame_check=prewrite if recipe_check is not None else None)
+            frame_check=prewrite if recipe_check is not None else frame_check, raw_setting=raw_setting,
+            frame_authority=frame_authority)
         result = {'tx_id': entry['id'], 'sent_at': entry['timestamp'], 'value': value, 'tries': 1}
         if name in READS:
             if name == 'query_status':
@@ -1211,8 +1252,8 @@ class Connection:
         self.pending[name] = Confirmation(expected_status(name, value), before, sent_at,
                                           earlier_query=name in URGENT and self.unanswered_query,
                                           pre_halt_query=name in URGENT and self.query_at is not None)
-        single_attempt = (name == 'call_station' and recipe_check is not None and self.wired_station_jobs
-                          and self.settings['mode'] == 'wired')
+        single_attempt = raw_setting or (name == 'call_station' and recipe_check is not None
+                                         and self.wired_station_jobs and self.settings['mode'] == 'wired')
         self.resend = Resend(name, raw, sent_at, recipe_check,
                              interlocks=None if single_attempt else interlocks, single_attempt=single_attempt)
         if recipe_check is None and self.settings is not None and self.retry_worker is None:
@@ -1402,12 +1443,9 @@ class Connection:
             return False
         if name not in URGENT and not self._send_slot(retry=True):
             return False
-        if retry.recipe_check is not None:
-            try:
-                retry.recipe_check(self.status, self.status_at, self.recipe_statuses)
-            except ValueError:
-                self._cancel_resend()
-                raise
+        def check_recipe_retry():
+            retry.recipe_check(self.status, self.status_at, self.recipe_statuses)
+
         if name not in URGENT:
             try:
                 self._check_motion_status(name, result['value'])
@@ -1429,10 +1467,16 @@ class Connection:
                 self.pending[name].halt_sample_seen = False
             result['wire_command'] = wire_name
             raw = command_frame(wire_name, None, self._tx_prefix()).encode()
-        retry.sent_at, entry = self._write(
-            wire_name, raw, result['value'], attempt, tx_id=result['tx_id'],
-            requested_halt=result.get('requested_command'),
-            generation=generation if name not in URGENT else None)
+        try:
+            retry.sent_at, entry = self._write(
+                wire_name, raw, result['value'], attempt, tx_id=result['tx_id'],
+                requested_halt=result.get('requested_command'),
+                generation=generation if name not in URGENT else None,
+                frame_check=check_recipe_retry if retry.recipe_check is not None else None)
+        except ValueError:
+            if retry.recipe_check is not None and self.resend is retry:
+                self._cancel_resend()
+            raise
         retry.tries = result['tries'] = attempt
         if name in URGENT:
             result['sent_mono_s'] = retry.sent_at
@@ -1524,6 +1568,55 @@ class Connection:
                     self._finish_read('no reply')
                     return self._snapshot()
             sleep(min(.01, remaining))
+
+    def raw_exchange(self, name, value, authorize, *, expected=None, frame_authority=None):
+        if name not in READS | {'set_speed'} or name == 'set_speed' and expected is None:
+            raise ValueError('Unsupported wired raw exchange.')
+        with self.send_lock:
+            with self.lock:
+                transport = self.transport
+                if transport is None or self.settings['mode'] != 'wired' or self.recipe_active:
+                    raise ValueError('Raw commands need an idle, connected wired link.')
+            deadline = monotonic() + 4
+            while self._wait_send_slot(transport, deadline):
+                with self.lock:
+                    if self.transport is not transport or self.recipe_active:
+                        raise ValueError('The wired link changed during raw access.')
+                    if not self._send_slot():
+                        if monotonic() >= deadline:
+                            raise ValueError('Could not find a gap for the raw command.')
+                        continue
+
+                    def check():
+                        if frame_authority:
+                            authorize(check_grant=False)
+                        else:
+                            authorize()
+                        if name == 'set_speed' and (self.armed or self.status_at is None
+                                or not 0 <= monotonic() - self.status_at < RECIPE_STALE_S
+                                or self.status.get('stopped') is not True
+                                or self.status.get('actual_speed_m_h') != 0):
+                            raise ValueError('Raw settings require fresh, disarmed and stopped feedback.')
+                        if name == 'set_speed' and (self.status.get('vehicle_id'),
+                                                   self.status.get('set_speed_m_h')) != expected:
+                            raise ValueError('The stopped vehicle or speed changed before write.')
+
+                    sent = self._send(name, value, frame_check=check, raw_setting=name == 'set_speed',
+                                      frame_authority=frame_authority or nullcontext)
+                    tx_id = self.results[name]['tx_id']
+                    if name == 'set_speed':
+                        return None
+                    break
+            else:
+                raise ValueError('Could not find a gap for the raw command.')
+            self._wait_for_reply(transport, sent + REPLY_TIMEOUT)
+            field = 'mode' if name == 'query_status' else 'read_speed_m_h'
+            with self.lock:
+                for row in self.log:
+                    if (row['id'] > tx_id and row['direction'] == 'RX' and field in row['decode']
+                            and (name != 'query_status' or self.status_at is not None and self.status_at >= sent)):
+                        return dict(reply_hex=bytes.fromhex(row['hex']).hex(), decoded=row['decode'])
+            raise ValueError('No matching reply to the raw command.')
 
     def submit(self, body):
         if self.bluetooth and (body.get('action') == 'connect'
@@ -1754,7 +1847,7 @@ class Connection:
             return (self.status, self.status_at, updates,
                     self.results.get('call_station', {}).get('recipe_ack_elapsed_s'))
 
-    def recipe_call(self, station, validate, *, retry_check=None, interlocks=None):
+    def recipe_call(self, station, validate, *, retry_check=None, interlocks=None, frame_authority=nullcontext):
         with self.lock:
             self._recipe_check_link()
             try:
@@ -1785,7 +1878,7 @@ class Connection:
             # Leave the transport open on a failed write so the urgent abort can
             # attempt Stop even if some or all of the call reached the AGV.
             sent = self._send('call_station', station, prewrite=prewrite, recipe_check=retry_check or validate,
-                              interlocks=interlocks)
+                              interlocks=interlocks, frame_authority=frame_authority)
             self.recipe_call_at = sent
             self.recipe_ack_window = sent + REPLY_TIMEOUT
             return sent

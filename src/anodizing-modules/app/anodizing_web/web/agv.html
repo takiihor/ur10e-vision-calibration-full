@@ -88,6 +88,16 @@
     <h2>Movement and speed</h2>
     <label class="check agv-arm"><input id="agv-armed" type="checkbox" disabled aria-describedby="agv-armed-why agv-armed-outcome">Armed <span id="agv-armed-why">Connect first.</span></label>
     <div id="agv-armed-outcome"></div>
+    <p id="agv-module-arm-status" hidden></p>
+    <form id="agv-module-arm" hidden>
+      <h3 id="agv-module-arm-heading" tabindex="-1"></h3>
+      <p>I am at the e-stop, the arm is folded, and the path and tank equipment are clear.</p>
+      <p>This confirmation covers the module’s moves for up to 30 minutes while it holds control.</p>
+      <p id="agv-module-arm-enroll" hidden><a href="/operator-key">Enroll this browser again to confirm Arm for a module.</a></p>
+      <label>Operator name <input id="agv-module-arm-operator" required maxlength="80" autocomplete="off"></label>
+      <button id="agv-module-arm-confirm" type="submit">Confirm and Arm</button>
+      <button id="agv-module-arm-cancel" type="button">Cancel</button>
+    </form>
     <div id="agv-speed"></div>
     <div id="agv-moves" class="agv-controls"></div>
     <details><summary>More commands</summary><div id="agv-more" class="agv-controls"></div></details>

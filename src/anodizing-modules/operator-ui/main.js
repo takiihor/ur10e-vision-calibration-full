@@ -6,6 +6,7 @@ import App from './App.vue';
 import Alucard from './alucard.js';
 import { showUiIds } from './ui-ids-overlay.js';
 import 'primeicons/primeicons.css';
+import './tailwind.css';
 import './layout/sakai.css';
 import './operator.css';
 
@@ -15,6 +16,7 @@ createApp(App).use(PrimeVue, {
     'data-ui': 'select.option',
     'data-ui-key': instance.getOptionValue(context.option),
   }) } },
+  zIndex: { tooltip: 3200 },
   csp: { nonce: document.querySelector('meta[name="style-nonce"]').content },
 }).use(ConfirmationService).use(ToastService).mount('#app');
 

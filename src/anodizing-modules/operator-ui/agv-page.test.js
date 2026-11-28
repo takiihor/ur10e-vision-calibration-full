@@ -40,7 +40,7 @@ async function open(respond = () => ({}), simulation = 'on') {
   app = mount({
     setup() {
       agv = useAgv(ref(true));
-      return () => h('div', [h(StopBar, { agv }), h(AgvPage, { agv })]);
+      return () => h('div', [h(StopBar, { agv, agvPage: true, showOwnership: true }), h(AgvPage, { agv })]);
     },
   }, { attachTo: document.body, global: { plugins: [PrimeVue, ConfirmationService, ToastService] } });
   await flushPromises();
@@ -52,6 +52,70 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
   localStorage.clear();
+});
+
+it('keeps the stop badge concise while retaining report and transport details', async () => {
+  await open(() => ({ status_age_s: 2.1, executor_link: true }));
+  const badge = app.get('#agv-link');
+  expect(badge.text()).toBe('Connected · 2 s');
+  expect(badge.attributes('aria-label')).toContain('last status report 2.1 s ago');
+  expect(app.find('.pause-notice').exists()).toBe(false);
+  expect(app.get('#agv-pause-why').text()).toBeTruthy();
+});
+
+it('keeps the AGV readouts and ownership visible as tabs switch and persists the selected tab', async () => {
+  const hash = location.hash;
+  await open(() => ({ job_gateway: true, owner: 'agv-page', calibration_available: true }));
+  const overview = app.get('[data-ui="agv.bluetooth.wiredtab"]');
+  const connection = app.get('[data-ui="agv.tabs.connection"]');
+  expect(overview.attributes('aria-selected')).toBe('true');
+  await connection.trigger('click');
+  expect(connection.attributes('aria-selected')).toBe('true');
+  expect(document.getElementById(connection.attributes('aria-controls')).contains(app.get('[data-ui="agv.link.panel"]').element)).toBe(true);
+  for (const id of ['safety.panel', 'agv.status.panel', 'agv.owner.panel', 'agv.movement.arm']) {
+    expect(app.get(`[data-ui="${id}"]`).isVisible()).toBe(true);
+  }
+  expect(location.hash).toBe(hash);
+  app.unmount();
+  await open(() => ({ job_gateway: true, owner: 'agv-page' }));
+  expect(app.get('[data-ui="agv.tabs.connection"]').attributes('aria-selected')).toBe('true');
+});
+
+it('shows the switch and status as armed on an executor without job ownership', async () => {
+  await open(() => ({ executor_link: true, armed: true }));
+  const card = app.get('[data-ui="agv.owner.panel"]');
+  expect(card.get('p').text()).toBe('Owner None · Armed');
+  expect(card.get('input[role="switch"]').element.checked).toBe(true);
+});
+
+it.each([
+  [25, 'charging', 'Charging', false],
+  [15, 'in_use', 'In use', true],
+  [5, 'steady', 'Steady', true],
+])('shows battery trend and warning at %s%% in AGV Overview', async (battery, trend, label, low) => {
+  await open(() => ({ status: { ...status, battery_percent: battery }, battery_trend: trend }));
+  const card = app.get('[data-ui-key="battery"]').element.parentElement;
+  expect(card.textContent).toContain(battery + '%');
+  expect(card.textContent).toContain(label);
+  expect(card.textContent.includes('Battery low. Please charge.')).toBe(low);
+});
+
+it('hides the trend and low warning when the AGV report is stale', async () => {
+  await open(() => ({ status: { ...status, battery_percent: 5 }, battery_trend: 'charging', stale: true }));
+  const card = app.get('[data-ui-key="battery"]').element.parentElement;
+  expect(card.textContent).toContain('Unknown');
+  expect(card.textContent).not.toContain('Charging');
+  expect(card.textContent).not.toContain('Battery low.');
+});
+
+it('marks tabs with active warnings and leaves the recovery notice visible on Overview', async () => {
+  await open(() => ({
+    operator_check: { reason: 'Review the last move.', technician: true },
+    bluetooth_block: 'Bluetooth maintenance is active.',
+  }));
+  expect(app.get('[data-ui="agv.tabs.stations"]').text()).toContain('Warning');
+  expect(app.get('[data-ui="agv.bluetooth.tab"]').text()).toContain('Warning');
+  expect(app.get('[data-ui="agv.check.panel"]').isVisible()).toBe(true);
 });
 
 it('shows running motion as a labelled normal state', async () => {
@@ -92,6 +156,8 @@ it('uses blank profile fields on live serial and remembers only an explicit over
   await app.get('#agv-channel').setValue('1b');
   await app.get('[data-ui="agv.link.connect"]').trigger('click');
   await flushPromises();
+  expect(app.get('#agv-connect-outcome').text()).toContain('Connection opened.');
+  expect(app.get('#agv-outcome').text()).not.toMatch(/Connection opened|Connected · Serial AGV/);
   const sent = fetch.mock.calls.map(([, options]) => options.body && JSON.parse(options.body)).find(Boolean);
   expect(sent).toMatchObject({ action: 'connect', mode: 'serial', channel: '1b' });
   expect(sent).not.toHaveProperty('address');
@@ -186,7 +252,7 @@ it('keeps Armed off until the service confirms the change', async () => {
 
   refuse({ error: 'A robot job is running. Wait for it to finish.' });
   await flushPromises();
-  expect(agv.feedback('armed').text).toMatch(/Refused.*robot job is running/);
+  expect(agv.feedback('armed').text).toMatch(/Arm refused.*robot job is running/i);
   expect(armed.checked).toBe(false);
 });
 
@@ -201,15 +267,14 @@ it('shows the learned legs, callable range, current station and read time', asyn
     status_time: '2026-11-26T14:45:06.123',
   }));
   const panel = app.get('[data-ui="agv.call.panel"]');
-  expect(panel.text()).toContain('The AGV has learned 16 legs: stations 1 to 17. It is at station 4 (read 14:45:06).');
+  expect(panel.text()).toContain('The AGV reports 16 learned legs: stations 1 to 17. It is at station 4 (read 14:45:06).');
   expect(panel.find('[data-ui="agv.call.range.warning"]').exists()).toBe(false);
 });
 
 it.each([0, 1])('shows teaching instructions when the AGV reports %i learned legs', async count => {
   await open(() => ({ status: { ...status, max_stations: count } }));
   const guidance = app.get('[data-ui="agv.call.range.warning"]').text();
-  expect(guidance).toContain(count === 0 ? 'Teach the route before calling a station.'
-    : 'Teach the new tape before calling stations beyond the learned range.');
+  expect(guidance).toContain(count === 0 ? 'All station calls blocked.' : 'Calls above station 2 blocked.');
   expect(guidance).toContain('then press Query status.');
 });
 
@@ -225,7 +290,7 @@ it('allows both stations when the AGV reports one learned leg', async () => {
   await flushPromises();
 
   expect(agv.commandReason('call_station', 2)).toBe('');
-  expect(agv.commandReason('call_station', 3)).toContain('The AGV has learned 1 leg: stations 1 to 2.');
+  expect(agv.commandReason('call_station', 3)).toContain('The AGV reports 1 learned leg: stations 1 to 2.');
   expect(app.get('#agv-station-1').text()).toContain('Current');
   expect(app.get('label[for="agv-manual-station"]').text()).toContain('(1–2)');
   await app.get('#agv-station-2').trigger('click');
@@ -273,7 +338,9 @@ it('uses local station labels and a different parking number without widening a 
   expect(app.get('[data-ui-key="target"]').text()).toContain('Parking');
   const unlearned = app.get('[data-ui="agv.call.station"][data-ui-key="17"]');
   expect(unlearned.element.disabled).toBe(true);
-  expect(app.get('#agv-station-17-why').text()).toBe('The AGV has learned 1 leg: stations 1 to 2.');
+  const why = unlearned.attributes('aria-describedby').split(' ')[0];
+  expect(app.get('#' + why).text()).toContain('The AGV reports 1 learned leg: stations 1 to 2.');
+  expect(app.get('[data-ui="agv.call.range.warning"]').text()).toContain('The AGV reports 1 learned leg: stations 1 to 2.');
 });
 
 it('shows a spinner beside a pending connection control without disabling urgent sends', async () => {
@@ -289,7 +356,7 @@ it('presents the checklist and record with expandable controls and asks before c
   await app.get('#agv-mark-text').setValue('Observed the simulator parked');
   await app.get('#agv-mark').trigger('submit');
   expect(app.get('#agv-event-feed').text()).toContain('Observed the simulator parked');
-  expect(app.findAll('.p-timeline-event')).toHaveLength(9);
+  expect(app.findAll('[data-ui="agv.record.checklist.toggle"]')).toHaveLength(9);
   await app.findAll('button').find(button => button.text() === 'Recent command results').trigger('click');
   expect(app.get('#agv-command-results table').text()).toContain('Outcome');
   await app.findAll('button').find(button => button.text() === 'Raw TX/RX log').trigger('click');
@@ -494,10 +561,10 @@ it('shows both stations, the supervised deadline and draft battery floor for one
     status: { ...status, max_stations: 1, battery_percent: 80 } }));
   expect(agv.commandReason('call_station', 2)).toBe('');
   expect(app.get('#agv-station-2').element.disabled).toBe(false);
-  expect(app.text()).toContain('The AGV has learned 1 leg: stations 1 to 2.');
+  expect(app.text()).toContain('The AGV reports 1 learned leg: stations 1 to 2.');
   expect(app.text()).toContain('Manual travel deadline');
   expect(app.text()).toContain('DRAFT battery floor 20%');
-  expect(app.find('#agv-station-3').exists()).toBe(false);
+  expect(app.get('#agv-station-3').element.disabled).toBe(true);
 });
 
 it.each([[0, 0], [255, 255]])('uses the shared range for %i reported wired legs', async (legs, maximum) => {
@@ -532,9 +599,61 @@ it('shows the armed owner and client jobs from the IPC gateway', async () => {
     executor_link: true, job_gateway: true, owner: 'calibration', armed_for: 'calibration', armed: true,
     executor_job: { job_id: 'current-visit', client_name: 'calibration', state: 'running' },
     recent_jobs: [{ job_id: 'earlier-visit', client_name: 'demo-module', state: 'succeeded' }],
+    recent_raw: [{ id: 'raw-speed', command: 'set_speed', client_name: 'diagnostics', utc: stamp, outcome: 'verified' }],
+    raw_settings: [{ id: 'raw-speed', before: 1250, after: 500 }],
   }));
+  expect(app.get('[data-ui="agv.raw.activity"]').text()).toContain('diagnostics');
+  expect(app.get('[data-ui="agv.raw.settings"]').text()).toContain('1250 → 500 m/h');
   expect(app.text()).toContain('Armed for Calibration module');
   expect(app.text()).toContain('current-visit');
   expect(app.text()).toContain('demo-module');
   expect(app.text()).toContain('earlier-visit');
+});
+
+it('labels the station and preserves the API explanation and next step on refusal', async () => {
+  await open(body => body?.command === 'call_station' ? {
+    error: 'bare fixture reason', code: 'station_range',
+    message: 'The AGV reports 1 learned leg: stations 1 to 2.',
+    hint: 'Teach the missing legs, then press Query status.',
+  } : { executor_link: true, armed: true, status: { ...status, max_stations: 1 } });
+  await app.get('#agv-station-2').trigger('click');
+  await flushPromises();
+  expect(app.get('#agv-station-2-outcome').text()).toContain(
+    'Call to station 2 refused. The AGV reports 1 learned leg: stations 1 to 2. Teach the missing legs, then press Query status.');
+});
+
+it('marks a retained station report as last known and shows how to get a first report', async () => {
+  await open(() => ({ status: null, connected: false }));
+  expect(app.text()).toContain('Station count unknown: on the AGV page choose Wired, Connect, then Query status.');
+  app.unmount();
+
+  await open(() => ({ status: null, connected: false, wired_station: {
+    value: 1, current_station: 2, observed_at: '2026-11-26T14:45:06.123', stale: true,
+  } }));
+  expect(app.get('[data-ui="agv.call.panel"]').text()).toContain(
+    'The AGV reports 1 learned leg: stations 1 to 2. It was at station 2 (read 14:45:06). Last known. Press Query status for a new reading.');
+});
+
+it('requires a named module Arm confirmation and sends the reviewed owner and lease', async () => {
+  const requests = [];
+  await open(body => {
+    if (body) requests.push(body);
+    return { executor_link: true, job_gateway: true, owner: 'inspection', module_lease_id: 'reviewed-lease',
+      module_arm_enrolled: true, executor_boot: 'fixture-boot', executor_session: 'fixture-session' };
+  });
+  await app.get('[data-ui="agv.movement.arm"]').trigger('click');
+  expect(app.get('[data-ui="agv.arm.attestation"]').text()).toMatch(/inspection.*e-stop.*arm.*folded.*path.*tank.*30 minutes/is);
+  expect(requests).toEqual([]);
+  await app.get('[data-ui="agv.arm.operator"]').setValue('shift operator');
+  await app.get('[data-ui="agv.arm.confirm"]').trigger('click');
+  await flushPromises();
+  expect(requests.at(-1)).toMatchObject({ action: 'arm', armed: true,
+    module_attestation: { confirmed: true, operator: 'shift operator', owner: 'inspection', lease_id: 'reviewed-lease' } });
+});
+
+it('shows the module confirmation deadline, countdown and expiry explanation', async () => {
+  await open(() => ({ executor_link: true, job_gateway: true, owner: 'inspection', armed_for: 'inspection', armed: true,
+    module_attestation: { owner: 'inspection', expires_at: 1795689600, remaining_s: 125 } }));
+  expect(app.text()).toMatch(/Armed for inspection.*confirmation valid until/i);
+  expect(app.text()).toContain('2:05');
 });

@@ -112,7 +112,7 @@ function recoverOldJob() {
 async function moduleRequest(path,body) {
   const headers={'X-Module-Token':token};
   if(body!==undefined) headers['Content-Type']='application/json';
-  const response=await fetch(path,{headers,...(body===undefined?{}:{method:'POST',body:JSON.stringify(body)})});
+  const response=await window.operatorFetch(path,{headers,...(body===undefined?{}:{method:'POST',body:JSON.stringify(body)})});
   const value=await response.json();
   if(!response.ok){const error=new Error(value.error||'Request failed');error.status=response.status;throw error;}
   return value;
@@ -199,13 +199,13 @@ async function request(path,body) {
 }
 async function loadTeacherFile(name) {
   if(!teacherJob) throw new Error('Select a teaching job first.');
-  const response=await fetch('/api/teacher-file?job='+encodeURIComponent(teacherJob)+'&name='+encodeURIComponent(name),{headers:{'X-Module-Token':token}});
+  const response=await window.operatorFetch('/api/teacher-file?job='+encodeURIComponent(teacherJob)+'&name='+encodeURIComponent(name),{headers:{'X-Module-Token':token}});
   if(!response.ok) throw new Error('File is unavailable.');
   return response.blob();
 }
 let validationURL=null;
 async function loadValidationImage(id) {
-  const response=await fetch('/api/teaching-image?project='+encodeURIComponent(state.project.project)+'&kind=validation&capture_id='+encodeURIComponent(id),{headers:{'X-Module-Token':token}});
+  const response=await window.operatorFetch('/api/teaching-image?project='+encodeURIComponent(state.project.project)+'&kind=validation&capture_id='+encodeURIComponent(id),{headers:{'X-Module-Token':token}});
   if(!response.ok)throw new Error('Validation image is unavailable.');
   const blob=await response.blob();
   if(state?.project?.validation?.id!==id)return;
@@ -214,7 +214,7 @@ async function loadValidationImage(id) {
 }
 async function loadCapture() {
   if(!state?.project?.project)return;
-  const response=await fetch('/api/teaching-image?project='+encodeURIComponent(state.project.project),{headers:{'X-Module-Token':token}});
+  const response=await window.operatorFetch('/api/teaching-image?project='+encodeURIComponent(state.project.project),{headers:{'X-Module-Token':token}});
   if(!response.ok) throw new Error('Image is unavailable.');
   const blob=await response.blob();if(captureURL)URL.revokeObjectURL(captureURL);
   captureURL=URL.createObjectURL(blob);$('capture-image').src=captureURL;$('capture-image').hidden=false;

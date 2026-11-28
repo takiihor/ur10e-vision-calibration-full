@@ -2,11 +2,11 @@
 
 ## Installation roles
 
-The mains-powered controller runs the existing Anodizing Operator app. It is
+The mains-powered controller runs the Dev console at `http://dev.localhost:8880/dev/`. It is
 the operator control surface and owns recipe review, scheduling and
 basket records. The built-in Calibration module runs test recipes. The planned
-Main app loop will orchestrate normal production. The battery-powered vehicle IPC owns hardware access and runs
-one accepted job at a time. The IPC keeps that job's instructions, checkpoints
+Main app loop will orchestrate normal production. The battery-powered
+vehicle IPC owns hardware access and runs one accepted job at a time. The IPC keeps that job's instructions, checkpoints
 and results. The controller keeps the recipe and the plan cursor.
 
 | Installation role | Responsibility |
@@ -25,11 +25,13 @@ Phase 1 uses the existing `StationVisit`, wired AGV driver, `JobOwner` and
 `JobStop` in the executor. The controller uses the same job interface for
 manual station requests and recipe travel. Release the raw serial bridge's
 bus ownership before starting the executor. Verify live status through the
-executor before retiring the bridge. Katana and developer modules reach the same keyed IPC HTTPS API on
-the line LAN. The IPC allows one owner and one executing job, disarms on owner
-change, and admits eligible jobs through its existing interlocks.
-[Module API and keys](MODULE_JOBS.md) The kiosk's listener serves cached state, including its age, without
-querying the bus. Install the executor under a separate system service identity
+executor before retiring the bridge. Katana and developer modules reach the
+same keyed IPC HTTPS API on the line LAN. The IPC allows one owner and one
+executing job, disarms on owner change, and admits eligible jobs through its
+existing interlocks. See [module API and keys](MODULE_JOBS.md).
+
+The kiosk's listener serves cached state, including its age, without querying
+the bus. Install the executor under a separate system service identity
 so the graphical kiosk account cannot read its token or manage its service.
 
 The local radio is an optional backup and starts disabled. Change transport
@@ -41,8 +43,9 @@ radio as an explicit, mutually exclusive maintenance mode.
 
 Protocol major 2 implements Operator check. During a rolling upgrade,
 protocol 1 and 2 peers can display status. A control lease requires a
-matching major version in the health and control envelopes. The loopback
-`/v1/` HTTP URLs and the per-job type versions remain stable.
+matching major version in the health and control envelopes. The `/v1/`
+paths and per-job type versions remain stable. Use the scoped HTTPS
+listener on the line LAN for developer modules.
 
 | Operation | Required behaviour |
 | --- | --- |
@@ -50,7 +53,7 @@ matching major version in the health and control envelopes. The loopback
 | Status | Report current and by-ID job state and result, last confirmed step, outstanding intent, device state and freshness, hold or recovery reason, and dispatch permission. |
 | Connect, disconnect, arm, disarm | Require explicit control with fresh compatible state. Bind approvals to the executor boot, controller session and Stop generation. A new connection grants no motion authority. |
 | Submit | Persist the run, basket, ordered steps, recipe and limits revision, job ID and immutable payload on the controller before sending. Persist acceptance on the IPC before execution. A repeated ID with the same canonical payload returns its existing state or result. A changed payload conflicts. A valid new ID submitted while occupied receives a recorded busy refusal. |
-| Heartbeat | The controller service sends advancing heartbeats every 1 s. The executor expires the active session 3 s after its last valid heartbeat, measured on its monotonic clock. Ignore duplicate, delayed and prior-session renewals. |
+| Heartbeat | The Katana service defaults to 1 s heartbeats and a 3 s lease. An external module sends advancing heartbeats every 1 s. After 10 s without a valid renewal, the IPC latches Stop, holds, disarms, releases that owner and requires Operator check. Ignore duplicate, delayed and prior-session renewals. |
 | Stop | Both hosts latch a new Stop generation independently of the normal request, device and journal locks. The IPC sends the halt frame on a motion-capable transport before any journal write. Katana shows receipt, halt attempt and confirmation separately. Only fresh confirmation from the current IPC boot for the applicable Stop may clear a pending Stop. |
 | Physical commands | Start, Resume, Arm and station visits carry the boot, session and Stop generation reviewed by the operator. The IPC checks the latch before each physical step. Older authority expires even if the request arrives late. |
 | Job history | The append-only IPC journal retains consumed job IDs across restarts. A known ID returns its recorded state. Before a physical effect, persist the intent. After observing the effect, record the evidence. |
@@ -173,7 +176,7 @@ status, explicit arm and disarm after offline acceptance. The IPC service
 name and data directory stay stable across version changes. Preserve prior
 installation data and job evidence for migration or rollback.
 
-Phase 2 puts real robot jobs, cameras, tower light and other vehicle devices
+Phase 2 puts real robot jobs, cameras and other vehicle devices
 behind the IPC executor. The controller provides the live line integration.
 Equipment sequencing, credential moves and production timing qualification
 also belong to this phase. Require qualified local pose/interlock evidence
@@ -181,6 +184,39 @@ and measured stopping and travel times before live station visits. Require
 cycle-specific local PLC evidence or an approved independent fallback before
 live dips. Both require defined, observable holds and recovery responses for
 power loss, a blocked destination and Stop during a partition.
+
+### IPC tower light
+
+The executor chooses one display pattern from cached AGV feedback, dispatch,
+Arm authority, Stop latch and recovery state. Both the touchscreen and the
+tower light use that pattern. Fresh feedback can show travel even when the
+executor has no job. A report of motion, positive speed, or a target that
+differs from the current station starts the motion indication. Stale or
+disconnected feedback cannot show green. A detached screen shows the
+neutral status and the tower light goes off unless an alarm or recovery
+indication applies.
+
+The graphical session's user service watches DRM for the single enabled
+HDMI-A-1 touchscreen. It supervises a separate GTK/WebKit viewer using
+XWayland window hints to reject focus and stay behind developer windows.
+The viewer reads only the loopback display, with an ephemeral browser
+context. SSH sessions and developer processes are outside the unit.
+
+The light's dedicated display thread owns the ECB-306 USB CDC port.
+It sends 115200 baud, 8N1 output masks as
+`GW` followed by two uppercase hex digits and carriage return. The board sends
+no acknowledgement. The driver updates all four tower channels with one
+all-output frame. The ECB-306 output bank is dedicated to this light.
+
+At startup and on reopen the display thread sends `GR\r` and expects `GR`, two
+hex digits and carriage return within the serial read timeout. A missing or
+invalid reply or a failed write marks the light unavailable and triggers a
+retry independently of the AGV. Stop and travel admission have no
+dependency on it. The worker clears the outputs during clean shutdown. Install
+`tools/anodizing-executor-tower-light.conf` as a systemd drop-in for the executor
+so `ExecStopPost` attempts the same clear after a crash. The clear needs the IPC
+and ECB-306 to be powered and communicating. The
+[manual](MANUAL.md#tower-light) covers configuration and the attended lamp test.
 
 ## Open decisions
 
@@ -203,17 +239,18 @@ power loss, a blocked destination and Stop during a partition.
 
 Set `ANODIZING_ROLE` to `orchestrator`, `executor`, or `status-display`.
 The installed executor uses its own stable data directory. Set the version
-label with `ANODIZING_EXECUTOR_BUILD` and give the service its token through
-`ANODIZING_EXECUTOR_TOKEN_FILE`. Its control port is loopback. The separate
-loopback display port serves cached status to the kiosk. A display-only
+label with `ANODIZING_EXECUTOR_BUILD` and give the service its key hashes
+through `ANODIZING_EXECUTOR_TOKEN_FILE`. The keyed HTTPS listener binds the
+configured line address. The local IPC control listener and the separate
+cached kiosk display listener bind loopback. A display-only
 installation can read that display port using `--status-display-port`
 as its source and `--port` as its own listener.
 
 Set `ANODIZING_EXECUTOR_PORT` to the IPC HTTPS port,
 `ANODIZING_EXECUTOR_CERT_FILE` to the pinned IPC certificate and
 `ANODIZING_EXECUTOR_TOKEN_FILE` to the private Katana service key. Set
-`line_network.ipc_address` in the private site profile. The orchestrator sends the lease heartbeat independently of
-the browser. Its existing AGV page uses the backed-by-executor Wired
+`line_network.ipc_address` in the private site profile. The Katana service
+sends the lease heartbeat independently of the browser. Its existing AGV page uses the backed-by-executor Wired
 link. In commissioning the executor accepts Connect, a status query,
 software Arm, Disarm and Disconnect. Arm checks fresh stationary status
 and writes no command. Live station visits and dips remain fenced.
@@ -223,16 +260,33 @@ cannot attempt a wire halt. Use the physical e-stop for intervention.
 ### Katana line-link alert
 
 In Katana's private `site-profile.json`, set `executor_link.route_address`
-to the IPC's line-side IPv4 address used by the tunnel. Katana reads the
-matching interface's carrier or operational state from Linux and samples
+to the IPC's line-side IPv4 address used by the HTTPS gateway. Katana reads
+the matching interface's carrier or operational state from Linux and samples
 the existing cached executor reachability about every five seconds. If the
 adapter state is unavailable, the diagnosis uses executor reachability.
-The alert adds no tunnel or device requests.
+The diagnosis uses cached state without querying devices.
 
 The shared `GET /api/status` response includes `line_link` for Katana. A red
 banner shows when the outage was detected and what to check. The outage time
 stays fixed when the diagnosis changes. A green banner shows when the link
 returns and points to the AGV page for about 30 seconds.
+
+### Katana AGV and Bluetooth refusal feedback
+
+Katana keeps the original error in AGV and Bluetooth action responses and
+adds `code`, `message` and `hint`. The operator UI names the attempted
+action and displays the reason and next step. Katana translates bare
+executor strings at the HTTP boundary. New and unknown reasons remain
+visible with technician guidance. Cached status provides the same
+feedback for active blocks. Executor admission and the Stop path retain
+their existing authority.
+
+Both pages use the most recent wired report already observed by Katana
+for the learned leg count, current station and read time. A disconnected
+or old report is marked last known. The AGV page shows the callable range
+and disables higher station buttons with the reason visible next to the
+buttons. Raw Bluetooth route records use a separate read path and do not
+supply this wired count or current position.
 
 ### Supervised manual station calls
 
@@ -263,6 +317,13 @@ at the station write. During travel a lost interlock or expired window
 requests a halt and requires Operator check if the outcome is uncertain.
 No robot pose samples are synthesized.
 
+The isolated track defaults to blocking module station visits and raw
+motion. With `ANODIZING_MODULE_TRAVEL_ON_ATTESTED_TRACK=1`, the current
+owner's Arm confirmation supplies the folded-arm, clear-path and
+clear-equipment checks. The IPC requires an open window and fresh battery
+above the floor. At the final send it rechecks the owner, lease, Stop
+generation and Arm confirmation.
+
 The ordinary wired manual installation still requires qualified robot pose,
 reserve and clear tank/equipment feedback. Neither installation grants
 programme travel, recipe travel or live dips.
@@ -270,16 +331,25 @@ programme travel, recipe travel or live dips.
 The shipped production role uses only the wired driver. The backup serial
 radio requires a deliberate maintenance changeover to the existing serial
 mode on the controller. Disarm, disconnect and verify physical isolation
-of the executor before removing its forwarded endpoint from the
-controller configuration and enabling local serial support. Restore the
+of the executor before disabling its configured connection on Katana
+and enabling local serial support. Restore the
 executor path only after verified radio isolation.
+
+Katana's Bluetooth maintenance tab reads controller settings and learned route
+records using the local adapter. Bluetooth operations use the enrolled Katana
+operator session. Developer modules use the job gateway. It fences wired Connect and Arm while the
+Bluetooth session is open. The wired executor must report disconnected,
+disarmed and idle before a Bluetooth write. Settings are snapshotted and
+verified by read-back. The verified route clear requires a fresh review and
+checks both post-clear counts. Bluetooth motion is unavailable until its
+Stop behavior is qualified.
 
 Set `ANODIZING_PROGRAMME_FILE` to a private JSON list of ordered steps
 with `id`, `tank`, `role`, `station` and positive `setpoint` in seconds.
-The existing Pick/place screen exposes the simulated basket programme.
-For a two-host or two-process simulation, run the executor with
-`--fake-executor` and point the orchestrator at its authenticated loopback
-or forwarded port. The programme and AGV page share that client's lease.
+The existing Pick/place screen exposes the Calibration module's simulated
+basket programme. For two-process simulation, follow the
+[fake HTTPS gateway setup](MODULE_JOBS.md#local-fake-instance). The AGV page
+and Calibration module use separate client keys and share one executor owner.
 Start and Resume require the boot, controller session and Stop generation
 returned when the operator reviewed the programme. The simulation job
 versions and review are both checked before the programme claims the

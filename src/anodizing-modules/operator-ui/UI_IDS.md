@@ -2,26 +2,38 @@
 
 Generated from `ui-ids.json` with `node generate-ui-ids.mjs`.
 
-Open `/operator/?ui=ids` to label the visible controls and panels. Put the query before the route hash, for example `/operator/?ui=ids#/agv`.
+Open `/dev/?ui=ids` to label the visible controls and panels. Put the query before the route hash, for example `/dev/?ui=ids#/agv`.
 Use the ID when requesting a UI change, for example “make `agv.stop` bigger”.
 Select one item in a repeated control by its key, for example `[data-ui="agv.call.station"][data-ui-key="2"]`.
-Some keys identify records or choices from the current data. Native HTML select choices use the parent select’s ID and the option value.
+Some keys identify records or choices from the current data. PrimeVue select options use `select.option` and the option value.
 
-397 registered IDs.
+436 registered IDs.
 
 | ID | Description | Source |
 | --- | --- | --- |
+| `agv.arm.attestation` | Review Arm confirmation for the current module | [AgvOwnership.vue](AgvOwnership.vue) |
+| `agv.arm.cancel` | Cancel the reviewed Arm confirmation | [AgvOwnership.vue](AgvOwnership.vue) |
+| `agv.arm.confirm` | Confirm and Arm the reviewed module | [AgvOwnership.vue](AgvOwnership.vue) |
+| `agv.arm.enroll` | Open browser enrollment for module Arm | [AgvOwnership.vue](AgvOwnership.vue) |
+| `agv.arm.operator` | Enter the operator name for the Arm record | [AgvOwnership.vue](AgvOwnership.vue) |
 | `agv.bluetooth.cancel` | Cancel the reviewed change | [AgvBluetooth.vue](AgvBluetooth.vue) |
-| `agv.bluetooth.confirm` | Confirm a reviewed setting write or undo | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.clearresult` | Show the before and after route counts | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.confirm` | Confirm a reviewed setting write, undo or route clear | [AgvBluetooth.vue](AgvBluetooth.vue) |
 | `agv.bluetooth.connect` | Scan for and connect to the configured AGV | [AgvBluetooth.vue](AgvBluetooth.vue) |
 | `agv.bluetooth.disconnect` | Disconnect the Bluetooth maintenance session | [AgvBluetooth.vue](AgvBluetooth.vue) |
 | `agv.bluetooth.field` | Choose a supported setting | [AgvBluetooth.vue](AgvBluetooth.vue) |
 | `agv.bluetooth.page` | Bluetooth maintenance page | [AgvBluetooth.vue](AgvBluetooth.vue) |
-| `agv.bluetooth.read` | Read all Bluetooth settings | [AgvBluetooth.vue](AgvBluetooth.vue) |
-| `agv.bluetooth.review` | Old and new settings values for confirmation | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.read` | Read Bluetooth controller words, route counts and station records | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.record` | A raw station record from the controller | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.records` | Read-only station records by direction | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.recordstoggle` | Show or hide the station records | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.review` | Show the settings values or route counts for confirmation | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.reviewclear` | Review the current route before clearing | [AgvBluetooth.vue](AgvBluetooth.vue) |
 | `agv.bluetooth.reviewundo` | Review restoring the previous setting value | [AgvBluetooth.vue](AgvBluetooth.vue) |
 | `agv.bluetooth.reviewwrite` | Review the old and new values before writing | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.route.table` | Stored Bluetooth route table | [AgvBluetooth.vue](AgvBluetooth.vue) |
 | `agv.bluetooth.row` | A field in the Bluetooth settings map | [AgvBluetooth.vue](AgvBluetooth.vue) |
+| `agv.bluetooth.settings.table` | Bluetooth settings and controller words table | [AgvBluetooth.vue](AgvBluetooth.vue) |
 | `agv.bluetooth.tab` | Open the Bluetooth maintenance tab | [AgvPage.vue](AgvPage.vue) |
 | `agv.bluetooth.tabs` | AGV control and Bluetooth tab navigation | [AgvPage.vue](AgvPage.vue) |
 | `agv.bluetooth.value` | Enter the new setting value | [AgvBluetooth.vue](AgvBluetooth.vue) |
@@ -51,8 +63,8 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `agv.jobs.toggle` | Show recent IPC client jobs | [AgvPage.vue](AgvPage.vue) |
 | `agv.link.address` | Link address | [AgvPage.vue](AgvPage.vue) |
 | `agv.link.channel` | Link channel | [AgvPage.vue](AgvPage.vue) |
-| `agv.link.connect` | Connect | [AgvPage.vue](AgvPage.vue) |
-| `agv.link.disconnect` | Disconnect | [AgvPage.vue](AgvPage.vue) |
+| `agv.link.connect` | Connect | [StopBar.vue](StopBar.vue) |
+| `agv.link.disconnect` | Disconnect | [StopBar.vue](StopBar.vue) |
 | `agv.link.panel` | Link panel | [AgvPage.vue](AgvPage.vue) |
 | `agv.link.port` | Link port | [AgvPage.vue](AgvPage.vue) |
 | `agv.link.ports.refresh` | Refresh ports | [AgvPage.vue](AgvPage.vue) |
@@ -62,18 +74,24 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `agv.link.simulator.stations` | Simulator learned-station count | [AgvPage.vue](AgvPage.vue) |
 | `agv.link.sound` | Link sound | [AgvPage.vue](AgvPage.vue) |
 | `agv.link.transport` | Link transport | [AgvPage.vue](AgvPage.vue) |
-| `agv.movement.arm` | Arm or disarm manual AGV commands | [AgvPage.vue](AgvPage.vue) |
+| `agv.movement.arm` | Arm or disarm manual AGV commands | [AgvOwnership.vue](AgvOwnership.vue) |
 | `agv.movement.command` | Movement command | [AgvPage.vue](AgvPage.vue) |
 | `agv.movement.extra` | Additional AGV movement commands | [AgvPage.vue](AgvPage.vue) |
 | `agv.movement.extra.command` | One additional AGV command | [AgvPage.vue](AgvPage.vue) |
 | `agv.movement.extra.toggle` | More commands | [AgvPage.vue](AgvPage.vue) |
 | `agv.movement.panel` | Movement panel | [AgvPage.vue](AgvPage.vue) |
-| `agv.owner.calibration` | Select the Calibration module owner | [AgvPage.vue](AgvPage.vue) |
-| `agv.owner.manual` | Select the AGV page owner | [AgvPage.vue](AgvPage.vue) |
-| `agv.owner.panel` | Current executor owner and Arm binding | [AgvPage.vue](AgvPage.vue) |
-| `agv.owner.release` | Release the current built-in owner | [AgvPage.vue](AgvPage.vue) |
+| `agv.owner.calibration` | Select the Calibration module owner | [AgvOwnership.vue](AgvOwnership.vue) |
+| `agv.owner.manual` | Select the AGV page owner | [AgvOwnership.vue](AgvOwnership.vue) |
+| `agv.owner.panel` | Current executor owner and Arm binding | [AgvOwnership.vue](AgvOwnership.vue) |
+| `agv.owner.release` | Release the current built-in owner | [AgvOwnership.vue](AgvOwnership.vue) |
 | `agv.page` | AGV commissioning workspace | [AgvPage.vue](AgvPage.vue) |
 | `agv.pause` | AGV Pause (station-call mode) | [StopBar.vue](StopBar.vue) |
+| `agv.raw.activity` | Recent developer commands | [AgvPage.vue](AgvPage.vue) |
+| `agv.raw.activity.item` | A raw command result | [AgvPage.vue](AgvPage.vue) |
+| `agv.raw.activity.toggle` | Expand recent developer commands | [AgvPage.vue](AgvPage.vue) |
+| `agv.raw.settings` | Developer speed changes | [AgvPage.vue](AgvPage.vue) |
+| `agv.raw.settings.item` | An IPC speed snapshot | [AgvPage.vue](AgvPage.vue) |
+| `agv.raw.settings.toggle` | Expand developer speed changes | [AgvPage.vue](AgvPage.vue) |
 | `agv.read.command` | Status or speed inquiry keyed by command | [AgvPage.vue](AgvPage.vue) |
 | `agv.record.checklist` | Record checklist | [AgvRecord.vue](AgvRecord.vue) |
 | `agv.record.checklist.notes` | Record checklist notes | [AgvRecord.vue](AgvRecord.vue) |
@@ -114,6 +132,10 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `agv.status.metric` | One glanceable AGV status metric | [AgvPage.vue](AgvPage.vue) |
 | `agv.status.panel` | Reported AGV status | [AgvPage.vue](AgvPage.vue) |
 | `agv.stop` | AGV Stop (software) | [StopBar.vue](StopBar.vue) |
+| `agv.tabs.connection` | Connection tab | [AgvPage.vue](AgvPage.vue) |
+| `agv.tabs.details` | Machine details and log tab | [AgvPage.vue](AgvPage.vue) |
+| `agv.tabs.speed` | Speed and settings tab | [AgvPage.vue](AgvPage.vue) |
+| `agv.tabs.stations` | Stations and move tab | [AgvPage.vue](AgvPage.vue) |
 | `calibration.action` | Start a Calibration step action | [CalibrationPage.vue](CalibrationPage.vue) |
 | `calibration.camera.field` | Camera field | [CalibrationPage.vue](CalibrationPage.vue) |
 | `calibration.camera.intrinsics` | Camera intrinsics | [CalibrationPage.vue](CalibrationPage.vue) |
@@ -149,11 +171,11 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `home.page` | Operator Home overview | [App.vue](App.vue) |
 | `home.service.panel` | Service panel | [App.vue](App.vue) |
 | `layout.header` | Header | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
-| `layout.home` | Operator app | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
+| `layout.home` | Dev console | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
 | `layout.main` | Main | [layout/AppLayout.vue](layout/AppLayout.vue) |
-| `layout.navigation.dismiss` | Dismiss the mobile navigation backdrop | [layout/AppLayout.vue](layout/AppLayout.vue) |
-| `layout.navigation.toggle` | Toggle navigation | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
-| `layout.sidebar` | Sidebar | [layout/AppSidebar.vue](layout/AppSidebar.vue) |
+| `layout.navigation.dismiss` | Dismiss a topbar navigation menu | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
+| `layout.navigation.toggle` | Toggle the narrow topbar menu | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
+| `layout.sidebar` | Topbar navigation links | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
 | `line.archive.download` | Download one original archived file | [LineTestPanel.vue](LineTestPanel.vue) |
 | `line.archive.file.row` | Archive file row | [LineTestPanel.vue](LineTestPanel.vue) |
 | `line.archive.files` | Archive files | [LineTestPanel.vue](LineTestPanel.vue) |
@@ -165,6 +187,7 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `line.archive.select` | Select a historical test archive | [LineTestPanel.vue](LineTestPanel.vue) |
 | `line.catalog.refresh` | Refresh catalog | [LinePage.vue](LinePage.vue) |
 | `line.filter.access` | Filter access | [LinePage.vue](LinePage.vue) |
+| `line.filter.clear` | Clear filters | [LinePage.vue](LinePage.vue) |
 | `line.filter.group` | Filter group | [LinePage.vue](LinePage.vue) |
 | `line.filter.metadata` | Show advanced catalog metadata | [LinePage.vue](LinePage.vue) |
 | `line.filter.search` | Filter search | [LinePage.vue](LinePage.vue) |
@@ -209,19 +232,21 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `line.warnings.panel` | Warnings panel | [LinePage.vue](LinePage.vue) |
 | `line.warnings.row` | Warnings row | [LinePage.vue](LinePage.vue) |
 | `line.warnings.toggle` | Catalog and mapping warnings | [LinePage.vue](LinePage.vue) |
-| `nav.agv` | Open AGV commissioning | [layout/AppMenu.vue](layout/AppMenu.vue) |
-| `nav.calibration` | Open Calibration | [layout/AppMenu.vue](layout/AppMenu.vue) |
-| `nav.home` | Open Home | [layout/AppMenu.vue](layout/AppMenu.vue) |
-| `nav.line` | Open Line reads | [layout/AppMenu.vue](layout/AppMenu.vue) |
-| `nav.panel` | Modules | [layout/AppMenu.vue](layout/AppMenu.vue) |
-| `nav.pick.place` | Open Pick/place | [layout/AppMenu.vue](layout/AppMenu.vue) |
-| `nav.recorder` | Open Recorder | [layout/AppMenu.vue](layout/AppMenu.vue) |
-| `nav.scene` | Open Scene | [layout/AppMenu.vue](layout/AppMenu.vue) |
-| `nav.teaching` | Open Teaching | [layout/AppMenu.vue](layout/AppMenu.vue) |
-| `operator.enroll` | Open browser key enrollment | [App.vue](App.vue) |
-| `operator.readonly` | Read-only operator mode notice | [App.vue](App.vue) |
-| `pick.agv.open` | AGV commissioning | [PickPlacePage.vue](PickPlacePage.vue) |
-| `pick.legacy.open` | Legacy Pick/place | [PickPlacePage.vue](PickPlacePage.vue) |
+| `nav.agv` | Open AGV commissioning | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
+| `nav.calibration` | Open Calibration | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
+| `nav.home` | Open Home | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
+| `nav.line` | Open Line reads | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
+| `nav.more` | More pages panel | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
+| `nav.more.toggle` | Toggle More pages | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
+| `nav.panel` | Modules | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
+| `nav.pick.place` | Open Pick/place | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
+| `nav.recorder` | Open Recorder | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
+| `nav.scene` | Open Scene | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
+| `nav.teaching` | Open Teaching | [layout/AppTopbar.vue](layout/AppTopbar.vue) |
+| `operator.enroll` | Open browser key enrollment | [StopBar.vue](StopBar.vue) |
+| `operator.readonly` | Read-only operator mode notice | [StopBar.vue](StopBar.vue) |
+| `pick.agv.open` | AGV commissioning | [App.vue](App.vue) |
+| `pick.legacy.open` | Legacy Pick/place | [App.vue](App.vue) |
 | `pick.motion.field` | Motion field | [PickPlacePage.vue](PickPlacePage.vue) |
 | `pick.motion.panel` | Motion panel | [PickPlacePage.vue](PickPlacePage.vue) |
 | `pick.motion.toggle` | Motion settings | [PickPlacePage.vue](PickPlacePage.vue) |
@@ -272,6 +297,12 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `pick.single.setup` | Confirm the taught setup for a single operation | [PickPlacePage.vue](PickPlacePage.vue) |
 | `pick.single.toggle` | Single PICK / PLACE | [PickPlacePage.vue](PickPlacePage.vue) |
 | `pick.status.panel` | Status panel | [PickPlacePage.vue](PickPlacePage.vue) |
+| `pick.tabs.evidence` | Evidence tab | [PickPlacePage.vue](PickPlacePage.vue) |
+| `pick.tabs.list` | Pick/place panel tabs | [PickPlacePage.vue](PickPlacePage.vue) |
+| `pick.tabs.motion` | Motion settings tab | [PickPlacePage.vue](PickPlacePage.vue) |
+| `pick.tabs.overview` | Overview tab | [PickPlacePage.vue](PickPlacePage.vue) |
+| `pick.tabs.single` | Single PICK / PLACE tab | [PickPlacePage.vue](PickPlacePage.vue) |
+| `pick.tabs.transfer` | Rod transfer test tab | [PickPlacePage.vue](PickPlacePage.vue) |
 | `pick.tools.agv.off` | Confirm the AGV is switched off for an MCU command | [PickPlaceTools.vue](PickPlaceTools.vue) |
 | `pick.tools.check` | Check request | [PickPlaceTools.vue](PickPlaceTools.vue) |
 | `pick.tools.command` | One MCU or tool power command | [PickPlaceTools.vue](PickPlaceTools.vue) |
@@ -291,6 +322,7 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `programme.check.technician` | Show the named storage fault that requires a technician | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.draft.save` | Save a new draft recipe revision | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.limit.input` | Editable limit in seconds | [ProgrammePanel.vue](ProgrammePanel.vue) |
+| `programme.limits.table` | Calibration limits by step table | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.panel` | Basket programme and recipe limit editor | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.record.choice` | Recorded operator decision and physical observations | [ProgrammePanel.vue](ProgrammePanel.vue) |
 | `programme.record.panel` | Show recovered basket record | [ProgrammePanel.vue](ProgrammePanel.vue) |
@@ -326,6 +358,7 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `recorder.new.start` | Start recording | [RecordsPage.vue](RecordsPage.vue) |
 | `recorder.new.variable` | Include one available status variable | [RecordsPage.vue](RecordsPage.vue) |
 | `recorder.page` | Recorder workspace | [RecordsPage.vue](RecordsPage.vue) |
+| `safety.controls.open` | Open AGV controls on a narrow screen | [StopBar.vue](StopBar.vue) |
 | `safety.module.stop` | Software Stop for an active module job | [StopBar.vue](StopBar.vue) |
 | `safety.panel` | Urgent controls | [StopBar.vue](StopBar.vue) |
 | `scene.labels.panel` | Labels panel | [ScenePage.vue](ScenePage.vue) |
@@ -350,7 +383,7 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `teaching.inspect.open` | Inspect without resuming | [TeacherPage.vue](TeacherPage.vue) |
 | `teaching.inspect.panel` | Inspect panel | [TeacherPage.vue](TeacherPage.vue) |
 | `teaching.inspect.toggle` | Inspect Teacher request and details | [TeacherPage.vue](TeacherPage.vue) |
-| `teaching.legacy.open` | Legacy Teaching | [TeacherPage.vue](TeacherPage.vue) |
+| `teaching.legacy.open` | Legacy Teaching | [App.vue](App.vue) |
 | `teaching.motion.agv.off` | Confirm the AGV is switched off for a Teaching motion | [TeacherPage.vue](TeacherPage.vue) |
 | `teaching.motion.approval` | Motion approval | [TeacherPage.vue](TeacherPage.vue) |
 | `teaching.motion.field` | Motion field | [TeacherPage.vue](TeacherPage.vue) |
@@ -392,6 +425,12 @@ Some keys identify records or choices from the current data. Native HTML select 
 | `teaching.setup.tcp.confirm` | Confirm the configured TCP | [TeacherPage.vue](TeacherPage.vue) |
 | `teaching.simulate` | Create simulated project | [TeacherPage.vue](TeacherPage.vue) |
 | `teaching.status.panel` | Status panel | [TeacherPage.vue](TeacherPage.vue) |
+| `teaching.tabs.evidence` | Evidence tab | [TeacherPage.vue](TeacherPage.vue) |
+| `teaching.tabs.inputs` | Teaching inputs tab | [TeacherPage.vue](TeacherPage.vue) |
+| `teaching.tabs.list` | Teaching panel tabs | [TeacherPage.vue](TeacherPage.vue) |
+| `teaching.tabs.motion` | Motion settings tab | [TeacherPage.vue](TeacherPage.vue) |
+| `teaching.tabs.overview` | Overview tab | [TeacherPage.vue](TeacherPage.vue) |
+| `teaching.tabs.validation` | Validation tab | [TeacherPage.vue](TeacherPage.vue) |
 | `teaching.travel.check` | Check live travel pose | [TeacherPage.vue](TeacherPage.vue) |
 | `teaching.travel.folded` | Confirm a folded travel pose | [TeacherPage.vue](TeacherPage.vue) |
 | `teaching.travel.panel` | Travel panel | [TeacherPage.vue](TeacherPage.vue) |

@@ -296,7 +296,8 @@ def test_busy_refusal_consumes_the_id(tmp_path):
         release.set()
         assert terminal(executor, first['job_id'])['outcome'] == 'succeeded'
         assert refusal['state'] == 'refused'
-        assert executor.submit(busy) == refusal
+        with pytest.raises(ValueError, match='busy'):
+            executor.submit(busy)
         assert devices.effects == [('station', 2)]
     finally:
         release.set()

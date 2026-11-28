@@ -8,7 +8,7 @@ from threading import Event, Lock, RLock, Thread
 import time
 from uuid import uuid4
 
-from .executor import PAIRED_ROLES, PROTOCOL, ROLES, finite, heartbeat_interval
+from .executor import AdmissionRefused, MODULE_ATTESTATION_EXPIRED, PAIRED_ROLES, PROTOCOL, ROLES, finite, heartbeat_interval
 from .executor_http import JobEvidenceError, deliver_priority_stop, stop_corroborated
 from .jobs import atomic_json
 
@@ -1231,8 +1231,19 @@ class Programme:
                         self.run['setup'] = False
                         self._save()
                 elif status['armed'] is not True or self.operator_arm and status.get('armed_for') != 'calibration':
-                    raise ValueError('The executor disarmed during the basket programme.')
-                job = self._dispatch(run, identity)
+                    if not (self.operator_arm and status.get('owner') == 'calibration'
+                            and status.get('module_attestation_expired') is True):
+                        raise ValueError('The executor disarmed during the basket programme.')
+                    if not run['pending']:
+                        self._await_rearm()
+                        return
+                try:
+                    job = self._dispatch(run, identity)
+                except AdmissionRefused as exc:
+                    if self.operator_arm and str(exc) == MODULE_ATTESTATION_EXPIRED:
+                        self._await_rearm(refused_job=exc.job_id)
+                        return
+                    raise
                 if job is not None:
                     self._merge(job)
                 elif not self._stopping(self.run):
@@ -1252,6 +1263,14 @@ class Programme:
                             self.stop()
                         except (OSError, ValueError):
                             pass
+
+    def _await_rearm(self, *, refused_job=None):
+        with self.lock:
+            run = self.run
+            if run['state'] == 'running' and not self._stopping(run) and (
+                    (run['pending'] or {}).get('job_id') == refused_job):
+                run.update(setup=True, pending=None, checkpoint=None)
+                self._save()
 
     def start_service(self):
         def loop():

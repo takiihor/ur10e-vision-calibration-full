@@ -1,4 +1,6 @@
 <script setup>
+import Card from 'primevue/card';
+import Disclosure from './Disclosure.vue';
 import { computed, ref, watch } from 'vue';
 import Checkbox from 'primevue/checkbox';
 import InputText from 'primevue/inputtext';
@@ -60,68 +62,70 @@ function confirm() {
 </script>
 
 <template>
-  <section data-ui="pick.operation.panel" class="panel pick-operation" aria-labelledby="pick-operation-heading">
-    <h2 id="pick-operation-heading">Current operation</h2>
-    <Message v-if="manual?.agv_alarm" severity="error" role="alert">{{ manual.agv_alarm }}</Message>
-    <p v-if="problem" role="status" data-state="failed">{{ problem }}</p>
-    <p v-else-if="job?.cancelled_before_acceptance" role="status">Request cancelled before acceptance. Review and approve a new operation.</p>
-    <div v-else-if="job" role="status" aria-live="polite">
-      <strong :data-state="terminal(job) ? (job.state === 'done' ? 'done' : 'failed') : 'running'">
-        {{ operationName }} · {{ jobState }}
-      </strong>
-      <p v-if="manual?.stage && !terminal(job)">{{ manual.stage.replaceAll('_', ' ') }}</p>
-      <p v-if="repeat">{{ repeat.completed_transfers }}/{{ repeat.transfers }} commanded transfers completed ·
-        {{ repeat.source || 'A' }} → {{ repeat.destination || 'B' }}.
-        Commanded rod endpoint {{ repeat.commanded_rod_endpoint || 'unknown' }} (unverified).</p>
-      <p v-if="manual?.agv_robot_station && !terminal(job)">Robot at AGV station {{ manual.agv_robot_station }}.</p>
-      <p v-if="leg">AGV to station {{ leg.to_station }}.
-        <template v-if="leg.ack_s != null">Acknowledged in {{ leg.ack_s.toFixed(1) }} s.</template>
-        <template v-if="leg.arrival_s != null"> Arrived in {{ leg.arrival_s.toFixed(1) }} s.</template>
-        <template v-else-if="!terminal(job) && Number.isFinite(legCountdown)">
-          {{ leg.ack_s == null ? 'Waiting for acknowledgement' : 'Waiting for arrival' }} · {{ legCountdown }} s left.
-        </template>
-      </p>
-      <p>Item state · {{ (manual?.item_state || 'unknown').replaceAll('_', ' ') }}</p>
-      <p v-if="job.error">Check the saved details and physical state before starting new work.</p>
-    </div>
-    <p v-else role="status">No operation selected. Item state unknown.</p>
-    <slot name="recovery" />
-    <div v-if="manual?.robot_step" class="pick-readout">
-      <p>Exact step · {{ manual.robot_step.axis.length === 1 ? 'Base ' + manual.robot_step.axis.toUpperCase()
-        : 'Tool-local ' + manual.robot_step.axis[1].toUpperCase() + ' rotation' }}
-        {{ manual.robot_step.increment }} {{ manual.robot_step.axis.length === 1 ? 'mm' : 'degrees' }}
-        at {{ manual.robot_step.joint_speed_deg_s.toFixed(2) }} degrees/s.</p>
-      <p>Start · {{ formatPose(manual.robot_step.start_tcp_pose_m_rad) }}<br>
-        Target · {{ formatPose(manual.robot_step.target_tcp_pose_m_rad) }}<br>XYZ in mm, rotation vector in radians.</p>
-      <p>The server checks the joint path after approval. It can curve and change TCP height or orientation.</p>
-    </div>
-    <div v-else-if="route?.above && route?.endpoint" class="pick-readout">
-      <p>Stopped start Z {{ ((manual.command_start || route.above)[2] * 1000).toFixed(3) }} mm ·
-        taught endpoint Z {{ ((manual.taught_pick_tcp_pose_m_rad || route.endpoint)[2] * 1000).toFixed(3) }} mm ·
-        descent {{ ((route.above[2] - route.endpoint[2]) * 1000).toFixed(3) }} mm · {{ manual.speed_mm_s }} mm/s.</p>
-      <p>Hold actual stopped XY and orientation on the vertical legs.
-        {{ manual.operation === 'DESCEND' ? 'Descent only.' : repeat ? 'Automatic MCU command, then straight 100 mm withdrawal.' : 'Confirm grip or release, then straight 100 mm withdrawal.' }}</p>
-    </div>
-    <template v-if="label">
-      <p v-if="phase === 'grip' || phase === 'release'">Use the MCU controls, then check the item physically.</p>
-      <label class="pick-check" for="pick-confirm"><Checkbox :pt="{ input: { 'data-ui': 'pick.operation.approval' } }" v-model="confirmed" input-id="pick-confirm" binary
-        :disabled="Boolean(problem || running)" />{{ declaration }}</label>
-      <OperatorButton data-ui="pick.operation.confirm" id="pick-confirm" :label="label" :why="confirmWhy" :outcome="outcomes['pick-confirm']" primary @press="confirm" />
-    </template>
-    <details data-ui="pick.operation.evidence">
-      <summary data-ui="pick.operation.evidence.toggle">Inspect operation and evidence</summary>
-      <label for="pick-job-id">Operation ID</label>
-      <InputText data-ui="pick.operation.id" id="pick-job-id" v-model="id" autocomplete="off" />
-      <div class="controls">
-        <OperatorButton data-ui="pick.operation.inspect" id="pick-inspect" label="Inspect status" :why="!id.trim() ? 'Enter the operation ID.' : ''"
-          :outcome="outcomes['pick-inspect']" @press="$emit('inspect', id.trim())" />
-        <OperatorButton data-ui="pick.operation.follow" v-if="owner?.active && owner.active !== job?.id" id="pick-follow" label="Follow active operation"
-          @press="$emit('inspect', owner.active)" />
+  <Card data-ui="pick.operation.panel" class="panel pick-operation" aria-labelledby="pick-operation-heading">
+    <template #title><h2 id="pick-operation-heading">Current operation</h2><slot name="title-extra" /></template>
+    <template #content>
+      <Message v-if="manual?.agv_alarm" severity="error" role="alert">{{ manual.agv_alarm }}</Message>
+      <Message severity="error" variant="simple" v-if="problem" role="status" data-state="failed">{{ problem }}</Message>
+      <Message severity="warn" variant="simple" v-else-if="job?.cancelled_before_acceptance" role="status">Request cancelled before acceptance. Review and approve a new operation.</Message>
+      <div v-else-if="job" role="status" aria-live="polite">
+        <strong :data-state="terminal(job) ? (job.state === 'done' ? 'done' : 'failed') : 'running'">
+          {{ operationName }} · {{ jobState }}
+        </strong>
+        <p v-if="manual?.stage && !terminal(job)">{{ manual.stage.replaceAll('_', ' ') }}</p>
+        <p v-if="repeat">{{ repeat.completed_transfers }}/{{ repeat.transfers }} commanded transfers completed ·
+          {{ repeat.source || 'A' }} → {{ repeat.destination || 'B' }}.
+          Commanded rod endpoint {{ repeat.commanded_rod_endpoint || 'unknown' }} (unverified).</p>
+        <p v-if="manual?.agv_robot_station && !terminal(job)">Robot at AGV station {{ manual.agv_robot_station }}.</p>
+        <p v-if="leg">AGV to station {{ leg.to_station }}.
+          <template v-if="leg.ack_s != null">Acknowledged in {{ leg.ack_s.toFixed(1) }} s.</template>
+          <template v-if="leg.arrival_s != null"> Arrived in {{ leg.arrival_s.toFixed(1) }} s.</template>
+          <template v-else-if="!terminal(job) && Number.isFinite(legCountdown)">
+            {{ leg.ack_s == null ? 'Waiting for acknowledgement' : 'Waiting for arrival' }} · {{ legCountdown }} s left.
+          </template>
+        </p>
+        <p>Item state · {{ (manual?.item_state || 'unknown').replaceAll('_', ' ') }}</p>
+        <p v-if="job.error">Check the saved details and physical state before starting new work.</p>
       </div>
-      <p>Inspection reads saved status. Stop ends the operation. It does not release the item or resume motion.
-        Accepted automatic tests continue if the page disconnects.</p>
-      <pre v-if="evidence">{{ evidence }}</pre>
-      <pre v-if="job">{{ JSON.stringify(job, null, 2) }}</pre>
-    </details>
-  </section>
+      <p v-else role="status">No operation selected. Item state unknown.</p>
+      <slot name="recovery" />
+      <div v-if="manual?.robot_step" class="pick-readout">
+        <p>Exact step · {{ manual.robot_step.axis.length === 1 ? 'Base ' + manual.robot_step.axis.toUpperCase()
+          : 'Tool-local ' + manual.robot_step.axis[1].toUpperCase() + ' rotation' }}
+          {{ manual.robot_step.increment }} {{ manual.robot_step.axis.length === 1 ? 'mm' : 'degrees' }}
+          at {{ manual.robot_step.joint_speed_deg_s.toFixed(2) }} degrees/s.</p>
+        <p>Start · {{ formatPose(manual.robot_step.start_tcp_pose_m_rad) }}<br>
+          Target · {{ formatPose(manual.robot_step.target_tcp_pose_m_rad) }}<br>XYZ in mm, rotation vector in radians.</p>
+        <p>The server checks the joint path after approval. It can curve and change TCP height or orientation.</p>
+      </div>
+      <div v-else-if="route?.above && route?.endpoint" class="pick-readout">
+        <p>Stopped start Z {{ ((manual.command_start || route.above)[2] * 1000).toFixed(3) }} mm ·
+          taught endpoint Z {{ ((manual.taught_pick_tcp_pose_m_rad || route.endpoint)[2] * 1000).toFixed(3) }} mm ·
+          descent {{ ((route.above[2] - route.endpoint[2]) * 1000).toFixed(3) }} mm · {{ manual.speed_mm_s }} mm/s.</p>
+        <p>Hold actual stopped XY and orientation on the vertical legs.
+          {{ manual.operation === 'DESCEND' ? 'Descent only.' : repeat ? 'Automatic MCU command, then straight 100 mm withdrawal.' : 'Confirm grip or release, then straight 100 mm withdrawal.' }}</p>
+      </div>
+      <template v-if="label">
+        <p v-if="phase === 'grip' || phase === 'release'">Use the MCU controls, then check the item physically.</p>
+        <label class="pick-check" for="pick-confirm"><Checkbox :pt="{ input: { 'data-ui': 'pick.operation.approval' } }" v-model="confirmed" input-id="pick-confirm" binary
+          :disabled="Boolean(problem || running)" />{{ declaration }}</label>
+        <OperatorButton data-ui="pick.operation.confirm" id="pick-confirm" :label="label" :why="confirmWhy" :outcome="outcomes['pick-confirm']" primary @press="confirm" />
+      </template>
+      <Disclosure data-ui="pick.operation.evidence" toggle-id="pick.operation.evidence.toggle">
+        <template #heading>Inspect operation and evidence</template>
+        <label for="pick-job-id">Operation ID</label>
+        <InputText data-ui="pick.operation.id" id="pick-job-id" v-model="id" autocomplete="off" />
+        <div class="controls">
+          <OperatorButton data-ui="pick.operation.inspect" id="pick-inspect" label="Inspect status" :why="!id.trim() ? 'Enter the operation ID.' : ''"
+            :outcome="outcomes['pick-inspect']" @press="$emit('inspect', id.trim())" />
+          <OperatorButton data-ui="pick.operation.follow" v-if="owner?.active && owner.active !== job?.id" id="pick-follow" label="Follow active operation"
+            @press="$emit('inspect', owner.active)" />
+        </div>
+        <p>Inspection reads saved status. Stop ends the operation. It does not release the item or resume motion.
+          Accepted automatic tests continue if the page disconnects.</p>
+        <pre v-if="evidence">{{ evidence }}</pre>
+        <pre v-if="job">{{ JSON.stringify(job, null, 2) }}</pre>
+      </Disclosure>
+    </template>
+  </Card>
 </template>

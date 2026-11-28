@@ -74,6 +74,7 @@ const context = vm.createContext({
     return {ok: true, json: async () => responses[route]};
   }
 });
+vm.runInContext(read('operator-auth.js'), context, {filename: 'operator-auth.js'});
 for (const file of moduleName === 'teaching' ? ['test-profile.js', 'teacher.js'] : ['app.js'])
   vm.runInContext(read(file), context, {filename: file});
 

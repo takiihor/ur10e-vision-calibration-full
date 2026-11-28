@@ -5,7 +5,7 @@
   const remember=id=>{try{localStorage.setItem('ano-manual-inspect-id',id);}catch{}};
   const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   async function api(path,body) {
-    const response=await fetch(path,{headers:{'X-Module-Token':token,...(body?{'Content-Type':'application/json'}:{})},
+    const response=await window.operatorFetch(path,{headers:{'X-Module-Token':token,...(body?{'Content-Type':'application/json'}:{})},
       ...(body?{method:'POST',body:JSON.stringify(body)}:{})});
     const value=await response.json();if(!response.ok){const error=new Error(value.error||'Request failed.');error.status=response.status;throw error;}return value;
   }
